@@ -8,6 +8,7 @@ members = [
     "crates/hub-locales",
     "crates/hub-online",
     "plugin/harness",
+    "app",
 ]
 # (the app builds with `cargo build -p omsi-hub`; plain `cargo build` builds the libraries)
 default-members = [

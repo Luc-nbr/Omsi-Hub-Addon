@@ -1,0 +1,20 @@
+[package]
+name = "omsi-hub"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Omsi-Hub, the desktop app: its window (Tauri 2, stock), the page in ui/, and the commands that reach hub-api"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+hub-api.workspace = true
+hub-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+tauri-plugin-opener = "2.7"
