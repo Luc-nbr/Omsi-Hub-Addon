@@ -138,8 +138,10 @@ installed here):
 - `log_line`.
 - `migrate::{scan, import}`.
 - `display_bus_name` and `vehicle_type_label`.
-- `company`: empty. Its module text maps every old `crate::…` the company code uses to its new
-  place.
+- `company`: the bus company, RosterFlow, careers (ported), with `lines`, `linehof`,
+  `owndepot`, `depot`, `service`, `compose`, `busoptions`, `busfonts`, `qr`, `ttstore`; `trips`
+  (the drivers' trip records), `vehicles` (the installed buses) and `ttrun` (a trip's stop times
+  and IBIS codes).
 
 **`hub-api`** (the commands):
 
@@ -152,8 +154,8 @@ installed here):
 |---|---|---|
 | `hub_` | `hub`, `drive` | Boot, texts, first-run setup, migration scan, drives |
 | `addon_` | `addon` | `addon_state` and `addon_enable`; the rest goes to the plugin port |
-| `co_` | `company` | Not ported |
-| `rf_` | `rosterflow` | Not ported |
+| `co_` | `company` | Ported (`co_more_*` too); bus photos, fleet-map roads, duty map: not available |
+| `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
 | `ol_` | `online` | Not ported |
 | `cs_` | `cloud` | Not ported |
@@ -185,7 +187,8 @@ two folders, the language, `setup_done`, `migrated`) and `omsi-hub.log`. The por
 company saves here under the old file names (`companies/`, `careers/`, `trips/`, `lines/` …).
 
 The old Omsi-Hub's saves in `~/.openomsi` are found by `hub_core::migrate::scan`, which only
-reads. The setup offers them once. `import` is a stub until the company port knows the formats.
+reads. The setup offers them once; `import` copies them 1:1 into the data folder (never moves
+or changes the old ones).
 
 ## Finding and starting openOMSI
 

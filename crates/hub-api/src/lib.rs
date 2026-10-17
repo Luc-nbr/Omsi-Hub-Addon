@@ -24,6 +24,7 @@ pub mod company;
 pub mod depot;
 pub mod drive;
 pub mod hub;
+pub mod launcher;
 pub mod online;
 pub mod rosterflow;
 pub mod timetable;
@@ -105,10 +106,14 @@ mod tests {
     #[test]
     fn commands_go_by_their_prefix() {
         assert_eq!(call("nope", &json!({}), &Quiet), Err("unknown command: nope".into()));
-        for cmd in ["co_state", "rf_plan", "tg_host", "ol_state", "cs_list", "tt_open", "de_open"] {
+        for cmd in ["tg_host", "ol_state", "cs_list", "tt_open", "de_open"] {
             assert_eq!(call(cmd, &json!({}), &Quiet), Err(not_ported(cmd)), "{cmd}");
         }
-        assert_eq!(call_bytes("co_portrait", &json!({}), &Quiet), Err(not_ported("co_portrait")));
+        // (the company and RosterFlow are ported: a command they do not know is said so)
+        assert_eq!(call("co_nope", &json!({}), &Quiet), Err("unknown command: co_nope".into()));
+        assert_eq!(call("rf_nope", &json!({}), &Quiet), Err("unknown command: rf_nope".into()));
+        assert_eq!(call_bytes("co_portrait", &json!({ "n": 0 }), &Quiet), Err("no portrait 0".into()));
+        assert!(call_bytes("co_portrait", &json!({ "n": 1 }), &Quiet).is_ok_and(|b| b.starts_with(&[0xFF, 0xD8])));
         assert_eq!(call_bytes("xx", &json!({}), &Quiet), Err("unknown command: xx".into()));
         let v = call("hub_version", &json!({}), &Quiet).unwrap();
         assert_eq!(v["app"], env!("CARGO_PKG_VERSION"));

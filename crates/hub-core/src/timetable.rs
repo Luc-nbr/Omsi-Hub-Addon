@@ -101,6 +101,18 @@ pub fn list_lines(map: &str, date: &str) -> Result<Vec<LineInfo>, String> {
     Ok(lines.into_iter().map(LineInfo::from).collect())
 }
 
+/// The lines of the map in the folder `map_dir` (`<OMSI 2>/maps/<name>`) on `date`, read
+/// from that folder's OMSI 2 folder alone (no content folder): the old `lines_on`, for the
+/// tests and tools that point at a map's folder.
+pub fn lines_on(map_dir: &std::path::Path, date: &str) -> Result<Vec<LineInfo>, String> {
+    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| format!("date {date}: {e}"))?;
+    let name = map_dir.file_name().ok_or("no map folder")?.to_string_lossy().into_owned();
+    let root = map_dir.parent().and_then(|m| m.parent()).ok_or("the map folder is not in an OMSI 2 folder's maps")?;
+    let vfs = hub_omsi::Vfs::new(root.to_path_buf(), None);
+    let lines = hub_omsi::timetable::lines_for(&vfs, &format!("maps/{name}/global.cfg"), day).map_err(|e| e.to_string())?;
+    Ok(lines.into_iter().map(LineInfo::from).collect())
+}
+
 impl From<hub_omsi::timetable::ServiceStop> for StopInfo {
     fn from(s: hub_omsi::timetable::ServiceStop) -> StopInfo {
         StopInfo { name: s.name, id: s.id, arr: s.arr, dep: s.dep }

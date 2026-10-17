@@ -13,18 +13,33 @@
 //! * [`migrate`] - the saves of the old Omsi-Hub (`~/.openomsi`) found and, later, imported;
 //! * [`company`] - the bus company, RosterFlow, careers: the target of the port.
 
+pub mod busfonts;
+pub mod busoptions;
 pub mod company;
+pub mod compose;
+pub mod depot;
 pub mod duty;
+pub mod linehof;
+pub mod lines;
 pub mod log;
 pub mod migrate;
+pub mod owndepot;
 pub mod paths;
+pub mod qr;
+pub mod service;
 pub mod settings;
 pub mod timetable;
+pub mod trips;
+pub mod ttrun;
+pub mod ttstore;
+pub mod vehicles;
 
 pub use duty::Duty;
 pub use log::log_line;
 pub use paths::{content_dir, data_dir, resolve_content, root, vfs};
-pub use timetable::{LineInfo, StopInfo, TourInfo, TripInfo, DEFAULT_DATE};
+pub use timetable::{lines_on, list_lines, LineInfo, StopInfo, TourInfo, TripInfo, DEFAULT_DATE};
+pub use trips::{append_trip, bus_lead, lead_start, local_now, trip_totals, trips_file, trips_of, utc_offset, StopVisit, TripRun, TripTotals, BUS_LEAD_DEFAULT};
+pub use vehicles::{list_vehicles, VehicleInfo};
 
 /// Names in older vehicle packs use underscores as spaces: "MAN_SD_202" is "MAN SD 202".
 pub fn display_bus_name(name: &str) -> String {
