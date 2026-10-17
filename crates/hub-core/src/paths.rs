@@ -61,10 +61,23 @@ pub fn content_dir() -> Option<PathBuf> {
     Some(if hub_omsi::vfs::find_child(&dir, "Omsi.exe").is_some() { inside } else { dir }).filter(|p| p.is_dir())
 }
 
-/// `rel` inside `base`, found in any case and with either slash; where it is not there, the
-/// path it would have (`base` joined with `rel`). (The old `omsi_cfg::resolve_path`.)
+/// `rel` inside `base` (either slash), each part found in any case as far as it is there, the
+/// rest as `rel` names it: the path of a file or folder that is there, or of one to be made
+/// beside what is there (so that on a case-sensitive file system a `Vehicles` folder is not
+/// made again beside a `vehicles` one). (The old `omsi_cfg::resolve_path`.)
 pub fn resolve_path(base: &Path, rel: &str) -> PathBuf {
-    hub_omsi::vfs::resolve_in(base, rel).unwrap_or_else(|| base.join(rel.replace('\\', "/")))
+    let mut p = base.to_path_buf();
+    let mut found = true;
+    for part in rel.split(['/', '\\']).filter(|s| !s.is_empty() && *s != ".") {
+        if part == ".." {
+            p.pop();
+            continue;
+        }
+        let next = if found { hub_omsi::vfs::find_child(&p, part) } else { None };
+        found = next.is_some();
+        p = next.unwrap_or_else(|| p.join(part));
+    }
+    p
 }
 
 /// The names in the folder `dir` with whether each is a folder (None: no folder that reads).
@@ -116,6 +129,24 @@ pub fn resolve_content(rel: &str) -> Option<PathBuf> {
     vfs()?.resolve(rel)
 }
 
+/// The OMSI 2 folder of this computer, for the tests that read real content (only read; they
+/// pass over what is not there): `OMSI2_DIR`, else Steam's own place - on Windows, and on Linux
+/// where Steam (native or Flatpak) runs OMSI 2 through Proton.
+#[cfg(test)]
+pub(crate) fn installed_omsi2() -> Option<PathBuf> {
+    let home = home_dir();
+    let steam = |base: PathBuf| base.join("steamapps").join("common").join("OMSI 2");
+    let mut tries: Vec<PathBuf> = std::env::var_os("OMSI2_DIR").map(PathBuf::from).into_iter().collect();
+    if cfg!(windows) {
+        tries.push(steam(PathBuf::from("C:/Program Files (x86)/Steam")));
+    } else {
+        tries.push(steam(home.join(".steam").join("steam")));
+        tries.push(steam(home.join(".local").join("share").join("Steam")));
+        tries.push(steam(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam")));
+    }
+    tries.into_iter().find(|p| p.is_dir())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +156,19 @@ mod tests {
         let d = system_data_dir();
         assert_eq!(d.file_name().unwrap(), APP_FOLDER);
         assert!(!d.to_string_lossy().contains(".openomsi"));
+    }
+
+    /// A path is found in any case as far as it is there; the rest is as asked, one folder a
+    /// part whichever slash it was written with (no `\` in a name on Linux and macOS).
+    #[test]
+    fn a_path_keeps_the_case_of_what_is_there() {
+        let base = std::env::temp_dir().join(format!("omsihub-resolve-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("vehicles").join("MAN_SD202")).unwrap();
+        std::fs::write(base.join("vehicles").join("MAN_SD202").join("SD202.BUS"), "").unwrap();
+        assert_eq!(resolve_path(&base, "Vehicles\\man_sd202\\sd202.bus"), base.join("vehicles").join("MAN_SD202").join("SD202.BUS"));
+        assert_eq!(resolve_path(&base, "VEHICLES/New/Folder"), base.join("vehicles").join("New").join("Folder"));
+        assert_eq!(resolve_path(&base, "maps\\Grundorf/TTData"), base.join("maps").join("Grundorf").join("TTData"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

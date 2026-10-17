@@ -382,9 +382,9 @@ mod tests {
     #[test]
     #[ignore]
     fn real_maps() {
-        let root = std::path::Path::new(r"C:\Program Files (x86)\Steam\steamapps\common\OMSI 2\maps");
-        let Ok(rd) = std::fs::read_dir(root) else { return };
-        for d in rd.flatten().filter(|d| d.path().join("TTData").is_dir()) {
+        let Some(root) = crate::paths::installed_omsi2().map(|r| crate::paths::resolve_path(&r, "maps")) else { return };
+        let Ok(rd) = std::fs::read_dir(&root) else { return };
+        for d in rd.flatten().filter(|d| crate::paths::resolve_path(&d.path(), "TTData").is_dir()) {
             let Ok(lines) = crate::lines_on(&d.path(), "2024-03-04") else { continue };
             let mut out: Vec<String> = Vec::new();
             for l in &lines {
@@ -409,8 +409,8 @@ mod tests {
     #[ignore = "needs hub-omsi port"]
     fn bad_huegelsdorfs_depot_run_x_is_never_a_line_of_its_own() {
         // (the map's real timetables, read only, where the game is installed)
-        let dir = std::path::Path::new("C:/Program Files (x86)/Steam/steamapps/common/OMSI 2/maps/Bad_Huegelsdorf_2020");
-        let Ok(lines) = crate::lines_on(dir, "2005-10-14") else { return };
+        let Some(dir) = crate::paths::installed_omsi2().map(|r| crate::paths::resolve_path(&r, "maps/Bad_Huegelsdorf_2020")) else { return };
+        let Ok(lines) = crate::lines_on(&dir, "2005-10-14") else { return };
         let depots = ["Bad Huegelsdorf 2020 VBBH"];
         let mut days = 0;
         for l in &lines {

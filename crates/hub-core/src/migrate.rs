@@ -67,7 +67,8 @@ impl Found {
     }
 }
 
-/// The old data folder: `~/.openomsi`.
+/// The old data folder: `~/.openomsi` - in the home folder on Windows, macOS and Linux alike
+/// (the old Omsi-Hub kept it there on every system).
 pub fn old_folder() -> PathBuf {
     crate::paths::home_dir().join(".openomsi")
 }
@@ -196,6 +197,13 @@ pub fn own_settings(text: &str) -> Vec<(String, serde_json::Value)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_old_folder_is_in_the_home_folder_on_every_system() {
+        let f = old_folder();
+        assert_eq!(f.file_name().unwrap(), ".openomsi");
+        assert_eq!(f.parent().unwrap(), crate::paths::home_dir());
+    }
 
     #[test]
     fn the_old_saves_are_found_and_nothing_is_written() {

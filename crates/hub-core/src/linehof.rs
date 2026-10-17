@@ -913,7 +913,7 @@ pub fn copies(name: &str, bases: &[PathBuf]) -> Vec<Copy> {
     let mut rels: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for b in bases {
-        let v = b.join("Vehicles");
+        let v = crate::paths::resolve_path(b, "Vehicles");
         for (n, is_dir) in crate::paths::list_dir(&v).unwrap_or_default() {
             if !is_dir {
                 continue;
@@ -936,7 +936,7 @@ pub fn copies(name: &str, bases: &[PathBuf]) -> Vec<Copy> {
     for rel in rels {
         let mut files: Vec<(String, Vec<PathBuf>)> = Vec::new();
         for b in bases {
-            for p in crate::paths::read_dir_paths(&b.join(&rel)) {
+            for p in crate::paths::read_dir_paths(&crate::paths::resolve_path(b, &rel)) {
                 if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("hof")) {
                     continue;
                 }
@@ -968,7 +968,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 /// the file below it again is deleted. Never anything in the OMSI 2 folder `original`'s
 /// vehicles. Returns whether a file changed.
 pub fn write_copy(content: &Path, original: Option<&Path>, copy: &Copy, map: &str, block: &str) -> Result<bool, String> {
-    let target = content.join(copy.rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let target = crate::paths::resolve_path(content, &copy.rel);
     if original.is_some_and(|o| crate::depot::lies_in(&target, &o.join("Vehicles"))) || !target.starts_with(content) {
         return Err(format!("{} would be outside the content folder", target.display()));
     }

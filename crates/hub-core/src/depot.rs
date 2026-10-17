@@ -302,7 +302,7 @@ pub fn target_for(bus_file: &str) -> Option<PathBuf> {
     let has = |rel: &str| copies_of(rel).iter().any(|d| !hofs_in(d).is_empty());
     let own_has = has(&own);
     let rel = depot_folder(&f, own_has, !own_has && has(&pack));
-    Some(content.join(rel))
+    Some(crate::paths::resolve_path(&content, &rel))
 }
 
 /// Give the bus `bus_file` a copy of the depot file `source`, which answers to `name`: in

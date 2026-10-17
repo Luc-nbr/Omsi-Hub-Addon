@@ -2232,7 +2232,7 @@ pub fn read_line_buses(ttdata: &Path) -> HashMap<String, LineVehicles> {
 
 /// The text of a `TTData` file as the map has it, without what the line editor added.
 fn map_part(dir: &Path, file: &str) -> String {
-    let b = std::fs::read(dir.join(file)).unwrap_or_default();
+    let b = std::fs::read(crate::paths::resolve_path(dir, file)).unwrap_or_default();
     let text = hub_omsi::text::decode(&b).0;
     crate::ttstore::replace_block(&text, "")
 }
@@ -2240,8 +2240,8 @@ fn map_part(dir: &Path, file: &str) -> String {
 /// The pairs of stops the map's own `StnLinks.cfg` in `dir` links, and the stops its
 /// `Busstops.cfg` names (what the line editor added left out).
 pub fn map_has(dir: &Path) -> (HashSet<(i64, i64)>, HashSet<i64>) {
-    let links = hub_omsi::timetable::parse_stnlinks(&hub_omsi::CfgFile::from_str(dir.join("StnLinks.cfg"), &map_part(dir, "StnLinks.cfg")));
-    let stops = hub_omsi::timetable::parse_busstops(&hub_omsi::CfgFile::from_str(dir.join("Busstops.cfg"), &map_part(dir, "Busstops.cfg")));
+    let links = hub_omsi::timetable::parse_stnlinks(&hub_omsi::CfgFile::from_str(crate::paths::resolve_path(dir, "StnLinks.cfg"), &map_part(dir, "StnLinks.cfg")));
+    let stops = hub_omsi::timetable::parse_busstops(&hub_omsi::CfgFile::from_str(crate::paths::resolve_path(dir, "Busstops.cfg"), &map_part(dir, "Busstops.cfg")));
     (links.iter().map(|l| (l.from_id, l.to_id)).collect(), stops.iter().map(|s| s.object_id).collect())
 }
 
@@ -2279,7 +2279,7 @@ pub fn write_export(dir: &Path, e: &Export, keep: &dyn Fn(&Path) -> Result<(), S
     let links: String = e.links.iter().map(|(l, a, b)| l.to_text(a, b)).collect();
     let stops: String = e.stops.iter().map(|s| s.to_text()).collect();
     for (file, block) in [("StnLinks.cfg", links), ("Busstops.cfg", stops)] {
-        let p = dir.join(file);
+        let p = crate::paths::resolve_path(dir, file);
         if p.is_file() || !block.is_empty() {
             keep(&p)?;
         }
@@ -2315,14 +2315,15 @@ fn write_map_lines(dir: &Path, shadows: &[(String, String)]) -> Result<(), Strin
         std::fs::write(&manifest, pending.join("\r\n")).map_err(|x| format!("{MAP_MANIFEST}: {x}"))?;
     }
     for name in old.iter().filter(|n| !mine(n)) {
-        let path = dir.join(name);
+        // (the map's own file in whatever case its name is on disk)
+        let path = crate::paths::resolve_path(dir, name);
         let orig = orig_of(&path);
         if orig.is_file() {
             std::fs::rename(&orig, &path).map_err(|x| format!("{name}: {x}"))?;
         }
     }
     for (name, text) in shadows {
-        let path = dir.join(name);
+        let path = crate::paths::resolve_path(dir, name);
         // (the map's own, before the editor's first write over it: one written last time is
         // the editor's own)
         let orig = orig_of(&path);

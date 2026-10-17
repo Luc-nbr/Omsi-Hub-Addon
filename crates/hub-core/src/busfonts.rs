@@ -477,7 +477,7 @@ fn face_names(read: &mut dyn FnMut(u64, usize) -> Option<Vec<u8>>, off: u64) -> 
 
 /// The content folder's `Fonts`, where `add_font` puts a font (none without a content folder).
 pub fn content_fonts_dir() -> Option<PathBuf> {
-    crate::content_dir().map(|c| c.join("Fonts"))
+    crate::content_dir().map(|c| crate::paths::resolve_path(&c, "Fonts"))
 }
 
 #[cfg(test)]

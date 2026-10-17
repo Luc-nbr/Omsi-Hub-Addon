@@ -16,7 +16,7 @@ pub const COPY_MARK: &str = ".openomsi-ttdata-copy";
 
 /// The content folder's copy of a map's `TTData`.
 pub fn copy_dir(content: &Path, map_folder: &str) -> PathBuf {
-    content.join("maps").join(map_folder).join("TTData")
+    crate::paths::resolve_path(content, &format!("maps/{map_folder}/TTData"))
 }
 
 /// The map lies unpacked in the content folder.
@@ -79,7 +79,7 @@ pub fn save_target(content: &Path, line_path: &Path, file: &str, map_folder: &st
 /// unpacked in the content folder, else the content folder's copy (made whole first).
 pub fn ttdata_dir(content: &Path, map_dir: &Path, map_folder: &str) -> Result<PathBuf, String> {
     if in_content(content, map_dir) {
-        let own = map_dir.join("TTData");
+        let own = crate::paths::resolve_path(map_dir, "TTData");
         std::fs::create_dir_all(&own).map_err(|e| e.to_string())?;
         return Ok(own);
     }
@@ -99,7 +99,7 @@ pub fn reset_timetable(content: &Path, map_dir: &Path, map_folder: &str) -> Resu
         std::fs::remove_dir_all(&copy).map_err(|e| e.to_string())?;
         return Ok(format!("The timetable of {map_folder} is the map's own again (the edited copy was removed)"));
     }
-    let own = map_dir.join("TTData");
+    let own = crate::paths::resolve_path(map_dir, "TTData");
     let mut restored = 0;
     if own.is_dir() {
         for e in std::fs::read_dir(&own).map_err(|e| e.to_string())?.flatten() {

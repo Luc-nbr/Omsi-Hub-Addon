@@ -847,7 +847,7 @@ fn copies_in(content: &Path, file: &str) -> Vec<PathBuf> {
             }
         }
     };
-    for pack in std::fs::read_dir(content.join("Vehicles")).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+    for pack in std::fs::read_dir(crate::paths::resolve_path(&content, "Vehicles")).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
         look(&pack);
         for sub in std::fs::read_dir(&pack).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
             look(&sub);

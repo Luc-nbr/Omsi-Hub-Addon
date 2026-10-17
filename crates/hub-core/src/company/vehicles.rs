@@ -516,9 +516,11 @@ mod tests {
     #[test]
     #[ignore = "needs hub-omsi port"]
     fn real_buses_are_told_by_their_drivers_seat() {
-        let root = std::path::Path::new(r"C:\Program Files (x86)\Steam\steamapps\common\OMSI 2\Vehicles");
-        let read = |rel: &str| crate::vehicles::BusFile::load(&root.join(rel)).ok().map(|v| super::super::market::class_of_vehicle(&v, &format!("Vehicles/{rel}"), &v.bus.type_name.clone()));
-        if !root.join("MS_G3Pack/Streetdeck.bus").is_file() {
+        let Some(root) = crate::paths::installed_omsi2().map(|r| crate::paths::resolve_path(&r, "Vehicles")) else { return };
+        let read = |rel: &str| {
+            crate::vehicles::BusFile::load(&crate::paths::resolve_path(&root, rel)).ok().map(|v| super::super::market::class_of_vehicle(&v, &format!("Vehicles/{rel}"), &v.bus.type_name.clone()))
+        };
+        if !crate::paths::resolve_path(&root, "MS_G3Pack/Streetdeck.bus").is_file() {
             return;
         }
         let street = read("MS_G3Pack/Streetdeck.bus").expect("the Streetdeck reads");
