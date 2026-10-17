@@ -105,7 +105,7 @@ export const CHECKS = [
     set({ page: 'settings' });
     await until(() => document.querySelectorAll('#settings .hub-seg button').length > 1);
     document.querySelectorAll('#settings .hub-seg button')[0].click();
-    await until(() => document.querySelector('#settings-privacy .ol-pv-link'));
+    await until(() => document.querySelector('#settings-privacy button'));
     document.querySelectorAll('#settings .hub-seg button')[1].click();
     // (not driven yet: checked at the first drive)
     await until(() => /first drive/.test((document.querySelector('#addon-checked') || {}).textContent || ''), 5000);

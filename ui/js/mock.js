@@ -145,6 +145,13 @@ const answers = {
   hub_migrate_import: () => ((settings.migrated = true), keep(), { imported: OLD.files, preview: OLD, settings }),
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
+  // (the online account and the cloud saves, signed out: everything works offline)
+  ol_state: () => ({ mode: 'out', friends: [], invites: [], requests: [], badge: 0, online_count: 0, offline: false, together: false, hosting: false, privacy: { version: 2, needed: false } }),
+  ol_refresh: () => ({ ok: true }),
+  ol_seen: () => ({ ok: true }),
+  ol_presence: () => ({ ok: true }),
+  cs_state: () => ({ companies: {}, slots: 2, used: 0, local_label: 'Local save', cloud_label: 'Cloud save' }),
+  cs_open: () => ({}),
   addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: addonPlugin }, plugin_version: '1.7.0', hello: null, checked: false, assigned: null }),
   addon_enable: (a) => ((addonPlugin = a.on ? 'on' : 'off'), { state: addonPlugin, version: '1.7.0' }),
   addon_remove: () => ((addonPlugin = 'missing'), { state: 'missing' }),
