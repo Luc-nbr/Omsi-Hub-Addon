@@ -88,7 +88,7 @@ pub struct Bus {
 
 /// A path as the file has it, with `/`.
 fn rel(s: &str) -> String {
-    s.trim().replace('\\', "/")
+    crate::vfs::normalize(s)
 }
 
 fn opt_rel(s: &str) -> Option<String> {
@@ -271,7 +271,7 @@ pub fn paints_in(dir: &Path) -> Vec<String> {
     for f in files {
         let item = CfgFile::read(&f).ok().and_then(|c| c.blocks("item").first().and_then(|b| b.first()).map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
         let name = item.unwrap_or_else(|| f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
-        if !out.iter().any(|o| o.eq_ignore_ascii_case(&name)) {
+        if !out.iter().any(|o| crate::vfs::same_name(o, &name)) {
             out.push(name);
         }
     }

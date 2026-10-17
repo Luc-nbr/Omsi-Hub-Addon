@@ -24,7 +24,7 @@
 //!   the groups of the same name and adds the others.
 
 use crate::text::{parse_f64, parse_i32, CfgFile, Reader};
-use crate::vfs::find_child;
+use crate::vfs::{find_child, normalize, same_name};
 use crate::ReadError;
 use chrono::{Datelike, NaiveDate};
 use std::path::{Path, PathBuf};
@@ -296,7 +296,7 @@ pub fn active_chrono_dirs(map_dir: &Path, date: NaiveDate) -> Vec<ChronoDir> {
 pub fn chrono_deactivated_lines(chrono: &[ChronoDir]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in chrono.iter().flat_map(|c| &c.deactivate_lines) {
-        if !out.iter().any(|o| o.eq_ignore_ascii_case(l)) {
+        if !out.iter().any(|o| same_name(o, l)) {
             out.push(l.clone());
         }
     }
@@ -324,6 +324,7 @@ impl TypGroupEntry {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypGroup {
+    /// The bus file, relative to the OMSI 2 folder, with `/`.
     pub file: String,
     pub entries: Vec<TypGroupEntry>,
 }
@@ -331,6 +332,7 @@ pub struct TypGroup {
 /// A bus of an AI group, and how often it is taken.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AiVehicle {
+    /// The vehicle's file, relative to the OMSI 2 folder, with `/`.
     pub file: String,
     pub weight: f32,
     pub number: Option<String>,
@@ -378,13 +380,13 @@ impl AiLists {
                             let f: Vec<&str> = l.split('\t').map(str::trim).filter(|s| !s.is_empty()).collect();
                             let Some(file) = f.first() else { continue };
                             let weight = f.get(1).map_or(1.0, |w| parse_f64(w) as f32);
-                            g.vehicles.push(AiVehicle { file: file.to_string(), weight, number: f.get(2).map(|s| s.to_string()) });
+                            g.vehicles.push(AiVehicle { file: normalize(file), weight, number: f.get(2).map(|s| s.to_string()) });
                         }
                     }
                     out.groups.push(g);
                 }
                 "aigroup_depot_typgroup_2" | "aigroup_depot_typgroup" => {
-                    let file = r.value().trim().to_string();
+                    let file = normalize(r.value());
                     let mut t = TypGroup { file, entries: Vec::new() };
                     for l in list_lines(&mut r) {
                         let f: Vec<&str> = l.split('\t').collect();
@@ -508,14 +510,11 @@ mod tests {
         assert_eq!(a.groups.len(), 3);
         let cars = a.group("normalcars").unwrap();
         assert_eq!((cars.is_depot, cars.hof.clone()), (false, None));
-        assert_eq!(
-            cars.vehicles.iter().map(|v| (v.file.as_str(), v.weight)).collect::<Vec<_>>(),
-            [("vehicles\\Car\\car.bus", 70.0), ("vehicles\\Van\\van.ovh", 10.0), ("vehicles\\Lone\\lone.bus", 1.0)]
-        );
+        assert_eq!(cars.vehicles.iter().map(|v| (v.file.as_str(), v.weight)).collect::<Vec<_>>(), [("vehicles/Car/car.bus", 70.0), ("vehicles/Van/van.ovh", 10.0), ("vehicles/Lone/lone.bus", 1.0)]);
         let depot = a.group("Busses").unwrap();
         assert_eq!((depot.is_depot, depot.hof.as_deref()), (true, Some("Testdorf")));
         let t = &depot.typgroups[0];
-        assert_eq!(t.file, "Vehicles\\Bus\\bus.bus");
+        assert_eq!(t.file, "Vehicles/Bus/bus.bus");
         assert_eq!(t.entries[0], TypGroupEntry { number: "2530".into(), plate: "TD-V 30".into(), ..TypGroupEntry::default() });
         assert_eq!(t.entries[1], TypGroupEntry { number: "2701".into(), paint: "Red".into(), to: Some(19_870_430), ..TypGroupEntry::default() });
         assert_eq!(t.entries[2], TypGroupEntry { number: "2708".into(), paint: "Blue".into(), from: Some(19_870_201), ..TypGroupEntry::default() });

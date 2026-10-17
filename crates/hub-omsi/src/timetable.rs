@@ -29,7 +29,7 @@
 
 use crate::map::Calendar;
 use crate::text::{keyword_of, parse_f32, parse_f64, parse_i32, CfgFile, Codepage};
-use crate::vfs::{find_child, Vfs};
+use crate::vfs::{find_child, same_name, Vfs};
 use crate::ReadError;
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -252,7 +252,7 @@ impl Timetable {
         let mut dirs = vec![dir.to_path_buf()];
         dirs.extend(chrono.iter().filter_map(|c| find_child(&c.path, "TTData")));
         let mut tt = Timetable::from_dirs(&dirs);
-        tt.lines.retain(|l| !off.iter().any(|o| o.trim().eq_ignore_ascii_case(l.name.trim())));
+        tt.lines.retain(|l| !off.iter().any(|o| same_name(o.trim(), l.name.trim())));
         tt
     }
 
@@ -312,12 +312,12 @@ impl Timetable {
 
     /// A trip by its name, in any case.
     pub fn trip(&self, name: &str) -> Option<&Trip> {
-        self.trips.iter().find(|t| t.name.eq_ignore_ascii_case(name.trim()))
+        self.trips.iter().find(|t| same_name(&t.name, name.trim()))
     }
 
     /// A track by its name, in any case.
     pub fn track(&self, name: &str) -> Option<&Track> {
-        self.tracks.iter().find(|t| t.name.eq_ignore_ascii_case(name.trim()))
+        self.tracks.iter().find(|t| same_name(&t.name, name.trim()))
     }
 
     /// The link from stop `from` to stop `to`.
@@ -427,7 +427,7 @@ impl Trip {
     pub fn to_text(&self) -> String {
         let mut s = header("Trip");
         // (the track: empty when it is the trip's own, as OMSI writes it)
-        let track = if !self.display_name.trim().is_empty() || !self.track.trim().eq_ignore_ascii_case(self.name.trim()) { self.track.trim() } else { "" };
+        let track = if !self.display_name.trim().is_empty() || !same_name(self.track.trim(), self.name.trim()) { self.track.trim() } else { "" };
         s.push_str(&format!("[trip]\r\n{track}\r\n{}\r\n{}\r\n\r\n", self.terminus, self.line));
         if self.train_reverse {
             s.push_str("[trainreverse]\r\n\r\n");

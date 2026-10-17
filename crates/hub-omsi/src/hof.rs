@@ -299,7 +299,7 @@ impl Hof {
 
     /// A stop by its name, in any case.
     pub fn bus_stop(&self, ident: &str) -> Option<&BusStop> {
-        self.bus_stops.iter().find(|b| b.ident.trim().eq_ignore_ascii_case(ident.trim()))
+        self.bus_stops.iter().find(|b| crate::vfs::same_name(b.ident.trim(), ident.trim()))
     }
 }
 

@@ -317,11 +317,11 @@ fn ai_lists_and_the_day_s_depot_file() {
     let a = AiLists::with_chrono(&map_dir(), &[]);
     assert_eq!(a.groups.iter().map(|g| (g.name.as_str(), g.is_depot)).collect::<Vec<_>>(), [("Cars", false), ("Busses", true)]);
     let cars = a.group("CARS").unwrap();
-    assert_eq!(cars.vehicles.iter().map(|v| (v.file.as_str(), v.weight)).collect::<Vec<_>>(), [("vehicles\\Car\\car.bus", 70.0), ("vehicles\\Van\\van.ovh", 10.0)]);
+    assert_eq!(cars.vehicles.iter().map(|v| (v.file.as_str(), v.weight)).collect::<Vec<_>>(), [("vehicles/Car/car.bus", 70.0), ("vehicles/Van/van.ovh", 10.0)]);
     let busses = a.group("Busses").unwrap();
     assert_eq!(busses.hof.as_deref(), Some("Testdorf"));
     let t = &busses.typgroups[0];
-    assert_eq!(t.file, "Vehicles\\Testbus\\Testbus.bus");
+    assert_eq!(t.file, "Vehicles/Testbus/Testbus.bus");
     assert_eq!(
         t.entries.iter().map(|e| (e.number.as_str(), e.plate.as_str(), e.paint.as_str(), e.from, e.to)).collect::<Vec<_>>(),
         [("101", "TD-V 101", "Red", None, Some(19_891_231)), ("102", "", "Blue", Some(19_890_601), None)]

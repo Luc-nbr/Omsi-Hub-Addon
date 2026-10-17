@@ -302,3 +302,12 @@ differ only in case, the exact one wins. `crates/hub-omsi/tests/case_sensitive.r
 a case-sensitive temp folder. The Linux CI job sets `OMSIHUB_REQUIRE_CASE_SENSITIVE=1`, so the
 test cannot skip there unnoticed. On Windows the same proof runs in a folder made case-sensitive
 with `fsutil file setCaseSensitiveInfo <dir> enable`, by pointing `TMP` at it.
+
+The readers rely on it for every path an OMSI file names, which is written with `\` and in any
+case: a map's `TTData`, `Chrono`, `Holidays.txt`, `ailists.cfg` (and Chrono's
+`ailists_#upd.cfg`), `timezone.txt`; a line's trips and a trip's track (matched by name in any
+case); Chrono's copies of the map's files (taking their place whatever their case); a bus's
+model, cabin, rear section, `[CTC]` paint folder and number lists. Names compare in any case
+for non-ASCII letters too (`vfs::same_name`: `Grünau` is `GRÜNAU`), and the paths the readers
+keep (`Bus.model`, `AiVehicle.file`, `TypGroup.file` …) have `/` (`vfs::normalize`). The second
+test in `case_sensitive.rs` builds a mixed-case map and bus and reads them by other cases.
