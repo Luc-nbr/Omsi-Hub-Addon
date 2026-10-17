@@ -6,6 +6,7 @@
 //! | prefix | module | what |
 //! |---|---|---|
 //! | `hub_` | [`hub`] | the app: boot, texts, first-run setup, migration, drives |
+//! | `hub_update` | [`update`] | the app's own updates (this repository's releases) |
 //! | `addon_` | [`addon`] | the plugin in the player's openOMSI, the bridge |
 //! | `co_` | [`company`] | the bus company |
 //! | `rf_` | [`rosterflow`] | RosterFlow |
@@ -25,9 +26,11 @@ pub mod depot;
 pub mod drive;
 pub mod hub;
 pub mod online;
+pub mod privacy;
 pub mod rosterflow;
 pub mod timetable;
 pub mod together;
+pub mod update;
 
 use serde_json::Value;
 
@@ -73,6 +76,7 @@ pub fn to_json<T: serde::Serialize>(v: T) -> Answer {
 /// A command of the page.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
     match cmd {
+        c if c.starts_with("hub_update") => update::call(c, args, p),
         c if c.starts_with("hub_") => hub::call(c, args, p),
         c if c.starts_with("addon_") => addon::call(c, args, p),
         c if c.starts_with("co_") => company::call(c, args, p),
@@ -105,7 +109,7 @@ mod tests {
     #[test]
     fn commands_go_by_their_prefix() {
         assert_eq!(call("nope", &json!({}), &Quiet), Err("unknown command: nope".into()));
-        for cmd in ["co_state", "rf_plan", "tg_host", "ol_state", "cs_list", "tt_open", "de_open"] {
+        for cmd in ["co_state", "rf_plan", "tg_host", "tt_open", "de_open"] {
             assert_eq!(call(cmd, &json!({}), &Quiet), Err(not_ported(cmd)), "{cmd}");
         }
         assert_eq!(call_bytes("co_portrait", &json!({}), &Quiet), Err(not_ported("co_portrait")));

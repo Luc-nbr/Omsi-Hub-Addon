@@ -10,6 +10,12 @@
 //! The `hub` protocol answers `hub://localhost/bytes/<cmd>?a=<json args>` (on Windows
 //! `http://hub.localhost/bytes/…`) with a bytes command's answer, for `<img src>`.
 //!
+//! The updates (`hub_api::update`): hub-api looks at this repository's releases and offers one;
+//! Tauri's updater plugin (`Updates`) downloads the release named in its `latest.json`, checks
+//! its signature against `plugins.updater.pubkey` (tauri.conf.json), installs it and starts the
+//! new version. Without a public key there, the plugin is not used and the offer links to the
+//! release's page (docs/UPDATES.md).
+//!
 //! `OMSIHUB_SELFTEST=1` runs the page's selftests and ends with their report (exit code 0 when
 //! all passed, 1 when one failed, 2 when the page gave none within a minute);
 //! `OMSIHUB_SELFTEST_FIXTURES=<the repository's fixtures/>` adds the first-run setup, filled in
@@ -22,6 +28,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// The environment variable of the selftest mode.
 const SELFTEST_ENV: &str = "OMSIHUB_SELFTEST";
@@ -44,6 +51,32 @@ impl hub_api::Platform for App {
             let _ = h.emit(event, payload);
         }))
     }
+}
+
+/// The updates' installation: Tauri's updater plugin, on the release `latest.json` names.
+struct Updates(AppHandle);
+
+impl hub_api::update::Installer for Updates {
+    fn install(&self, version: &str, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<(), String> {
+        tauri::async_runtime::block_on(async {
+            let update = self.0.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+            let Some(update) = update else { return Err(format!("{version} is not in the release's latest.json")) };
+            hub_core::log_line(&format!("update: latest.json offers {} (the look found {version})", update.version));
+            // (its signature checked against the public key before anything is installed; on
+            // Windows the NSIS installer then ends this app and starts the new one)
+            update.download_and_install(|chunk, total| progress(chunk as u64, total), || {}).await.map_err(|e| e.to_string())
+        })
+    }
+
+    fn restart(&self) {
+        self.0.restart();
+    }
+}
+
+/// The updater's public key (tauri.conf.json `plugins.updater.pubkey`): empty until the signing
+/// key is made.
+fn updater_pubkey(app: &AppHandle) -> String {
+    app.config().plugins.0.get("updater").and_then(|u| u.get("pubkey")).and_then(Value::as_str).unwrap_or("").trim().to_string()
 }
 
 #[tauri::command]
@@ -157,6 +190,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("hub", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let uri = request.uri().clone();
@@ -191,6 +225,10 @@ fn main() {
                 });
             }
             w.build()?;
+            // (a build without the signing key's public half installs nothing itself)
+            if !updater_pubkey(app.handle()).is_empty() {
+                hub_api::update::set_installer(Arc::new(Updates(app.handle().clone())));
+            }
             hub_core::log_line(&format!("app {} started", env!("CARGO_PKG_VERSION")));
             let _ = app.get_webview_window("main");
             Ok(())

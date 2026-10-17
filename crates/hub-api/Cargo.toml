@@ -14,3 +14,5 @@ hub-locales.workspace = true
 hub-online.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# (the updates: this repository's releases asked of GitHub's API, `update.rs`)
+ureq.workspace = true
