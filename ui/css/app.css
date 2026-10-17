@@ -1,0 +1,72 @@
+/* The shell's layout: the navigation on the left, the page beside it; the setup's card.
+   Colours and sizes are the theme's tokens (tokens.css); a port's page brings its own CSS. */
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; }
+body {
+  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  font-size: 14px;
+  background: var(--hub-ground);
+  color: var(--hub-text);
+}
+a { color: var(--hub-accent-text); }
+h1 { font-size: 26px; font-weight: 800; margin: 0; }
+h2 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+.dim { color: var(--hub-text-dim); }
+.faint { color: var(--hub-text-faint); font-size: 12px; }
+.grow { flex: 1; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+:focus-visible { outline: 2px solid rgba(var(--hub-accent-rgb), 0.6); outline-offset: 2px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--hub-track); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+
+.splash { height: 100%; display: grid; place-items: center; }
+.splash img { width: 96px; opacity: 0.85; }
+
+.shell { display: flex; height: 100%; }
+.nav {
+  width: 220px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 16px 12px;
+  background: var(--hub-panel); border-right: 1px solid var(--hub-hairline);
+}
+.nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; padding: 4px 8px 18px; }
+.nav .brand img { width: 30px; height: 30px; }
+.nav a { color: var(--hub-text-soft); text-decoration: none; padding: 9px 12px; border-radius: var(--hub-r); font-weight: 500; }
+.nav a:hover { background: var(--hub-hover); }
+.nav a.on { background: var(--hub-selected); color: var(--hub-text); box-shadow: inset 3px 0 0 var(--hub-accent); }
+.nav .mock { padding: 8px 12px; }
+.main { flex: 1; overflow: auto; padding: 28px 32px; }
+
+.page-head { margin-bottom: 20px; }
+.page-head .sub { color: var(--hub-text-dim); margin: 6px 0 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.card { background: var(--hub-panel); border: 1px solid var(--hub-hairline); border-radius: var(--hub-r-sheet); padding: 18px 20px; box-shadow: var(--hub-shadow); margin-bottom: 16px; }
+.grid .card { margin-bottom: 0; }
+.card.warn { border-color: rgba(var(--hub-accent-rgb), 0.55); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 14px; }
+.facts dt { color: var(--hub-text-dim); }
+.facts dd { margin: 0; word-break: break-all; }
+
+.btn {
+  font: inherit; font-weight: 700; border: 1px solid var(--hub-edge); border-radius: var(--hub-r-action);
+  background: var(--hub-field); color: var(--hub-text); padding: 9px 16px; cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--hub-hover); }
+.btn.primary { background: var(--hub-accent); border-color: var(--hub-accent); color: var(--hub-on-accent); }
+.btn.primary:hover:not(:disabled) { background: var(--hub-accent-hover); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+input.path, select {
+  font: inherit; background: var(--hub-field); color: var(--hub-text); border: 1px solid var(--hub-edge);
+  border-radius: var(--hub-r); padding: 9px 12px;
+}
+input.path { flex: 1; min-width: 280px; }
+.note { margin: 10px 0 0; padding: 8px 12px; border-radius: var(--hub-r); background: var(--hub-lift); }
+.note.ok { color: var(--hub-ok); }
+.note.warn { color: var(--hub-warn); }
+.note.bad { color: var(--hub-danger); }
+.chip { display: inline-block; margin: 2px 6px 2px 0; padding: 2px 8px; border-radius: 99px; background: var(--hub-lift); text-decoration: none; }
+
+.setup { min-height: 100%; display: grid; place-items: center; padding: 32px 16px; }
+.setup-card { width: min(720px, 100%); background: var(--hub-panel); border: 1px solid var(--hub-hairline); border-radius: var(--hub-r-sheet); padding: 28px 32px; box-shadow: var(--hub-shadow); }
+.setup-logo { height: 44px; margin-bottom: 18px; }
+.setup .step { margin-top: 22px; }

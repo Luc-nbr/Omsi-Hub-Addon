@@ -1,0 +1,116 @@
+/* Omsi-Hub's theme tokens (`--hub-*`) and its font, Hanken Grotesk (SIL OFL 1.1,
+   fonts/HankenGrotesk-OFL.txt). Taken from the old launcher's omsihub.css, Omsi-Hub's own.
+   The dark look is the default; `<html data-theme="light">` switches to the light one. */
+
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 400; font-display: block; src: url("fonts/HankenGrotesk-latin-400.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 500; font-display: block; src: url("fonts/HankenGrotesk-latin-500.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 700; font-display: block; src: url("fonts/HankenGrotesk-latin-700.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 800; font-display: block; src: url("fonts/HankenGrotesk-latin-800.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 400; font-display: block; src: url("fonts/HankenGrotesk-latin-ext-400.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 500; font-display: block; src: url("fonts/HankenGrotesk-latin-ext-500.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 700; font-display: block; src: url("fonts/HankenGrotesk-latin-ext-700.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 800; font-display: block; src: url("fonts/HankenGrotesk-latin-ext-800.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+/* the dark look */
+:root {
+  --hub-accent: #f58620;
+  --hub-accent-rgb: 245, 134, 32;
+  --hub-accent-hover: #f69a47;
+  --hub-accent-deep: #cb6f1b;
+  --hub-accent-chosen: #f58620;
+  --hub-accent-text: #f9bc84;
+  --hub-accent-soft-rgb: 249, 188, 132;
+  --hub-on-accent: #181006;
+  --hub-ground: #0a142e;
+  --hub-panel: #141a26;
+  --hub-field: #1b2231;
+  --hub-hover: #212836;
+  --hub-selected: #262e3e;
+  --hub-text: #e8ebf2;
+  --hub-text-soft: #c4cad6;
+  --hub-text-dim: #959db0;
+  --hub-text-faint: #60687a;
+  /* (theme.rs's see-through whites - an edge .08, a hairline .09, a switch's track .16, a
+     slider's rail .12 - as it blends them, in linear light: over the panel about as strong as
+     these blended plainly, `--aw-*` of omsihub/company.css) */
+  --hub-edge: rgba(255, 255, 255, 0.268);
+  --hub-hairline: rgba(255, 255, 255, 0.287);
+  --hub-lift: rgba(255, 255, 255, 0.06);
+  --hub-track: rgba(255, 255, 255, 0.407);
+  --hub-rail: rgba(255, 255, 255, 0.34);
+  --hub-knob: #f0f0f0;
+  --hub-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  --hub-scrim: rgba(4, 7, 15, 0.62);
+  /* the glass of the bar and the start's card: smoked, under white words, rims in the accent */
+  --hub-glass: rgba(6, 12, 30, 0.55);
+  --hub-glass-card: rgba(6, 12, 30, 0.55);
+  --hub-glass-on: rgba(72, 72, 80, 0.9);
+  --hub-glass-on-hover: rgba(86, 86, 96, 0.92);
+  --hub-glass-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --hub-glass-edge: rgba(255, 255, 255, 0.07);
+  --hub-glass-rim: rgba(var(--hub-accent-rgb), 0.55);
+  --hub-glass-glow: rgba(var(--hub-accent-rgb), 0.22);
+  --hub-glass-ink: #e8ebf2;
+  --hub-glass-ink-soft: #c4cad6;
+  --hub-glass-ink-dim: #959db0;
+  --hub-glass-ink-faint: #60687a;
+  --hub-logo-ink: #eef1f5;
+  /* meanings: late, on time, early, a warning; the line's plate */
+  --hub-danger: #d93a30;
+  --hub-ok: #34b26e;
+  --hub-warn: #e8aa46;
+  --hub-early: #7aa8ff;
+  --hub-line: #ffd23f;
+  --hub-on-line: #1a1400;
+  /* the measures: a control, a sheet, the main action; a row */
+  --hub-r: 10px;
+  --hub-r-sheet: 14px;
+  --hub-r-action: 12px;
+  --hub-row: 36px;
+  --hub-edge-in: 22px;
+  --hub-bar-h: 40px;
+  --hub-sheet-top: 85px;
+  --hub-action-h: 62px;
+  --hub-action-bottom: 31px;
+  color-scheme: dark;
+}
+
+/* the light look */
+:root[data-theme="light"] {
+  --hub-ground: #f4ece2;
+  --hub-panel: #fffefc;
+  --hub-field: #f5f2ed;
+  --hub-hover: #ede9e3;
+  --hub-selected: #e5e0d9;
+  --hub-text: #1e1c22;
+  --hub-text-soft: #464248;
+  --hub-text-dim: #645f62;
+  --hub-text-faint: #86807e;
+  /* (the dark look's see-through whites as see-through ink, `theme.rs`'s `overlay_alpha`, in
+     linear light as the bus company's are, omsihub/company.css) */
+  --hub-edge: rgba(22, 20, 26, 0.126);
+  --hub-hairline: rgba(22, 20, 26, 0.134);
+  --hub-lift: rgba(22, 20, 26, 0.05);
+  --hub-track: rgba(22, 20, 26, 0.185);
+  --hub-rail: rgba(22, 20, 26, 0.157);
+  --hub-shadow: 0 6px 24px rgba(60, 40, 20, 0.14);
+  --hub-scrim: rgba(30, 24, 18, 0.4);
+  --hub-glass: rgba(255, 255, 255, 0.4);
+  --hub-glass-card: rgba(255, 255, 255, 0.6);
+  --hub-glass-on: rgba(255, 255, 255, 0.38);
+  --hub-glass-on-hover: rgba(255, 255, 255, 0.75);
+  --hub-glass-shadow: 0 2px 9px rgba(120, 80, 30, 0.08);
+  --hub-glass-edge: rgba(255, 255, 255, 0.85);
+  --hub-glass-rim: rgba(255, 255, 255, 0.95);
+  --hub-glass-glow: rgba(var(--hub-accent-rgb), 0.12);
+  --hub-glass-ink: #201e24;
+  --hub-glass-ink-soft: #48444a;
+  --hub-glass-ink-dim: #6c6668;
+  --hub-glass-ink-faint: #968e8c;
+  --hub-logo-ink: #201e24;
+  --hub-danger: #c4352c;
+  --hub-ok: #1a8a4f;
+  --hub-warn: #9c6a12;
+  --hub-early: #2a75f7;
+  color-scheme: light;
+}
