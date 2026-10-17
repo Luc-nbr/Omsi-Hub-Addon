@@ -14,7 +14,7 @@
 
 <p align="center">
   <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-f58620">
-  <img alt="Needs openOMSI 0.2.0 or newer" src="https://img.shields.io/badge/openOMSI-0.2.0%2B-2a75f7">
+  <img alt="Needs openOMSI 0.2.22 or newer" src="https://img.shields.io/badge/openOMSI-0.2.22%2B-2a75f7">
   <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0a142e">
   <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-34b26e">
 </p>
@@ -38,7 +38,7 @@ contains no openOMSI code.
 
 | Needs | |
 | --- | --- |
-| **openOMSI** | 0.2.0 or newer, we recommend the [latest release](https://github.com/openOMSI-org/openOMSI/releases). Omsi-Hub uses openOMSI's plugin API (ABI 1); older versions are refused. |
+| **openOMSI** | 0.2.22 or newer, we recommend the [latest release](https://github.com/openOMSI-org/openOMSI/releases). Omsi-Hub uses openOMSI's plugin API (ABI 1); older versions are refused. |
 | **OMSI 2** | An original copy (Steam or retail). openOMSI plays its maps, buses and mods. |
 | **System** | Windows 10 or 11 (64-bit), or macOS on Apple silicon or Intel. Linux is on its way. |
 
@@ -83,7 +83,7 @@ never changes the files of openOMSI or OMSI 2.
 
 ## On official openOMSI
 
-Works with every openOMSI from 0.2.0 on:
+Works with every openOMSI from 0.2.22 on:
 
 - the company's duty and trips in the game, and starting a duty from the game;
 - trip results back to the company;
