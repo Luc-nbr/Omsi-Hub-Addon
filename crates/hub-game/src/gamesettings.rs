@@ -20,6 +20,8 @@ pub enum Kind {
     Choice(&'static [(&'static str, &'static str)]),
     /// A number from `min` to `max` in steps of `step`; `default` when openOMSI's guide says it.
     Number { min: f64, max: f64, step: f64, default: Option<f64> },
+    /// A value the guide names without its values (`hint` says what it takes): one line of text.
+    Text { hint: &'static str },
 }
 
 /// A setting of openOMSI that Omsi-Hub changes.
@@ -41,25 +43,52 @@ const fn number(min: f64, max: f64, step: f64, default: Option<f64>) -> Kind {
 }
 
 /// The groups, in the page's order.
-pub const GROUPS: [&str; 5] = ["Graphics", "Screen and navigator", "Language", "Driving and controls", "Passengers"];
+pub const GROUPS: [&str; 7] = ["Graphics", "Mirrors", "Screen and navigator", "Language", "Sound and radio", "Driving and controls", "Passengers and traffic"];
 
-/// The settings Omsi-Hub changes, from openOMSI's user guide (`docs/USER_GUIDE.md`): only keys
-/// whose values it names.
+const fn text(hint: &'static str) -> Kind {
+    Kind::Text { hint }
+}
+
+/// Every key of `settings.cfg` that openOMSI's user guide (`docs/USER_GUIDE.md`) names, with the
+/// values it gives: a choice or a range where it says them, else a line of text with the guide's
+/// words as its hint. (`version` is the file's own, and `texture_memory` and `navigator_opacity`
+/// are old names openOMSI no longer writes: none of them is changed here.)
 pub const FIELDS: &[Field] = &[
     // the graphics
     field("Graphics", "graphics_api", "Graphics API", Kind::Choice(&[("auto", "Automatic"), ("vulkan", "Vulkan"), ("dx12", "DirectX 12"), ("gl", "OpenGL"), ("angle", "ANGLE")])),
+    field("Graphics", "enhanced", "Enhanced graphics (physically based)", Kind::Switch),
+    field("Graphics", "graphics", "Graphics mode", Kind::Choice(&[("enhanced_plus", "Enhanced+")])),
     field("Graphics", "fullscreen", "Full screen", Kind::Switch),
     field("Graphics", "vsync", "Vertical sync", Kind::Switch),
+    field("Graphics", "render_scale", "Render scale", text("auto, or a fraction such as 0.75")),
     field("Graphics", "msaa", "Anti-aliasing (MSAA)", Kind::Choice(&[("1", "Off"), ("2", "2×"), ("4", "4×"), ("8", "8×")])),
     field("Graphics", "post_aa", "Smoothing after the picture (FXAA)", Kind::Choice(&[("fxaa", "On"), ("off", "Off")])),
     field("Graphics", "anisotropy", "Texture filtering", Kind::Choice(&[("1", "Off"), ("2", "2×"), ("4", "4×"), ("8", "8×"), ("16", "16×")])),
+    field("Graphics", "view_distance", "View distance (metres)", number(100.0, 10000.0, 50.0, None)),
+    field("Graphics", "video_memory", "Video memory (MB; default: nine tenths of the card's)", number(256.0, 65536.0, 256.0, None)),
     field("Graphics", "shadows", "Shadows", Kind::Switch),
+    field("Graphics", "shadow_size", "Shadow map size", text("a size, as openOMSI's Settings page writes it")),
+    field("Graphics", "shadow_blobs", "Shadow meshes and blobs under vehicles", Kind::Switch),
     field("Graphics", "ssao", "Ambient occlusion", Kind::Switch),
+    field("Graphics", "reflections", "Reflections (0: off)", number(0.0, 1.0, 0.05, None)),
+    field("Graphics", "led_glow", "Glow of LED displays (0: off)", number(0.0, 15.0, 1.0, None)),
+    field("Graphics", "led_mips", "Sharpness of LED displays (mip level)", number(0.0, 4.0, 0.05, Some(1.3))),
     field("Graphics", "detail_textures", "Detail textures", Kind::Switch),
     field("Graphics", "texture_compression", "Texture compression", Kind::Switch),
+    field("Graphics", "gpu_texture_compression", "Compressed textures kept on the graphics card", Kind::Switch),
+    field("Graphics", "cloud_quality", "Cloud quality", Kind::Choice(&[("low", "Low")])),
+    field("Graphics", "rain_quality", "Rain quality", text("High, Medium or Low")),
+    field("Graphics", "puddles", "Puddles", text("High, Low or Off")),
+    // the mirrors
+    field("Mirrors", "mirror_size", "Mirror size (0: no mirrors)", text("a size, as openOMSI's Settings page writes it")),
+    field("Mirrors", "mirror_refresh", "Mirror refresh", text("a rate, as openOMSI's Settings page writes it")),
+    field("Mirrors", "mirror_hud", "Mirror panels", Kind::Choice(&[("0", "Off"), ("1", "The right mirror"), ("2", "The left mirror"), ("3", "Both mirrors")])),
+    field("Mirrors", "mirror_hud_every_frame", "Mirror panels drawn every frame", Kind::Switch),
     // the screen and the navigator
     field("Screen and navigator", "ui_scale", "Size of the game's menus", number(0.5, 2.0, 0.05, Some(1.0))),
+    field("Screen and navigator", "ui_scale_window", "Menus grow with large windows", Kind::Switch),
     field("Screen and navigator", "ui_opacity", "Opacity of the game's panels", number(0.2, 1.0, 0.05, Some(0.85))),
+    field("Screen and navigator", "notes", "Notes in the top left corner", Kind::Switch),
     field("Screen and navigator", "navigator", "Navigator", Kind::Switch),
     field(
         "Screen and navigator",
@@ -68,22 +97,37 @@ pub const FIELDS: &[Field] = &[
         Kind::Choice(&[("bottom-left", "Bottom left"), ("bottom-right", "Bottom right"), ("top-left", "Top left"), ("top-right", "Top right")]),
     ),
     field("Screen and navigator", "nav_light", "Navigator in a light look", Kind::Switch),
+    field("Screen and navigator", "nav_ai", "Other vehicles on the navigator", Kind::Switch),
+    field("Screen and navigator", "nav_surface", "Water, land and rail on the navigator", Kind::Switch),
     // the language of the game
     field("Language", "language", "The game's language", Kind::Choice(&[("ENG", "English"), ("DEU", "Deutsch"), ("FRA", "Français")])),
+    // sound and the radio
+    field("Sound and radio", "volume", "Volume", text("as openOMSI's Settings page writes it")),
+    field("Sound and radio", "radio_speaker", "Radio through a small speaker", number(0.0, 1.0, 0.05, Some(0.0))),
+    field("Sound and radio", "radio_hiss", "Radio: FM hiss", number(0.0, 1.0, 0.05, Some(0.0))),
+    field("Sound and radio", "radio_dropouts", "Radio: signal dropouts", number(0.0, 1.0, 0.05, Some(0.0))),
     // driving
     field("Driving and controls", "drive_keys", "Driving keys", Kind::Choice(&[("simple", "Simple"), ("wasd", "W A S D"), ("arrows", "Arrow keys"), ("omsi", "As in OMSI 2")])),
     field("Driving and controls", "wheel_range", "Steering wheel's turn (degrees)", number(180.0, 1080.0, 10.0, Some(900.0))),
+    field("Driving and controls", "wheel_lock", "Wheel turn for the bus's full lock (degrees; 0: the whole wheel)", number(0.0, 1080.0, 10.0, None)),
     field("Driving and controls", "steering_linear", "Linear steering", Kind::Switch),
+    field("Driving and controls", "old_steering", "Old steering (the wheel stays where you leave it)", Kind::Switch),
     field("Driving and controls", "ff_invert", "Force feedback the other way", Kind::Switch),
     field("Driving and controls", "mouse_sens", "Mouse sensitivity (1: as in OMSI 2)", number(0.1, 3.0, 0.05, Some(1.0))),
+    field("Driving and controls", "mouse_smooth", "Smooth mouse steering", Kind::Switch),
+    field("Driving and controls", "mouse_hold", "Hold the cursor while the mouse steers", Kind::Switch),
     field("Driving and controls", "right_stick_look", "Look round with the right stick", Kind::Switch),
+    field("Driving and controls", "ctrl_off", "Controllers switched off", text("their names, separated by |")),
     field("Driving and controls", "fov", "Field of view (degrees; 0: the bus's cameras)", number(0.0, 120.0, 1.0, Some(0.0))),
+    field("Driving and controls", "head_idle", "Head sway", number(0.0, 1.0, 0.05, Some(0.0))),
+    field("Driving and controls", "head_idle_pace", "Pace of the head sway", number(0.5, 2.0, 0.05, Some(1.0))),
     field("Driving and controls", "collision_objects", "Collisions with objects", Kind::Switch),
     field("Driving and controls", "collision_vehicles", "Collisions with vehicles", Kind::Switch),
-    // the passengers
-    field("Passengers", "boarding", "Boarding", Kind::Choice(&[("auto", "Automatic"), ("pay", "Passengers pay at the driver"), ("walk", "Passengers walk in")])),
-    field("Passengers", "exact_fare", "Passengers pay the exact fare", Kind::Switch),
-    field("Passengers", "pax_bad_driving", "Passengers mind bad driving", Kind::Switch),
+    // the passengers and the traffic
+    field("Passengers and traffic", "boarding", "Boarding", Kind::Choice(&[("auto", "Automatic"), ("pay", "Passengers pay at the driver"), ("walk", "Passengers walk in")])),
+    field("Passengers and traffic", "exact_fare", "Passengers pay the exact fare", Kind::Switch),
+    field("Passengers and traffic", "pax_bad_driving", "Passengers mind bad driving", Kind::Switch),
+    field("Passengers and traffic", "ai_wait_timed_stops_only", "Timetable buses wait only at timed stops", Kind::Switch),
 ];
 
 /// The setting called `key`.
@@ -139,6 +183,13 @@ pub fn checked(field: &Field, value: &str) -> Result<String, Refusal> {
             _ => Err(bad()),
         },
         Kind::Choice(options) => options.iter().find(|(o, _)| *o == v).map(|(o, _)| o.to_string()).ok_or_else(bad),
+        // (one line, as a `key=value` file holds it)
+        Kind::Text { .. } => {
+            if v.chars().count() > 200 || v.chars().any(char::is_control) {
+                return Err(bad());
+            }
+            Ok(v.to_string())
+        }
         Kind::Number { min, max, step, .. } => {
             let n: f64 = v.parse().ok().filter(|n: &f64| n.is_finite()).ok_or_else(bad)?;
             if n < min - 1e-9 || n > max + 1e-9 {
@@ -253,7 +304,9 @@ mod tests {
         assert_eq!(checked(f("ui_opacity"), "0.85"), Ok("0.85".into()));
         assert_eq!(checked(f("wheel_range"), "900"), Ok("900".into()));
         assert!(checked(f("ui_scale"), "5").is_err() && checked(f("fov"), "-1").is_err() && checked(f("fov"), "NaN").is_err());
-        assert!(field_of("texture_memory").is_none(), "a key whose values the guide does not name is left alone");
+        assert_eq!(checked(f("render_scale"), " 0.75 "), Ok("0.75".into()), "a line of text");
+        assert!(checked(f("ctrl_off"), "a\nb").is_err());
+        assert!(field_of("texture_memory").is_none() && field_of("version").is_none(), "old names and the file's own key are left alone");
     }
 
     #[test]

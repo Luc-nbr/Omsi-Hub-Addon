@@ -105,6 +105,7 @@ everything else keeps working.
 | `app/`, `ui/`, `crates/`, `plugin/` | The app: its window, its page, its Rust crates and the plugin it puts into openOMSI ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) |
 | `assets/brand/` | The logo for light and dark backgrounds, the icon, the mark alone, and the banner above |
 | `tools/brand.mjs` | Draws the brand files from the one drawing of the mark (the website's `assets/mark.js`) |
+| `tools/installer-art.html`, `tools/installer-art.mjs` | The installers' pictures (`app/installer/`: the Windows installer's side and head, the macOS disk image's window), drawn from the brand files |
 | `tools/banner.html` | The banner's source (rendered to `assets/brand/banner.png` at 1280 × 640, also for GitHub's social preview) |
 
 ## Links

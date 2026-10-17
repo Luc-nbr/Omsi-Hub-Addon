@@ -20,6 +20,9 @@ function Field({ f, running, save }) {
   if (f.kind === 'number') {
     return html`<${NumberField} f=${f} running=${running} save=${save} />`;
   }
+  if (f.kind === 'text') {
+    return html`<${TextField} f=${f} running=${running} save=${save} />`;
+  }
   const options = f.kind === 'switch' ? [['', DEFAULT], ['1', 'On'], ['0', 'Off']] : [['', DEFAULT], ...f.options];
   return html`<div class="setting-row" id=${'oo-' + f.key}><span class="name">${tr(f.label)}</span>
     <${Select} value=${f.value ?? ''} options=${options} disabled=${running} onChange=${set} /></div>`;
@@ -38,9 +41,27 @@ function NumberField({ f, running, save }) {
     timer.current = setTimeout(() => save(f.key, String(n)).then(() => setV(null)), 350);
   };
   return html`<div class="setting-row full" id=${'oo-' + f.key}>
-    <${Slider} label=${f.label} value=${value} min=${f.min} max=${f.max} step=${f.step} format=${(n) => (f.value == null && v == null ? `${shown(n)} (${tr(DEFAULT)})` : shown(n))} onChange=${move} />
+    <${Slider} label=${f.label} value=${value} min=${f.min} max=${f.max} step=${f.step} format=${(n) => {
+      if (f.value != null || v != null) return shown(n);
+      // (not in the file: openOMSI's default, its number where the guide says it)
+      return f.default != null ? `${shown(n)} (${tr(DEFAULT)})` : tr(DEFAULT);
+    }} onChange=${move} />
     ${f.value != null && !running && html`<div><${Button} kind="ghost" small icon="restart_alt" label=${DEFAULT} onClick=${() => save(f.key, null)} /></div>`}
   </div>`;
+}
+
+/** A value the guide names without its values: a line of text, written when it is left (or on
+ * Enter); empty is openOMSI's default. */
+function TextField({ f, running, save }) {
+  const [v, setV] = useState(null);
+  const text = v ?? f.value ?? '';
+  const done = () => {
+    if (v == null || v.trim() === (f.value ?? '')) return setV(null);
+    save(f.key, v.trim()).then(() => setV(null));
+  };
+  return html`<div class="setting-row" id=${'oo-' + f.key}><span class="name">${tr(f.label)}</span>
+    <input class="path" style="min-width:0;flex:none;width:min(320px,100%)" value=${text} disabled=${running} placeholder=${`${tr(DEFAULT)} · ${tr(f.hint)}`}
+      onInput=${(e) => setV(e.currentTarget.value)} onBlur=${done} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} /></div>`;
 }
 
 /** The tab's panel: every group of openOMSI's settings. */

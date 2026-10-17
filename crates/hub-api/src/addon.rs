@@ -653,6 +653,10 @@ pub fn game_settings(home: &Path, running: bool) -> Value {
                             v["step"] = json!(step);
                             v["default"] = json!(default);
                         }
+                        Kind::Text { hint } => {
+                            v["kind"] = json!("text");
+                            v["hint"] = json!(hint);
+                        }
                     }
                     v
                 })

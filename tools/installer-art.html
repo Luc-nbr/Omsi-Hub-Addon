@@ -1,0 +1,66 @@
+<!doctype html><meta charset=utf-8>
+<!-- The installers' pictures, drawn from the brand files (assets/brand) in Omsi-Hub's look:
+     ?s=sidebar  the Windows installer's welcome and finish pages (164 x 314)
+     ?s=header   the Windows installer's other pages, beside their title (150 x 57)
+     ?s=dmg      the macOS disk image's window (660 x 400): the app, the arrow, Applications
+     tools/installer-art.mjs renders each one at twice its size and writes app/installer/. -->
+<style>
+@font-face{font-family:H;font-weight:500;src:url(../ui/fonts/HankenGrotesk-latin-500.woff2)}
+@font-face{font-family:H;font-weight:700;src:url(../ui/fonts/HankenGrotesk-latin-700.woff2)}
+@font-face{font-family:H;font-weight:800;src:url(../ui/fonts/HankenGrotesk-latin-800.woff2)}
+:root{--navy:#0a142e;--blue:#2a75f7;--orange:#f58620;--ink:#201e24;--light:#eef1f5;--soft:#aab8d6}
+html,body{margin:0;overflow:hidden;font-family:H,sans-serif}
+.scene{display:none;position:relative;overflow:hidden}
+/* the route: a road of the brand's blue running through the picture, with its stops */
+.route{position:absolute;inset:0}
+
+/* Windows: the welcome and finish pages' tall picture */
+#sidebar{width:164px;height:314px;background:radial-gradient(140% 90% at 50% 100%,#1b2c5c 0%,#0e1836 55%,#080f22 100%);color:var(--light)}
+#sidebar .mark{position:absolute;left:30px;top:40px;width:104px;filter:drop-shadow(0 6px 18px rgba(42,117,247,.35))}
+#sidebar h1{position:absolute;left:0;right:0;top:160px;margin:0;text-align:center;font-weight:800;font-size:21px;letter-spacing:-.02em}
+#sidebar h1 i{font-style:normal;color:var(--orange)}
+#sidebar p{position:absolute;left:12px;right:12px;top:190px;margin:0;text-align:center;font-weight:500;font-size:10.5px;line-height:1.35;color:var(--soft)}
+#sidebar .bar{position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--blue),var(--orange))}
+
+/* Windows: the small picture beside each page's title, on the page's white head */
+#header{width:150px;height:57px;background:#fff}
+#header img{position:absolute;right:8px;top:50%;transform:translateY(-50%);height:38px}
+
+/* macOS: the disk image's window; Finder writes the icons' names in black below them */
+#dmg{width:660px;height:400px;background:linear-gradient(180deg,#fdfbf8 0%,#f3eee6 100%);color:var(--ink)}
+#dmg .logo{position:absolute;left:50%;top:34px;transform:translateX(-50%);height:58px}
+#dmg h2{position:absolute;left:0;right:0;top:108px;margin:0;text-align:center;font-weight:700;font-size:15px;color:#5a5866}
+#dmg .arrow{position:absolute;left:258px;top:186px;width:144px;height:44px}
+#dmg .foot{position:absolute;left:0;right:0;bottom:22px;text-align:center;font-weight:500;font-size:11.5px;color:#8a8796}
+#dmg .foot b{color:var(--blue);font-weight:700}
+#dmg .bar{position:absolute;left:0;right:0;top:0;height:5px;background:linear-gradient(90deg,var(--blue),var(--orange))}
+</style>
+<body>
+<div class=scene id=sidebar>
+  <svg class=route viewBox="0 0 164 314" preserveAspectRatio="none" aria-hidden=true>
+    <path d="M-10 262 C40 250 60 290 110 276 S170 230 180 238" fill=none stroke="#2a75f7" stroke-opacity=".28" stroke-width="6" stroke-linecap=round />
+    <circle cx="56" cy="268" r="4" fill="#f58620" /><circle cx="128" cy="262" r="4" fill="#eef1f5" fill-opacity=".7" />
+  </svg>
+  <img class=mark src="../assets/brand/icon.svg" alt="">
+  <h1>Omsi-<i>Hub</i></h1>
+  <p>The add-on for openOMSI<br>Built for realism.<br>Made for immersion.</p>
+  <div class=bar></div>
+</div>
+
+<div class=scene id=header><img src="../assets/brand/icon.svg" alt=""></div>
+
+<div class=scene id=dmg>
+  <div class=bar></div>
+  <img class=logo src="../assets/brand/logo.svg" alt="Omsi-Hub">
+  <h2>Drag Omsi-Hub into Applications to install it</h2>
+  <svg class=arrow viewBox="0 0 144 44" aria-hidden=true>
+    <path d="M6 22 H124" stroke="#2a75f7" stroke-width="5" stroke-linecap=round stroke-dasharray="2 12" />
+    <path d="M114 8 L134 22 L114 36" fill=none stroke="#f58620" stroke-width="5" stroke-linecap=round stroke-linejoin=round />
+  </svg>
+  <div class=foot>The add-on for <b>openOMSI</b> &nbsp;·&nbsp; omsihub.com</div>
+</div>
+<script>
+const s = new URLSearchParams(location.search).get('s') || 'sidebar';
+document.getElementById(s).style.display = 'block';
+</script>
+</body>

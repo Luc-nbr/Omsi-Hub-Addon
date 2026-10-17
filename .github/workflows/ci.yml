@@ -67,10 +67,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # (the installers too, so that their pictures and settings are checked on every push)
           - os: windows-latest
-            build: --no-bundle
+            build: --bundles nsis
           - os: macos-latest
-            build: --no-bundle
+            build: --bundles dmg
           # (Linux's packages are made too: the AppImage, the updater's, and .deb and .rpm)
           - os: ubuntu-latest
             build: --bundles appimage,deb,rpm

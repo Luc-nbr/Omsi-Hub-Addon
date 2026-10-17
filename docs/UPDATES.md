@@ -42,6 +42,24 @@ Until the public key is in `tauri.conf.json`, the app does not use the plugin. "
 then becomes "Download from GitHub", which opens the release's page. The same happens for a
 release without a `latest.json`.
 
+## The installers' look
+
+- **Windows (NSIS):** `app/tauri.windows.conf.json`, `bundle.windows.nsis`: the pictures of
+  `app/installer/` (`nsis-sidebar.bmp` 164 × 314 on the welcome and finish pages,
+  `nsis-header.bmp` 150 × 57 beside the other pages' titles, the uninstaller's too), the app's
+  icon, the licence page (`bundle.licenseFile`: `LICENSE`), the languages Tauri has texts for
+  (English, Dutch, German, French, Russian, Ukrainian; Polish has none, so Polish players get
+  English) with a choice at the start, per-user install (no administrator), and a Start menu
+  folder of its own.
+- **macOS (DMG):** `app/tauri.macos.conf.json`, `bundle.macOS.dmg`: `dmg-background.png`
+  (660 × 400, light, as Finder writes the icons' names in black), the app at (165, 210) and
+  Applications at (495, 210), the arrow between them.
+- **Linux:** the packages' description is `bundle.longDescription`; the menu entry's category
+  comes from `bundle.category` (`SimulationGame`).
+- The pictures are drawn by `node tools/installer-art.mjs` from `tools/installer-art.html`
+  (Playwright and Python with Pillow) and committed. CI builds the NSIS installer and the DMG on
+  every push, so a wrong picture or setting shows there first.
+
 ## The release files
 
 | Platform | `latest.json` key | Updater file (signed: `<file>.sig` beside it) | For a first download |

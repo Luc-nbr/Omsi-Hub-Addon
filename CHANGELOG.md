@@ -4,11 +4,16 @@ Each version of the Omsi-Hub add-on, newest first. The release on GitHub links h
 
 ## Not released yet
 
-- **openOMSI's own settings in Omsi-Hub** (Settings → openOMSI's settings): the graphics, the
-  screen and the navigator, the game's language, driving and controls, and the passengers, as
-  openOMSI keeps them in `~/.openomsi/settings.cfg`. Omsi-Hub changes only these keys and leaves
-  the rest of the file as it is; "openOMSI's default" takes a key out again. Not while the game
-  runs.
+- **openOMSI's own settings in Omsi-Hub** (Settings → openOMSI's settings): every key of
+  `~/.openomsi/settings.cfg` that openOMSI's user guide names, 62 of them: the graphics (with
+  Enhanced and Enhanced+, the view distance, the video memory, LED displays, rain and puddles),
+  the mirrors, the screen and the navigator, the game's language, sound and the radio, driving and
+  controls, and the passengers and the traffic. Omsi-Hub leaves the rest of the file as it is;
+  "openOMSI's default" takes a key out again. Not while the game runs.
+- **The installers in Omsi-Hub's look**: on Windows a welcome and a finish page with the logo, a
+  picture beside every page's title, the licence, a choice of language (English, Dutch, German,
+  French, Russian, Ukrainian) and a folder of its own in the Start menu; on macOS a disk image
+  with its own window to drag Omsi-Hub into Applications; on Linux the packages' description.
 
 ## 0.1.0 (pre-release, for testing)
 
