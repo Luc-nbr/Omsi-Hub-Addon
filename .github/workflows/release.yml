@@ -1,0 +1,115 @@
+# Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon and Intel) and Linux,
+# built by Tauri and put in a DRAFT release named after the version (`v<version>`). Luc publishes
+# the draft by hand (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
+#
+# The updater files are signed and `latest.json` is attached only once the signing key is set up
+# (the secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, and the public key
+# in app/tauri.conf.json: docs/UPDATES.md "What Luc sets up"). Without them the installers are
+# built all the same, and the app offers "Download from GitHub" instead of installing itself.
+#
+# Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json), or by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ""
+          - name: macOS Apple silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+          # (the oldest Ubuntu we support: an AppImage runs on the same glibc or newer)
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev build-essential
+
+      # (the toolchain rust-toolchain.toml pins, with the target the job builds for)
+      - name: Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # (the updater files signed and latest.json attached only when the key is set up)
+      - name: Updater signing set up?
+        id: signing
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ] && grep -q '"pubkey": *"[^"]' app/tauri.conf.json; then
+            echo 'config=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
+            echo "json=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No updater signing key yet: installers only, no latest.json (docs/UPDATES.md)."
+            echo "config=" >> "$GITHUB_OUTPUT"
+            echo "json=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and upload to the draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tauriScript: npx --yes @tauri-apps/cli@2
+          tagName: v__VERSION__
+          releaseName: Omsi-Hub __VERSION__
+          releaseBody: |
+            Omsi-Hub __VERSION__: the add-on for openOMSI.
+
+            Needs openOMSI 0.2.22 or newer and an original OMSI 2. Omsi-Hub does not replace openOMSI: it builds on the openOMSI you have installed.
+
+            - Windows: `Omsi-Hub_<version>_x64-setup.exe`
+            - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon) or `_x64.dmg` (Intel). The app is not notarised: the first time, right-click it and choose Open.
+            - Linux: `Omsi-Hub_<version>_amd64.AppImage` (updates itself), or the `.deb` / `.rpm`.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: ${{ steps.signing.outputs.json == 'true' }}
+          args: ${{ matrix.args }} ${{ steps.signing.outputs.config }}

@@ -82,7 +82,7 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    - `TAURI_SIGNING_PRIVATE_KEY`: the contents of `omsi-hub-updater.key`;
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: its password.
 
-4. **Make the release workflow sign the updater files and publish `latest.json`.** CI's own
+4. **The release workflow** (`.github/workflows/release.yml`, in place) signs the updater files and publishes `latest.json` once steps 1–3 are done; until then it builds the installers only. CI's own
    `tauri build --no-bundle` stays as it is: it needs no key. The release build adds
    `createUpdaterArtifacts`, with the two secrets in its environment. With `tauri-action` that
    is:
