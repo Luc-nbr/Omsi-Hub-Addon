@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn the_annuity_pays_the_loan_off_to_the_cent() {
         // 100,000 at 6 % over 12 months: the textbook rate is 8,606.64
-        assert_eq!(economy::annuity(100_000_00, 0.06, 12), 8_606_64);
+        assert_eq!(economy::annuity(100_000_00, 0.06, 12), 860_664);
         assert_eq!(economy::annuity(120_000_00, 0.0, 12), 10_000_00);
         for (amount, rate, months) in [(100_000_00, 0.06, 12), (250_000_00, 0.085, 60), (77_777_77, 0.045, 72), (50_000_00, 0.0, 24)] {
             let s = schedule(amount, rate, months);
