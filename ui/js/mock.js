@@ -110,7 +110,7 @@ const DEPOT = {
 const DEPOTS = [{ key: DEPOT.key, name: DEPOT.name, map: DEPOT.map, termini: DEPOT.termini.length }];
 
 const answers = {
-  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.6.0', bridge: 1 }),
+  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.7.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
   hub_texts: () => ({}),
   hub_setup_state: () => ({ settings, openomsi: null, omsi2: null, migrate: { offer: false, companies: [], careers: [], files: 0 } }),
@@ -135,8 +135,8 @@ const answers = {
   hub_migrate_skip: () => ({ ok: true }),
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
-  addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: 'missing' }, plugin_version: '1.6.0' }),
-  addon_enable: (a) => ({ state: a.on ? 'on' : 'off', version: '1.6.0' }),
+  addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: 'missing' }, plugin_version: '1.7.0' }),
+  addon_enable: (a) => ({ state: a.on ? 'on' : 'off', version: '1.7.0' }),
 
   // the drive
   hub_maps: () => MAPS,
@@ -166,6 +166,8 @@ const answers = {
   hub_more_setvars: () => [],
   hub_more_bus_options: () => ({ options: [], reading: false }),
   hub_more_font_view: () => ({ failed: true, options: [] }),
+  // (a text on the bus's own display font, drawn by the game program: not in a browser)
+  hub_display_preview: () => ({ failed: true }),
   hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
   hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,
@@ -206,10 +208,15 @@ const answers = {
 export const backend = {
   async call(cmd, args) {
     const a = answers[cmd];
-    if (!a) throw `not ported yet: ${cmd}`;
+    if (!a) {
+      // (kept for a look at what a page asked that the mock lacks: `__OMSIHUB_MOCK_MISSING__`)
+      (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[cmd] = (globalThis.__OMSIHUB_MOCK_MISSING__[cmd] || 0) + 1;
+      throw `not ported yet: ${cmd}`;
+    }
     return a(args || {});
   },
   async callBytes(cmd) {
+    (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[`bytes:${cmd}`] = 1;
     throw `not ported yet: ${cmd}`;
   },
   on(event, fn) {

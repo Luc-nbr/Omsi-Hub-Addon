@@ -343,7 +343,9 @@ function TopBar({ layout, side, narrow }) {
   const [fit, setFit] = useState(0);
   useEffect(() => {
     const el = ref.current;
-    if (el && el.scrollWidth > el.clientWidth + 1 && fit < 4) setFit(fit + 1);
+    // (the bar too wide, or a button's words cut in it: the buttons shrink before the bar does)
+    const over = (x) => x.scrollWidth > x.clientWidth + 1;
+    if (el && (over(el) || [...el.querySelectorAll('.co-tomorrow, .co-top-back, .co-next')].some(over)) && fit < 4) setFit(fit + 1);
   });
   useEffect(() => {
     const again = () => setFit(0);
@@ -352,7 +354,9 @@ function TopBar({ layout, side, narrow }) {
   }, []);
   useEffect(() => setFit(0), [layout, side, sh.casual, c.tab]);
   const palette = layout === 'palette';
-  return html`<header class=${'co-top' + (palette ? ' palette' : '') + ' fit' + fit} ref=${ref}>
+  // (each step keeps the ones before it: `fit2` is `fit1 fit2`, as the bar's styles take them)
+  const fits = [1, 2, 3, 4].filter((k) => k <= fit).map((k) => ' fit' + k).join('');
+  return html`<header class=${'co-top' + (palette ? ' palette' : '') + fits} ref=${ref}>
     ${side === 'hidden' && html`<button type="button" class="co-top-handle" title=${keys(tr('Show the sidebar (Ctrl+B)'))} onClick=${() => flipSide(narrow)}><${Icon} name="menu" size=${20} /></button>`}
     ${palette && html`<span class="co-top-logo" title="Omsi-Hub" dangerouslySetInnerHTML=${{ __html: fit >= 2 ? MARK_SVG : LOGO_SVG }}></span>
       <span class="co-top-co" title=${sh.home}><${Mark} mark=${sh.mark} size=${30} /><span class="co-top-who"><b class="cut">${sh.name}</b><${ModeChip} sh=${sh} /></span></span>`}

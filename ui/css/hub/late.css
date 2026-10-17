@@ -26,7 +26,7 @@
 .late-cols .co-monthrow { display: flex; gap: 10px; }
 .late-cols .co-monthrow > span:first-child { flex: 1; }
 .late-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.late-how { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--co-note, 10.4px); color: var(--co-accent, #f28c28); cursor: pointer; }
+.late-how { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; margin-top: 8px; font-size: var(--co-note, 10.4px); color: var(--co-accent, #f28c28); cursor: pointer; }
 .late-how:hover { text-decoration: underline; }
 
 .late-advice { display: flex; gap: 12px; margin-bottom: 10px; }
