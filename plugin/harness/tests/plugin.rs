@@ -149,3 +149,70 @@ fn an_assignment_of_an_earlier_day_is_not_taken() {
     assert!(!h.state.borrow().panels.contains_key("omsihub"));
     assert_eq!(bridge::read_hello(&dir).map(|h| h.issued), Some(0));
 }
+
+/// A duty of parts as Omsi-Hub gives it (`bridge::Leg`).
+fn leg(line: &str, tour: &str, first: u32, trips: u32, from_stop: u32, to_stop: u32) -> bridge::Leg {
+    bridge::Leg { line: line.into(), tour: tour.into(), first, trips, from_stop, to_stop }
+}
+
+fn toasted(h: &Harness, part: &str) -> bool {
+    h.state.borrow().toasts.iter().any(|t| t.text.contains(part))
+}
+
+#[test]
+fn a_shift_s_parts_are_chained_and_the_duty_ends_after_the_last() {
+    let dir = installed("legs");
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, legs: vec![leg("10", "2", 1, 1, 0, 0), leg("11", "3", 2, 1, 0, 0)], ..assignment() }).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    // (the game's command line started the first part's tour)
+    h.state.borrow_mut().duty = Some(hub_plugin_harness::Duty { line: "10".into(), tour: "2".into(), trip: 1, trips: 2, delay: 0.0 });
+    h.frame().unwrap();
+    assert!(h.state.borrow().started.is_empty(), "the first part is the game's");
+    // the first part's last trip done: the second part taken with duty.start
+    h.fire("trip_done", &[json!(1), json!("arrived"), json!(90.0), json!(90.0), json!(100.0)]).unwrap();
+    assert_eq!(h.state.borrow().started, [("11".to_string(), "3".to_string(), 2, 0)]);
+    assert!(toasted(&h, "Part 2 of 2: line 11, tour 3"));
+    h.frame().unwrap();
+    // its last trip done: the duty ended
+    h.fire("trip_done", &[json!(2), json!("arrived"), json!(90.0), json!(90.0), json!(100.0)]).unwrap();
+    assert!(h.state.borrow().duty.is_none());
+    assert!(toasted(&h, "Your duty is done"));
+    h.frame().unwrap();
+    let reports = ReportReader::default().read_new(&dir);
+    let kinds: Vec<(&str, &str)> = reports.iter().map(|r| (r.kind.as_str(), r.line.as_str())).collect();
+    assert_eq!(kinds, [("duty_start", "10"), ("trip", "10"), ("duty_end", "10"), ("duty_start", "11"), ("trip", "11"), ("duty_end", "11")]);
+}
+
+#[test]
+fn a_duty_with_reliefs_begins_and_ends_on_the_way() {
+    let dir = installed("relief");
+    // (taken over at the third stop of trip 1, handed over at the fourth stop of trip 2)
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, legs: vec![leg("10", "2", 1, 2, 3, 4)], ..assignment() }).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    h.state.borrow_mut().duty = Some(hub_plugin_harness::Duty { line: "10".into(), tour: "2".into(), trip: 1, trips: 2, delay: 0.0 });
+    h.frame().unwrap();
+    assert_eq!(h.state.borrow().started, [("10".to_string(), "2".to_string(), 1, 3)], "taken again from the relief stop");
+    h.frame().unwrap();
+    // trip 1 done: the part goes on (it ends at a relief, not at a trip's end)
+    h.fire("trip_done", &[json!(1), json!("arrived"), json!(90.0), json!(90.0), json!(100.0)]).unwrap();
+    assert!(h.state.borrow().duty.is_some());
+    h.state.borrow_mut().duty.as_mut().unwrap().trip = 2;
+    h.frame().unwrap();
+    h.fire("stop_arrive", &[json!(null), json!(null), json!(3), json!(0.0)]).unwrap();
+    assert!(h.state.borrow().duty.is_some(), "not yet at the relief stop");
+    h.fire("stop_arrive", &[json!(null), json!(null), json!(4), json!(0.0)]).unwrap();
+    assert!(h.state.borrow().duty.is_none(), "the relief takes over");
+    assert!(toasted(&h, "Your relief takes over here"));
+    let reports = ReportReader::default().read_new(&dir);
+    assert!(reports.iter().any(|r| r.kind == "trip" && r.trip == 2 && r.how == "relieved"), "{reports:?}");
+}
+
+#[test]
+fn a_free_drive_says_its_route() {
+    let dir = installed("free");
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, duty: String::new(), line: "14".into(), tour: String::new(), free_line: "14_Hbf-Zoo".into(), ..assignment() }).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    h.frame().unwrap();
+    assert!(toasted(&h, "Free drive on line 14: 14_Hbf-Zoo"));
+    assert!(h.state.borrow().started.is_empty());
+}

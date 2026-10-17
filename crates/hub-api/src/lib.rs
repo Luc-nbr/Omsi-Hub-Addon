@@ -22,6 +22,7 @@
 pub mod addon;
 pub mod cloud;
 pub mod company;
+pub mod content;
 pub mod depot;
 pub mod drive;
 pub mod hub;

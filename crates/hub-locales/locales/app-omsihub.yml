@@ -3832,6 +3832,8 @@ _version: 2
   pl: "Czas jazdy"
 "Distance":
   nl: "Afstand"
+  de: "Strecke"
+  ru: "Расстояние"
   fr: "Distance"
   uk: "Відстань"
   pl: "Dystans"
@@ -4657,6 +4659,8 @@ _version: 2
   pl: "Wybierz jedną ze swoich linii albo utwórz nową."
 "Stops":
   nl: "Haltes"
+  de: "Haltestellen"
+  ru: "Остановки"
   fr: "Arrêts"
   uk: "Зупинки"
   pl: "Przystanki"

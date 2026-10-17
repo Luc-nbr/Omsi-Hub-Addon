@@ -40,6 +40,13 @@ fn size_of(s: &Session, bus: &str) -> BusSize {
     co::market::guess_kind(&[bus], &[], false, None, None).size
 }
 
+/// The driver's career read again now (the plugin's trips were just booked): a driving test
+/// booked is judged with them, and said.
+pub(crate) fn refresh(s: &mut Session) {
+    s.driver = None;
+    let _ = driver(s);
+}
+
 /// The driver's career, read again when the driver changed or after a while; a driving test
 /// booked is judged when its trip is there.
 fn driver(s: &mut Session) -> Option<&Driver> {

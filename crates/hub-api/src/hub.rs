@@ -61,13 +61,14 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
             p.quit();
             Ok(Value::Null)
         }
-        _ => Err(format!("unknown command: {cmd}")),
+        // (the drive's steps: the maps, buses, lines, shifts, weather, depots … `content`)
+        _ => crate::content::call(cmd, args, p),
     }
 }
 
-/// A `hub_` command that answers bytes: none yet.
-pub fn call_bytes(cmd: &str, _args: &Value, _p: &dyn Platform) -> Result<Vec<u8>, String> {
-    Err(format!("unknown command: {cmd}"))
+/// A `hub_` command that answers bytes (`content`: the map's picture, a font's).
+pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, String> {
+    crate::content::call_bytes(cmd, args, p)
 }
 
 fn version() -> Value {
