@@ -1,0 +1,317 @@
+{
+  "version": 3,
+  "id": "stadtbus",
+  "profile": "Luc",
+  "name": "Stadtbus Grundorf",
+  "short": "SG",
+  "colours": [
+    "#f28c28",
+    "#1d2b44"
+  ],
+  "logo": null,
+  "map": "maps/Grundorf/global.cfg",
+  "map_name": "",
+  "depot": "",
+  "founded": "2024-03-04",
+  "date": "2024-03-04",
+  "game_mode": "normal",
+  "cash": 116320000,
+  "reputation": 50.0,
+  "punctuality": 90.0,
+  "price_index": 1.0,
+  "contract_index": 1.0,
+  "ledger": [
+    {
+      "date": "2024-03-04",
+      "kind": "capital",
+      "amount": 116320000,
+      "text": "Stadtbus Grundorf",
+      "measured": false
+    }
+  ],
+  "months": [
+    {
+      "month": "2024-03",
+      "by_kind": [
+        [
+          "capital",
+          116320000
+        ]
+      ]
+    }
+  ],
+  "history": [],
+  "loans": [],
+  "fleet": [],
+  "staff": [],
+  "lines": [],
+  "taken": {
+    "week": 0,
+    "used": [],
+    "applicants": [],
+    "rounds": []
+  },
+  "counters": {
+    "vehicle": 0,
+    "employee": 0,
+    "loan": 0,
+    "fleet_number": 0
+  },
+  "trips_seen": 0,
+  "live": [],
+  "last_report": null,
+  "planning": {
+    "week": [],
+    "date": "",
+    "fills": [],
+    "collapsed": []
+  },
+  "progress": {
+    "xp": 0,
+    "courses": [],
+    "next_course": 0,
+    "judged": [],
+    "fines": 0,
+    "bonuses": 0,
+    "saved": 0,
+    "jobs": [],
+    "level_seen": 0
+  },
+  "site": {
+    "parking": 1,
+    "workshop": 1,
+    "wash": 0,
+    "fuel": 1,
+    "charging": 0,
+    "offices": 1,
+    "works": [],
+    "jobs": [],
+    "clean": 80.0,
+    "job_counter": 0
+  },
+  "concessions": {
+    "held": [],
+    "tenders": [],
+    "round": 0,
+    "counter": 0,
+    "rivals": [],
+    "contracts": [],
+    "contract_counter": 0
+  },
+  "clock": {
+    "minute": 0,
+    "feed": [],
+    "today": null,
+    "ask": null,
+    "target": null,
+    "dispatcher": false,
+    "real": {
+      "on": true,
+      "synced": null,
+      "lead": 0,
+      "caught": null
+    }
+  },
+  "dealer": {
+    "mode": "advanced",
+    "taken": [],
+    "orders": [],
+    "talks": [],
+    "breaks": [],
+    "bought": 0,
+    "relations": [],
+    "warranties": [],
+    "free_services": [],
+    "contracts": [],
+    "test_drive": null,
+    "counter": 0,
+    "loan_contracts": [],
+    "typed_ages": []
+  },
+  "designs": [],
+  "adverts": {
+    "contracts": [],
+    "counter": 0,
+    "taken": []
+  },
+  "quals": 1,
+  "trophies": 0,
+  "research": {
+    "done": [],
+    "running": null,
+    "checked": true
+  },
+  "stores": {
+    "stock": [
+      [
+        "engine",
+        1
+      ],
+      [
+        "light",
+        3
+      ],
+      [
+        "indicator",
+        3
+      ],
+      [
+        "wiper",
+        3
+      ],
+      [
+        "air_conditioner",
+        1
+      ],
+      [
+        "router",
+        1
+      ],
+      [
+        "brake_pads",
+        3
+      ],
+      [
+        "tyre_set",
+        2
+      ],
+      [
+        "oil_canister",
+        4
+      ],
+      [
+        "v_belt",
+        2
+      ]
+    ],
+    "orders": [],
+    "waiting": [],
+    "auto": true,
+    "opened": true,
+    "next_order": 0
+  },
+  "contracts": {
+    "goals": [],
+    "next_id": 0,
+    "week": 0,
+    "earned": 0,
+    "milestones": 0,
+    "internet": null,
+    "internet_next": null,
+    "data": {
+      "date": "",
+      "topped": 0.0,
+      "used": 0.0,
+      "short": 0.0
+    },
+    "fuel": null,
+    "cleaning": null
+  },
+  "inbox": {
+    "messages": [],
+    "next_id": 0,
+    "events": [],
+    "next_event": 0,
+    "welcomed": false
+  },
+  "staff_rules": {
+    "hours": [],
+    "auto_hire": false,
+    "minimum": [],
+    "follow_prices": true,
+    "wage_index": 0.0,
+    "grant_small": false,
+    "asks": [],
+    "portraits_used": [],
+    "last": null,
+    "holidays": {
+      "max_off": null,
+      "last": 0
+    },
+    "names_given": []
+  },
+  "addons": {
+    "rosterflow": false
+  },
+  "autopilot": {
+    "log": [],
+    "drivers": 0,
+    "buying": null,
+    "picked": [],
+    "normal_hint_off": false
+  },
+  "vehicles": {
+    "mode": "all",
+    "off": []
+  },
+  "together": {
+    "open_claims": true,
+    "guests": [],
+    "claims": [],
+    "trips": [],
+    "left_open": false
+  },
+  "reputation_log": {
+    "entries": [],
+    "days_without_drops": 0,
+    "history": [],
+    "weeks": []
+  },
+  "complaints": {
+    "list": [],
+    "counter": 0
+  },
+  "lateness": {
+    "days": [],
+    "live": [],
+    "live_date": ""
+  },
+  "company_mode": "career",
+  "sandbox": {
+    "unlimited_money": false,
+    "no_bankruptcy": false,
+    "free_loans": false,
+    "unlock_all": false,
+    "income": 1.0,
+    "wages": 1.0,
+    "running": 1.0,
+    "prices": 1.0,
+    "penalties": 1.0,
+    "inflation": true,
+    "breakdowns": 1.0,
+    "accidents": 1.0,
+    "lateness": 1.0,
+    "sickness": 1.0,
+    "reputation_gain": 1.0,
+    "reputation_loss": 1.0,
+    "complaints": true,
+    "morale": true,
+    "holidays": true,
+    "free_hiring": false
+  },
+  "country": "de",
+  "currency": "EUR",
+  "messages": {
+    "next": 0,
+    "list": [],
+    "said": [],
+    "driving": null,
+    "link": 0,
+    "seen": []
+  },
+  "crew": {
+    "notes": [],
+    "defects": [],
+    "swaps": [],
+    "sick_until": null,
+    "leave": {
+      "requests": []
+    },
+    "last": 0,
+    "last_note": 0
+  },
+  "ontime": {
+    "diversions": [],
+    "next_id": 0
+  }
+}

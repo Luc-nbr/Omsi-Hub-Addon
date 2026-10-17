@@ -38,9 +38,54 @@ pub const FILES: &[&str] = &[
 /// The files of [`FILES`] that are read into the settings, not copied.
 pub const READ_ONLY: &[&str] = &["launcher.json", "settings.cfg"];
 
-/// Omsi-Hub's own keys of the old game's `settings.cfg` (the rest are openOMSI's), taken into
-/// the settings with their values.
-pub const OWN_KEYS: &[&str] = &["bus_lead", "animations", "page_bus", "dark_mode", "welcome_done"];
+/// Omsi-Hub's own keys of the old game's `settings.cfg` that the new app still uses (the rest
+/// are openOMSI's, or of what the new app has no more), taken into the settings with their
+/// values made tidy as the old launcher read them ([`own_setting`]). `language` and `theme` are
+/// read too: the language into the settings' own field, `theme` as `dark_mode`.
+pub const OWN_KEYS: &[(&str, Kind)] = &[
+    ("bus_lead", Kind::Minutes),
+    ("animations", Kind::Truth),
+    ("page_bus", Kind::Truth),
+    ("dark_mode", Kind::Truth),
+    ("welcome_done", Kind::Truth),
+    ("accent", Kind::Colour),
+    ("launcher_scale", Kind::Scale),
+    ("company_layout", Kind::Layout),
+    ("company_sidebar", Kind::Sidebar),
+    ("company_pins", Kind::Pins),
+    ("nav_signon", Kind::Truth),
+    ("nav_board", Kind::Truth),
+    ("nav_ontime", Kind::Truth),
+    ("nav_strip", Kind::Truth),
+    ("nav_scale", Kind::Scale),
+    ("nav_rect", Kind::Text),
+    ("stop_style", Kind::Text),
+    ("ibis_auto", Kind::Truth),
+    ("update_check", Kind::Truth),
+    ("update_auto", Kind::Truth),
+    ("update_notify", Kind::Truth),
+];
+
+/// How a key of [`OWN_KEYS`] is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// `1`/`true`/`on`/`yes`, else false.
+    Truth,
+    /// Minutes, 0 to 60 (the bus's lead before a duty).
+    Minutes,
+    /// `#rrggbb` (`#rgb` written out); anything else left out.
+    Colour,
+    /// 0.6 to 2.0 in steps of 0.05.
+    Scale,
+    /// `sidebar` unless `palette`.
+    Layout,
+    /// `open` unless `rail` or `hidden`.
+    Sidebar,
+    /// Page numbers, comma-separated, each once, at most twelve.
+    Pins,
+    /// As it is.
+    Text,
+}
 
 /// One thing to take.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -67,10 +112,17 @@ impl Found {
     }
 }
 
+/// The environment variable that points the old data folder elsewhere (the tests and the
+/// selftest, with a fixture: `fixtures/old-openomsi`).
+pub const OLD_FOLDER_ENV: &str = "OMSIHUB_OLD_DATA_DIR";
+
 /// The old data folder: `~/.openomsi` - in the home folder on Windows, macOS and Linux alike
-/// (the old Omsi-Hub kept it there on every system).
+/// (the old Omsi-Hub kept it there on every system); [`OLD_FOLDER_ENV`] when it is set.
 pub fn old_folder() -> PathBuf {
-    crate::paths::home_dir().join(".openomsi")
+    match std::env::var_os(OLD_FOLDER_ENV).filter(|v| !v.is_empty()) {
+        Some(d) => PathBuf::from(d),
+        None => crate::paths::home_dir().join(".openomsi"),
+    }
 }
 
 /// What `old` (normally [`old_folder`]) holds to import. Reads only.
@@ -98,6 +150,47 @@ pub fn scan(old: &Path) -> Found {
     found
 }
 
+/// What the setup shows of the old saves before they are copied ([`preview`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct Preview {
+    /// The companies: their files' names and the names they go by.
+    pub companies: Vec<(String, String)>,
+    /// The drivers with a career, the maps with own lines, the depot files.
+    pub careers: Vec<String>,
+    pub lines: Vec<String>,
+    pub depots: Vec<String>,
+    /// The settings that are taken over (their keys), the language and the driver.
+    pub settings: Vec<String>,
+    pub language: Option<String>,
+    pub driver: Option<String>,
+    /// All the files, and their size.
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// What [`scan`] found, as the setup shows it. Reads only.
+pub fn preview(found: &Found) -> Preview {
+    let under = |dir: &str, ext: &str| -> Vec<String> {
+        found.items.iter().filter_map(|i| i.path.strip_prefix(&format!("{dir}/"))).filter(|n| n.to_ascii_lowercase().ends_with(ext)).map(|n| n[..n.len() - ext.len()].to_string()).collect()
+    };
+    let name_of = |id: &str| -> String {
+        let text = std::fs::read_to_string(found.folder.join("companies").join(format!("{id}.json"))).unwrap_or_default();
+        serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string)).unwrap_or_else(|| id.to_string())
+    };
+    let cfg = found.items.iter().any(|i| i.path == "settings.cfg").then(|| std::fs::read_to_string(found.folder.join("settings.cfg")).unwrap_or_default());
+    Preview {
+        companies: found.companies.iter().map(|id| (id.clone(), name_of(id))).collect(),
+        careers: found.careers.clone(),
+        lines: under("lines", ".json"),
+        depots: under("depots", ".hof"),
+        settings: cfg.as_deref().map(|t| own_settings(t).into_iter().map(|(k, _)| k).collect()).unwrap_or_default(),
+        language: cfg.as_deref().and_then(language_of),
+        driver: found.items.iter().any(|i| i.path == "launcher.json").then(|| driver_of(&found.folder.join("launcher.json"))).flatten(),
+        files: found.items.iter().filter(|i| !READ_ONLY.contains(&i.path.as_str())).count(),
+        bytes: found.items.iter().map(|i| i.bytes).sum(),
+    }
+}
+
 /// What [`import_into`] did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Imported {
@@ -109,6 +202,8 @@ pub struct Imported {
     pub driver: Option<String>,
     /// The settings taken from the old game's `settings.cfg` (key, value).
     pub settings: Vec<(String, serde_json::Value)>,
+    /// The language the old game was in (`en`, `de` …), from its `settings.cfg`.
+    pub language: Option<String>,
 }
 
 /// Copy what [`scan`] found into Omsi-Hub's data folder, and take the driver and Omsi-Hub's
@@ -122,6 +217,9 @@ pub fn import(found: &Found) -> Result<usize, String> {
     }
     for (k, v) in &done.settings {
         s.other.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    if let Some(l) = done.language.as_ref().filter(|_| s.language.is_empty()) {
+        s.language = l.clone();
     }
     s.migrated = true;
     s.save().map_err(|e| format!("{}: {e}", crate::settings::Settings::path().display()))?;
@@ -141,7 +239,11 @@ pub fn import_into(found: &Found, data: &Path) -> Result<Imported, String> {
         let from = found.folder.join(rel);
         match rel {
             "launcher.json" => out.driver = driver_of(&from),
-            "settings.cfg" => out.settings = own_settings(&std::fs::read_to_string(&from).unwrap_or_default()),
+            "settings.cfg" => {
+                let text = std::fs::read_to_string(&from).unwrap_or_default();
+                out.settings = own_settings(&text);
+                out.language = language_of(&text);
+            }
             _ => {
                 let to = data.join(rel);
                 if to.exists() {
@@ -169,29 +271,113 @@ fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 /// The driver of the old launcher's `launcher.json` (its `profile`).
-fn driver_of(path: &Path) -> Option<String> {
+pub fn driver_of(path: &Path) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     v.get("profile").and_then(|p| p.as_str()).map(str::trim).filter(|p| !p.is_empty()).map(str::to_string)
 }
 
-/// Omsi-Hub's keys of a `settings.cfg` text (`key=value` lines), as JSON values: a number or a
-/// truth where the value is one.
-pub fn own_settings(text: &str) -> Vec<(String, serde_json::Value)> {
-    let mut out: Vec<(String, serde_json::Value)> = Vec::new();
+/// The `key=value` lines of a `settings.cfg` text (comments and blank lines left out; the first
+/// of a key counts).
+fn cfg_lines(text: &str) -> Vec<(&str, &str)> {
+    let mut out: Vec<(&str, &str)> = Vec::new();
     for line in text.lines() {
-        let Some((k, v)) = line.split_once('=') else { continue };
-        let (k, v) = (k.trim(), v.trim());
-        if !OWN_KEYS.contains(&k) || out.iter().any(|(x, _)| x == k) {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') {
             continue;
         }
-        let value = match v {
-            "true" => serde_json::Value::Bool(true),
-            "false" => serde_json::Value::Bool(false),
-            _ => v.parse::<i64>().map(serde_json::Value::from).or_else(|_| v.parse::<f64>().map(serde_json::Value::from)).unwrap_or_else(|_| serde_json::Value::String(v.to_string())),
-        };
-        out.push((k.to_string(), value));
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let (k, v) = (k.trim(), v.trim());
+        if !out.iter().any(|(x, _)| *x == k) {
+            out.push((k, v));
+        }
     }
     out
+}
+
+/// A value of `kind` as the settings keep it (None: not a value of its kind, left out).
+pub fn own_setting(kind: Kind, v: &str) -> Option<serde_json::Value> {
+    use serde_json::Value as J;
+    let truth = |x: &str| matches!(x.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes");
+    Some(match kind {
+        Kind::Truth => J::Bool(truth(v)),
+        Kind::Minutes => J::from(v.parse::<f64>().ok().filter(|x| x.is_finite())?.round().clamp(0.0, 60.0) as i64),
+        Kind::Colour => {
+            let h = v.trim().trim_start_matches('#');
+            let full: String = if h.len() == 3 { h.chars().flat_map(|c| [c, c]).collect() } else { h.to_string() };
+            if full.len() != 6 || !full.chars().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            J::String(format!("#{}", full.to_ascii_lowercase()))
+        }
+        Kind::Scale => {
+            let x = v.parse::<f64>().ok().filter(|x| x.is_finite())?.clamp(0.6, 2.0);
+            J::from((x * 20.0).round() / 20.0)
+        }
+        Kind::Layout => J::String(if v.eq_ignore_ascii_case("palette") { "palette" } else { "sidebar" }.into()),
+        Kind::Sidebar => J::String(
+            match v.to_ascii_lowercase().as_str() {
+                "rail" => "rail",
+                "hidden" => "hidden",
+                _ => "open",
+            }
+            .into(),
+        ),
+        Kind::Pins => {
+            let mut pins: Vec<u32> = Vec::new();
+            for n in v.split(',').filter_map(|x| x.trim().parse::<u32>().ok()) {
+                if n < 200 && !pins.contains(&n) && pins.len() < 12 {
+                    pins.push(n);
+                }
+            }
+            J::String(pins.iter().map(u32::to_string).collect::<Vec<_>>().join(","))
+        }
+        Kind::Text => J::String(v.to_string()),
+    })
+}
+
+/// Omsi-Hub's keys of a `settings.cfg` text ([`OWN_KEYS`]), as the settings keep them; `theme`
+/// (`dark`/`light`) as `dark_mode` where the file has no `dark_mode`.
+pub fn own_settings(text: &str) -> Vec<(String, serde_json::Value)> {
+    let lines = cfg_lines(text);
+    let mut out: Vec<(String, serde_json::Value)> = Vec::new();
+    for (k, v) in &lines {
+        let Some((_, kind)) = OWN_KEYS.iter().find(|(key, _)| key == k) else { continue };
+        if let Some(value) = own_setting(*kind, v) {
+            out.push((k.to_string(), value));
+        }
+    }
+    if !out.iter().any(|(k, _)| k == "dark_mode") {
+        if let Some((_, theme)) = lines.iter().find(|(k, _)| *k == "theme") {
+            match theme.to_ascii_lowercase().as_str() {
+                "dark" | "night" => out.push(("dark_mode".into(), serde_json::Value::Bool(true))),
+                "light" | "day" => out.push(("dark_mode".into(), serde_json::Value::Bool(false))),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// The language of a `settings.cfg` text (`language`, or the older `lang`), as the app's texts
+/// name it: OMSI's three letters (`ENG`, `DEU` …) or a two-letter code. None: none, or one the
+/// app does not have.
+pub fn language_of(text: &str) -> Option<String> {
+    let lines = cfg_lines(text);
+    let v = lines.iter().find(|(k, _)| *k == "language").or_else(|| lines.iter().find(|(k, _)| *k == "lang"))?.1;
+    let code = match v.trim().to_lowercase().as_str() {
+        "eng" | "en" | "english" => "en",
+        "deu" | "ger" | "de" | "deutsch" | "german" => "de",
+        "nld" | "dut" | "nl" | "nederlands" | "dutch" => "nl",
+        "fra" | "fre" | "fr" | "fran\u{e7}ais" | "french" => "fr",
+        "pol" | "pl" | "polski" | "polish" => "pl",
+        "rus" | "ru" | "russian" => "ru",
+        "ukr" | "uk" | "ukrainian" => "uk",
+        "ces" | "cze" | "cs" | "czech" => "cs",
+        "ita" | "it" | "italian" => "it",
+        "esp" | "spa" | "es" | "spanish" => "es",
+        _ => return None,
+    };
+    Some(code.to_string())
 }
 
 #[cfg(test)]
@@ -200,6 +386,9 @@ mod tests {
 
     #[test]
     fn the_old_folder_is_in_the_home_folder_on_every_system() {
+        if std::env::var_os(OLD_FOLDER_ENV).is_some() {
+            return;
+        }
         let f = old_folder();
         assert_eq!(f.file_name().unwrap(), ".openomsi");
         assert_eq!(f.parent().unwrap(), crate::paths::home_dir());
@@ -260,6 +449,7 @@ mod tests {
         let done = import_into(&f, &data).unwrap();
         assert_eq!(done.driver.as_deref(), Some("Luc"));
         assert_eq!(done.settings, vec![("bus_lead".to_string(), serde_json::json!(12)), ("dark_mode".to_string(), serde_json::json!(true))]);
+        assert_eq!(done.language.as_deref(), Some("en"));
         assert_eq!(done.kept, ["careers/Luc.json"]);
         assert_eq!(std::fs::read_to_string(data.join("careers/Luc.json")).unwrap(), "mine");
         assert_eq!(std::fs::read_to_string(data.join("companies/abc.json")).unwrap(), company);
@@ -281,6 +471,85 @@ mod tests {
         assert_eq!((back.name.as_str(), back.date.as_str()), ("Stadtbus", "2024-03-04"));
         assert_eq!(crate::company::store::list(&data, "Luc").len(), 1);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The repository's fixture of an old `~/.openomsi` (`fixtures/old-openomsi`).
+    fn fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/old-openomsi")
+    }
+
+    /// The fixture's company, as the old launcher saved it (written again with
+    /// `cargo test -p hub-core make_the_old_folder_s_company -- --ignored`).
+    #[test]
+    #[ignore = "writes the fixture's company file"]
+    fn make_the_old_folder_s_company() {
+        let mut c =
+            crate::company::found(&crate::company::Founding { name: "Stadtbus Grundorf".into(), date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
+        c.id = "stadtbus".into();
+        crate::company::store::save(&fixture(), &c).unwrap();
+    }
+
+    /// A whole old folder (the fixture: companies with their side files, a career, trips, own
+    /// lines, depots, the bus fonts, options and classes, the old launcher's driver, the old
+    /// game's settings mixed with openOMSI's, and openOMSI's own log and screenshots) copied into
+    /// a new data folder: what is Omsi-Hub's is there and reads, openOMSI's is not taken, the
+    /// settings we still use are taken over - and the fixture is as it was, byte for byte.
+    #[test]
+    fn a_whole_old_folder_is_copied_and_left_as_it_was() {
+        let old = fixture();
+        let data = std::env::temp_dir().join(format!("omsihub-import-fixture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let before: Vec<(PathBuf, Vec<u8>)> = walk(&old).into_iter().map(|p| (p.clone(), std::fs::read(&p).unwrap())).collect();
+        let found = scan(&old);
+        assert_eq!(found.companies, ["stadtbus"]);
+        assert_eq!(found.careers, ["luc"]);
+        let p = preview(&found);
+        assert_eq!(p.companies, [("stadtbus".to_string(), "Stadtbus Grundorf".to_string())]);
+        assert_eq!((p.lines.as_slice(), p.depots.as_slice()), (["Grundorf".to_string()].as_slice(), ["oo_Grundorf".to_string()].as_slice()));
+        assert_eq!((p.language.as_deref(), p.driver.as_deref(), p.files), (Some("de"), Some("Luc"), 11));
+        assert!(p.settings.contains(&"accent".to_string()) && p.settings.contains(&"company_layout".to_string()), "{:?}", p.settings);
+        let done = import_into(&found, &data).unwrap();
+        for rel in [
+            "companies/stadtbus.json",
+            "companies/stadtbus.live.jsonl",
+            "companies/stadtbus.inbox.json",
+            "careers/luc.json",
+            "trips/luc.jsonl",
+            "lines/Grundorf.json",
+            "depots/oo_Grundorf.hof",
+            "bus-fonts.json",
+            "bus-options.json",
+            "vehicle-classes.json",
+            "hidden-drivers.txt",
+        ] {
+            assert!(done.copied.iter().any(|c| c == rel), "{rel} not copied: {:?}", done.copied);
+            assert_eq!(std::fs::read(old.join(rel)).unwrap(), std::fs::read(data.join(rel)).unwrap(), "{rel}");
+        }
+        // openOMSI's own files and the two read ones are not copied
+        for rel in ["game.log", "screenshots/readme.txt", "settings.cfg", "launcher.json"] {
+            assert!(!data.join(rel).exists(), "{rel} was copied");
+        }
+        // the driver, the language and the settings we still use, made tidy as the old launcher read them
+        assert_eq!((done.driver.as_deref(), done.language.as_deref()), (Some("Luc"), Some("de")));
+        let get = |k: &str| done.settings.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        assert_eq!(get("accent"), Some(serde_json::json!("#2a75f7")));
+        assert_eq!(get("dark_mode"), Some(serde_json::json!(true)));
+        assert_eq!(get("company_layout"), Some(serde_json::json!("palette")));
+        assert_eq!(get("company_sidebar"), Some(serde_json::json!("rail")));
+        assert_eq!(get("company_pins"), Some(serde_json::json!("3,1,15")));
+        assert_eq!((get("nav_signon"), get("nav_board"), get("ibis_auto")), (Some(serde_json::json!(true)), Some(serde_json::json!(false)), Some(serde_json::json!(false))));
+        assert_eq!((get("bus_lead"), get("launcher_scale"), get("update_auto")), (Some(serde_json::json!(8)), Some(serde_json::json!(1.25)), Some(serde_json::json!(false))));
+        assert_eq!((get("msaa"), get("fullscreen"), get("language")), (None, None, None), "openOMSI's keys stay in its file");
+        // the company, its career and its trips read in the new folder
+        let c = crate::company::store::load(&data, "stadtbus").unwrap();
+        assert_eq!((c.name.as_str(), c.date.as_str()), ("Stadtbus Grundorf", "2024-03-04"));
+        assert_eq!(crate::company::store::list(&data, "Luc").len(), 1);
+        assert_eq!(crate::trips_of(&data, "Luc").len(), 1);
+        assert_eq!(crate::company::career::load(&data, "Luc").driver, "Luc");
+        // the fixture: nothing written, moved or added
+        let after: Vec<(PathBuf, Vec<u8>)> = walk(&old).into_iter().map(|p| (p.clone(), std::fs::read(&p).unwrap())).collect();
+        assert_eq!(after, before);
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     fn walk(d: &Path) -> Vec<PathBuf> {
