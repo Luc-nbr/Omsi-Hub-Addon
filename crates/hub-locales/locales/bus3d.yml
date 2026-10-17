@@ -1,0 +1,39 @@
+_version: 2
+# The bus in 3D on the bus step (ui/js/hub/bus3d.js, hub-api's content/bus3d.rs). The English
+# text is the key, as in app.yml.
+
+"openOMSI is writing the bus in 3D… The first time takes a while; then it is kept.":
+  nl: "openOMSI maakt de bus in 3D… De eerste keer duurt even; daarna wordt hij bewaard."
+  de: "openOMSI erstellt den Bus in 3D… Beim ersten Mal dauert es etwas; danach wird er behalten."
+  fr: "openOMSI crée le bus en 3D… La première fois prend un moment ; ensuite il est conservé."
+  ru: "openOMSI создаёт автобус в 3D… В первый раз это занимает время; потом он сохраняется."
+  uk: "openOMSI створює автобус у 3D… Уперше це триває деякий час; потім він зберігається."
+  pl: "openOMSI tworzy autobus w 3D… Za pierwszym razem trwa to chwilę; potem zostaje zapisany."
+"The bus could not be shown in 3D: %{error}":
+  nl: "De bus kon niet in 3D worden getoond: %{error}"
+  de: "Der Bus konnte nicht in 3D gezeigt werden: %{error}"
+  fr: "Le bus n’a pas pu être affiché en 3D : %{error}"
+  ru: "Не удалось показать автобус в 3D: %{error}"
+  uk: "Не вдалося показати автобус у 3D: %{error}"
+  pl: "Nie udało się pokazać autobusu w 3D: %{error}"
+"Reset the view":
+  nl: "Beginaanzicht"
+  de: "Ansicht zurücksetzen"
+  fr: "Réinitialiser la vue"
+  ru: "Сбросить вид"
+  uk: "Скинути вигляд"
+  pl: "Przywróć widok"
+"Turn by itself":
+  nl: "Zelf draaien"
+  de: "Selbst drehen"
+  fr: "Tourner tout seul"
+  ru: "Вращать самостоятельно"
+  uk: "Обертати самостійно"
+  pl: "Obracaj sam"
+"Choose your openOMSI and OMSI 2 folders first":
+  nl: "Kies eerst je openOMSI- en OMSI 2-map"
+  de: "Wähle zuerst deine openOMSI- und OMSI-2-Ordner"
+  fr: "Choisissez d’abord vos dossiers openOMSI et OMSI 2"
+  ru: "Сначала выберите папки openOMSI и OMSI 2"
+  uk: "Спершу виберіть теки openOMSI та OMSI 2"
+  pl: "Najpierw wybierz foldery openOMSI i OMSI 2"

@@ -1,6 +1,6 @@
 // What the new app does not have yet, in the places the pages open it: the line editor, the
-// livery studio, the 3D bus preview and the privacy statement's page. Each says so, with the
-// way back.
+// livery studio and the privacy statement's page (the 3D bus preview is `bus3d.js`). Each says
+// so, with the way back.
 
 import { html } from '../../vendor/preact-htm.js';
 import { set } from '../store.js';
@@ -28,7 +28,8 @@ export function LiveryEditor() {
 }
 
 /** The bus seen in 3D on the bus step. */
-export const Bus3D = () => html`<${ComingLater} icon="directions_bus" title="3D preview" text="The bus in 3D comes to the new app later." />`;
+/** The bus in 3D: drawn from the model the player's openOMSI writes (`bus3d.js`). */
+export { Bus3D } from './bus3d.js';
 
 /** The livery studio's own state, which the editors' checks ask for. */
 export const studio = null;

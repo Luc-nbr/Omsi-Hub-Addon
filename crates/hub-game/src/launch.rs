@@ -57,6 +57,7 @@ pub const OFFICIAL_FLAGS: &[&str] = &[
     "--no-menu",
     "--menu",
     "--content-zip",
+    "--export-glb",
     "--version",
 ];
 
@@ -144,6 +145,9 @@ pub struct LaunchSpec {
     pub menu: bool,
     /// Extra content archives mounted for this drive.
     pub content_zips: Vec<PathBuf>,
+    /// The bus written as glTF into this file, and the game ended (`--export-glb`: what
+    /// openOMSI's launcher draws its bus preview from); nothing is driven.
+    pub export_glb: Option<PathBuf>,
 }
 
 /// Why a [`LaunchSpec`] cannot be started.
@@ -310,6 +314,9 @@ impl LaunchSpec {
         flag(&mut a, "--menu", self.menu && !self.no_menu);
         for z in &self.content_zips {
             val(&mut a, "--content-zip", z.to_string_lossy().into_owned())?;
+        }
+        if let Some(out) = &self.export_glb {
+            val(&mut a, "--export-glb", out.to_string_lossy().into_owned())?;
         }
         Ok(a)
     }

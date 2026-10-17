@@ -178,7 +178,8 @@ installed here):
 - `compat::{FIRST_SUPPORTED = 0.2.22, estimate, negotiate, check}`.
 - `install::{install, disable, status, plugin_dir}`.
 - `bridge::{Assignment, Leg, Hello, Report, write_assignment, read_hello, ReportReader, ReplyReader, from_log}`.
-- `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`).
+- `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`); `export_glb` adds `--export-glb <file>`.
+- `process::export_glb(exe, spec, wait)`: the bus written as glTF by the player's openOMSI (the 3D bus on the bus step, `content::bus3d`: `hub_bus3d`, `hub_bus3d_glb`, the models kept in the data folder's `bus3d`; the page draws them with three.js, `ui/vendor/three.js`).
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
 - `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).

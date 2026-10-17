@@ -215,6 +215,8 @@ const answers = {
   hub_more_font_view: () => ({ failed: true, options: [] }),
   // (a text on the bus's own display font, drawn by the game program: not in a browser)
   hub_display_preview: () => ({ failed: true }),
+  // (the bus in 3D is written by the player's openOMSI: not in a browser)
+  hub_bus3d: () => ({ state: 'failed', error: 'The 3D model is written by openOMSI: open Omsi-Hub itself' }),
   hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
   hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,

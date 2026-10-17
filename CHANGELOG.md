@@ -17,6 +17,11 @@ Each version of the Omsi-Hub add-on, newest first. The release on GitHub links h
 - **The maps are drawn**: the route map of the drive's steps, the company's duty map and its fleet
   map show the map's roads and the way each trip drives, read from the map's own tiles and spline
   files. A junction's own lanes are not read yet: a route crosses it in a straight line.
+- **The bus in 3D** on the bus step, for every bus openOMSI drives: openOMSI itself writes the bus
+  (`--export-glb`) in the livery and with the bus options chosen, and Omsi-Hub draws it - turned
+  with the mouse, zoomed with the wheel, turning by itself, with views from the front, the side
+  and the back. The first time a look takes a while; then it is kept. Needs an openOMSI that has
+  `--export-glb`.
 
 ## 0.1.0 (pre-release, for testing)
 

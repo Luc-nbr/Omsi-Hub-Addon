@@ -160,9 +160,92 @@ pub fn ask_version(exe: &Path, wait: Duration) -> Option<GameVersion> {
     detect::version_from_output(&out)
 }
 
+/// The bus of `spec` (its `export_glb` set) exported as glTF by the openOMSI at `exe`: the
+/// program started without a window, waited for up to `wait`, and the file it wrote checked.
+/// Fails with what the game said last when it wrote nothing (an openOMSI without
+/// `--export-glb`, a bus it cannot read).
+pub fn export_glb(exe: &Path, spec: &LaunchSpec, wait: Duration) -> Result<PathBuf, String> {
+    let out = spec.export_glb.clone().ok_or("no file to export into")?;
+    let args = spec.args().map_err(|e| e.to_string())?;
+    ensure_executable(exe).map_err(|e| format!("{}: {e}", exe.display()))?;
+    if let Some(d) = out.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    let _ = std::fs::remove_file(&out);
+    let mut cmd = Command::new(exe);
+    cmd.args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
+    no_window(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))?;
+    // (what it says on the way is read beside it, so that a full pipe never stops it)
+    let err = child.stderr.take().map(|mut e| {
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = std::io::Read::read_to_string(&mut e, &mut s);
+            s
+        })
+    });
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) if start.elapsed() < wait => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let said = err.and_then(|h| h.join().ok()).unwrap_or_default();
+    let last = said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+    let written = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    match status {
+        None => Err(format!("openOMSI took longer than {} s to export the bus", wait.as_secs())),
+        Some(_) if written > 12 => Ok(out),
+        Some(s) => Err(if last.is_empty() { format!("openOMSI wrote no model ({s})") } else { format!("openOMSI wrote no model: {last}") }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fake openOMSI that writes a model where `--export-glb` says, or says why not.
+    #[cfg(unix)]
+    fn fake_exporter(dir: &Path, writes: bool) -> PathBuf {
+        let exe = dir.join(if writes { "openomsi" } else { "openomsi-old" });
+        let body = if writes {
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --export-glb ]; then printf 'glTF-model-bytes' > \"$2\"; fi; shift; done\n"
+        } else {
+            "#!/bin/sh\necho 'error: unknown flag --export-glb' >&2\nexit 2\n"
+        };
+        std::fs::write(&exe, body).unwrap();
+        exe
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_bus_is_exported_by_the_game_or_says_why_not() {
+        let dir = std::env::temp_dir().join(format!("hub-game-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("models/a.glb");
+        let spec = LaunchSpec { bus: Some("Vehicles/X/a.bus".into()), paint: Some("Red".into()), export_glb: Some(out.clone()), ..LaunchSpec::default() };
+        let a = spec.args().unwrap();
+        assert!(a.windows(2).any(|w| w == ["--export-glb", out.to_str().unwrap()]) && a.windows(2).any(|w| w == ["--paint", "Red"]), "{a:?}");
+        // (the program unpacked without its executable bit gets it, as a drive's does)
+        let exe = fake_exporter(&dir, true);
+        assert_eq!(export_glb(&exe, &spec, Duration::from_secs(10)), Ok(out.clone()));
+        assert_eq!(std::fs::read(&out).unwrap(), b"glTF-model-bytes");
+        let old = fake_exporter(&dir, false);
+        assert_eq!(export_glb(&old, &spec, Duration::from_secs(10)), Err("openOMSI wrote no model: error: unknown flag --export-glb".into()));
+        assert!(!out.exists(), "the model of before is not taken for this one");
+        assert!(export_glb(&exe, &LaunchSpec::default(), Duration::from_secs(1)).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A harmless program in the game's place: `rustc --version`, which every test run has.
     fn harmless() -> (Command, PathBuf) {
