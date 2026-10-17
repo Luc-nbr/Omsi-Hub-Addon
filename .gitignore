@@ -16,3 +16,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# fonts we may not ship
+*Switzer*
+
+# the Tauri app's generated schemas
+/app/gen/

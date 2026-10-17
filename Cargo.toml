@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hub-omsi",
+    "crates/hub-core",
+    "crates/hub-api",
+    "crates/hub-game",
+    "crates/hub-locales",
+    "crates/hub-online",
+    "plugin/harness",
+]
+# (the app builds with `cargo build -p omsi-hub`; plain `cargo build` builds the libraries)
+default-members = [
+    "crates/hub-omsi",
+    "crates/hub-core",
+    "crates/hub-api",
+    "crates/hub-game",
+    "crates/hub-locales",
+    "crates/hub-online",
+    "plugin/harness",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Omsi-Hub"]
+repository = "https://github.com/Luc-nbr/Omsi-Hub-Addon"
+rust-version = "1.90"
+
+[workspace.dependencies]
+hub-omsi = { path = "crates/hub-omsi" }
+hub-core = { path = "crates/hub-core" }
+hub-api = { path = "crates/hub-api" }
+hub-game = { path = "crates/hub-game" }
+hub-locales = { path = "crates/hub-locales" }
+hub-online = { path = "crates/hub-online" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+sha2 = "0.11"
+ring = "0.17"
+encoding_rs = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+dirs = "6"
+mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = "debuginfo"
