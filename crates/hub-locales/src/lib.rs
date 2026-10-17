@@ -59,6 +59,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("logo.yml", include_str!("../locales/logo.yml")),
     ("online-oauth.yml", include_str!("../locales/online-oauth.yml")),
     ("online-signup.yml", include_str!("../locales/online-signup.yml")),
+    ("online.yml", include_str!("../locales/online.yml")),
     ("openomsi-0230.yml", include_str!("../locales/openomsi-0230.yml")),
     ("planning-studio.yml", include_str!("../locales/planning-studio.yml")),
     ("privacy.yml", include_str!("../locales/privacy.yml")),
@@ -88,6 +89,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("tauri-omsihub.yml", include_str!("../locales/tauri-omsihub.yml")),
     ("tauri-rosterflow.yml", include_str!("../locales/tauri-rosterflow.yml")),
     ("tijd.yml", include_str!("../locales/tijd.yml")),
+    ("update.yml", include_str!("../locales/update.yml")),
     ("vehicle-age.yml", include_str!("../locales/vehicle-age.yml")),
     ("verwijderen.yml", include_str!("../locales/verwijderen.yml")),
 ];
