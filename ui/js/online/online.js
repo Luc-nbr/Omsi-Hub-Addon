@@ -27,7 +27,7 @@ import { get, set, useStore } from '../store.js';
 import { Btn, Icon, loadSheet, Sure, Switch, toast, tr } from './bits.js';
 // (the account's cloud saves: the 2 slots - `cloud.js`)
 import { CloudSaves } from './cloud.js';
-import { askPrivacy, PrivacyLink, Statement } from '../privacy.js';
+import { AGE, askPrivacy, PrivacyLink, Statement } from '../privacy.js';
 
 loadSheet();
 
@@ -547,6 +547,7 @@ function PrivacyAsk({ v }) {
         </ul>
         <${Statement} />
       </div>
+      <p class="ol-pv-consent" id="pv-age">${tr(AGE)}</p>
       ${err && html`<p class="ol-err">${err}</p>`}
       <div class="ol-pv-acts">
         <${Btn} kind="primary" icon="check" label=${tr('Accept')} busy=${busy === 'ol_privacy_accept'} disabled=${!!busy} onClick=${() => go('ol_privacy_accept')} />

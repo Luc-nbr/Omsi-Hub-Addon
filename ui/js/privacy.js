@@ -52,6 +52,9 @@ export function Statement() {
   </div>`;
 }
 
+/** The age confirmation said with the agreement (Privacy Statement version 2). */
+export const AGE = 'I am 16 or older, or have permission from a parent or guardian.';
+
 /** The statement in a dialog; `ask`: before an account is made or Google signs in (the
  * statement pops up first), with the agreement's sentence, "Cancel" and "Accept and continue". */
 function Dialog({ close, ask }) {
@@ -67,7 +70,7 @@ function Dialog({ close, ask }) {
       ${ask && html`<p class="ol-pv-lead">${tr('Before an account is created or used, the Privacy Statement must be accepted.')}</p>`}
       <div class="ol-pv-scroll"><${Statement} /></div>
       ${ask
-        ? html`<p class="ol-pv-consent">${tr('I have read the Privacy Statement and agree to the processing of my personal data as described therein.')}</p>
+        ? html`<p class="ol-pv-consent">${tr('I have read the Privacy Statement and agree to the processing of my personal data as described therein.')}<br />${tr(AGE)}</p>
             <div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="ol-btn-x" id="pv-cancel" onClick=${() => close(false)}>${tr('Cancel')}</button>
             <button type="button" class="ol-btn-x primary" id="pv-accept" autofocus onClick=${() => close(true)}>${tr('Accept and continue')}</button></div>`
         : html`<div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="ol-btn-x primary" onClick=${() => close(false)}>${tr('Close')}</button></div>`}

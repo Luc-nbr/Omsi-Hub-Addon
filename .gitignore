@@ -26,3 +26,6 @@ desktop.ini
 # what the setup's checks leave in the fixtures
 /fixtures/**/Plugins/
 /fixtures/**/.omsihub-write-test
+
+# other cargo target folders (a second build beside the first)
+/target-*/
