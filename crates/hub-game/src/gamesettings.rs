@@ -109,7 +109,7 @@ fn key_value(line: &str) -> Option<(&str, &str)> {
 /// The value of `key` in the file's text (the last of its lines, as a file read top to bottom
 /// leaves it; None: not there).
 pub fn value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    text.lines().filter_map(key_value).filter(|(k, _)| *k == key).next_back().map(|(_, v)| v)
+    text.lines().filter_map(key_value).rfind(|(k, _)| *k == key).map(|(_, v)| v)
 }
 
 /// Why a value is refused for a setting.
