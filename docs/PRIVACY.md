@@ -8,9 +8,9 @@
 
 This Privacy Statement describes how Omsi-Hub processes personal data in connection with:
 
-- the Omsi-Hub application and game software (the **Software**);
-- the optional Omsi-Hub online account and its associated services (the **Services**);
-- the website at omsihub.com (the **Website**).
+- the Omsi-Hub app for Windows and macOS (Omsi-Hub.exe, Omsi-Hub.app), together with the game it starts and the Omsi-Hub plugin that runs in that game (together: "**the Software**");
+- the optional Omsi-Hub account and the online services that come with it: sign-in, friends and invitations, the player and company leaderboards, cloud saves and bug reports (together: "**the Services**");
+- the website at https://omsihub.com and its pages, including the account pages, the leaderboard, the roadmap and the bug report form ("**the Website**").
 
 It is issued in accordance with Regulation (EU) 2016/679, the General Data Protection Regulation (**GDPR**).
 
