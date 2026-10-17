@@ -32,6 +32,3 @@ export const Bus3D = () => html`<${ComingLater} icon="directions_bus" title="3D 
 
 /** The livery studio's own state, which the editors' checks ask for. */
 export const studio = null;
-
-/** The privacy statement: the online part brings it. */
-export function showPrivacy() {}

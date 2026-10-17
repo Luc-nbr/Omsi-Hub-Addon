@@ -1,11 +1,13 @@
 // Omsi-Hub beside the player's own openOMSI: the Settings page's "openOMSI and OMSI 2" tab -
-// the two folders the first-run setup chose (chosen again through it), the version read from
-// openOMSI's folder, how well Omsi-Hub works with it (supported, with limits, not supported, or
-// checked at the first drive), and the Omsi-Hub plugin switched on or off there (`addon_state`,
-// `addon_enable`; the folders' checks are `hub_setup_openomsi` and `hub_setup_omsi2`).
+// the two folders the first-run setup chose (chosen again through it, or openOMSI's alone:
+// `addon_set_folder`), the version read from openOMSI's folder, how well Omsi-Hub works with it
+// (supported, with limits, not supported - estimated from the version until the first drive,
+// then checked with the plugin's own handshake), the duty the plugin was last given, and the
+// Omsi-Hub plugin switched on or off there, or taken out (`addon_state`, `addon_enable`,
+// `addon_remove`; the folders' checks are `hub_setup_openomsi` and `hub_setup_omsi2`).
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
-import { call, openPath } from '../api.js';
+import { call, openPath, pickFolder } from '../api.js';
 import { S, set } from '../store.js';
 import { Icon, Button, Switch, tr } from './bits.js';
 
@@ -32,9 +34,17 @@ export function AddonPanel() {
     setBusy(true);
     setErr('');
     return call(cmd, args)
-      .then((v) => setS(v))
+      .then((v) => {
+        if (v && v.refused) setErr(v.refused.problem || '');
+        // (the plugin's commands answer its status: the whole state read again)
+        return v && 'folder' in v ? setS(v) : call('addon_state').then(setS);
+      })
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false));
+  };
+  const another = async () => {
+    const f = await pickFolder(tr('Your openOMSI folder'));
+    if (f) run('addon_set_folder', { folder: f });
   };
   useEffect(() => {
     run('addon_state');
@@ -60,6 +70,7 @@ export function AddonPanel() {
     ${folder('folder_open', 'OMSI 2', S.settings?.omsi2_folder, omsi2, 'Steam, Steam with Proton, or retail')}
     <div class="row wrap" style="gap:12px;margin-top:12px">
       <${Button} icon="folder_open" label="Choose the folders again" disabled=${busy} onClick=${() => set({ setup: true })} />
+      <${Button} kind="ghost" icon="drive_folder_upload" label="Another openOMSI folder" disabled=${busy} onClick=${another} />
       ${S.boot?.data_dir && html`<${Button} kind="ghost" icon="open_in_new" label="Omsi-Hub's data folder" onClick=${() => openPath(S.boot.data_dir)} />`}
     </div>
     ${err && html`<p class="small bad" style="margin:8px 0 0">${tr(err)}</p>`}
@@ -75,6 +86,9 @@ export function AddonPanel() {
         <span class="muted small">${inst.compat.confirmed ? tr('Checked with this openOMSI') : tr('Estimated from the version')}</span>
       </div>`}
       ${(inst.compat?.notes || []).map((n) => html`<p class="small" style="margin:4px 0 0">${tr(n)}</p>`)}
+      <p class="muted small" id="addon-checked" style="margin:4px 0 0">${s.checked
+        ? tr('Checked at the first drive: openOMSI %{version} told the plugin what it offers.', { version: s.hello?.game || inst.version || '?' })
+        : tr('Checked at the first drive: the plugin then tells Omsi-Hub what this openOMSI offers.')}</p>
       <ul class="small" style="margin:8px 0 0;padding-left:18px">
         ${(inst.compat?.features || []).map(
           (f) => html`<li class=${f.on ? '' : 'muted'}>${tr(f.label)}${!f.on && f.fallback ? html` <span class="muted">(${tr(f.fallback)})</span>` : ''}</li>`,
@@ -90,6 +104,10 @@ export function AddonPanel() {
       </div>
       <p class="muted small" style="margin:4px 0 0">${plugin ? pluginLine(plugin, s.plugin_version) : ''}</p>
       <p class="muted small" style="margin:4px 0 0;word-break:break-all">${tr('Plugins folder: %{dir}', { dir: inst.plugins_dir || '-' })}</p>
+      ${s.assigned && html`<p class="muted small" id="addon-assigned" style="margin:4px 0 0">${s.assigned.company
+        ? tr('Last drive: %{company}, line %{line}, tour %{tour}', { company: s.assigned.company, line: s.assigned.line, tour: s.assigned.tour })
+        : tr('Last drive: a drive of your own (%{driver})', { driver: s.assigned.driver })}</p>`}
+      ${plugin && plugin.state !== 'missing' && html`<div class="row" style="margin-top:8px"><${Button} kind="ghost" icon="delete" label="Take the plugin out of openOMSI" disabled=${busy} onClick=${() => run('addon_remove')} /></div>`}
     </div>`}
   </div>`;
 }

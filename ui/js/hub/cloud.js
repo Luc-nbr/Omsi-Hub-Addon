@@ -1,9 +1,4 @@
-// The cloud saves' places in the company's chooser. The online port fills them; until then a
-// company opens as it is, from this computer.
+// The cloud saves' places in the company's chooser (the badge on a company's tile, the question
+// before a company opens when the cloud has a newer copy or a conflict), from the online part.
 
-export const CloudBadge = () => null;
-/** Before a company opens: nothing to fetch from the cloud. */
-export async function cloudBeforeOpen() {
-  return true;
-}
-export const useCloud = () => null;
+export { CloudBadge, cloudBeforeOpen, useCloud } from '../online/cloud.js';

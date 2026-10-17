@@ -10,7 +10,8 @@
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { PRESETS, hexOf } from './theme.js';
-import { UpdateRow } from './update.js';
+import { UpdateRow } from '../update.js';
+import { PrivacyLink } from '../privacy.js';
 import { AddonPanel } from './addon.js';
 
 const pct = (v) => `${Math.round(v * 100)} %`;
@@ -33,6 +34,8 @@ export const SETTINGS_TABS = [
           // (the bus company's pages round a sidebar, or found with the command palette: `company/shell.js`)
           { type: 'select', key: 'company_layout', label: 'Company layout', options: [['sidebar', 'Sidebar'], ['palette', 'Command palette']] },
           { type: 'button', label: 'Start the tour', icon: 'route', patch: () => (import('./hub.js').then((h) => (h.go('drive', 'mode'), import('./tour.js').then((m) => setTimeout(() => m.startTour(), 300)))), {}) },
+          // (the Privacy Statement, as the app has it built in: `privacy.js`)
+          { type: 'custom', id: 'hub-privacy', view: () => html`<div class="setting-row full" id="settings-privacy"><${PrivacyLink} /></div>` },
         ],
       },
       {
