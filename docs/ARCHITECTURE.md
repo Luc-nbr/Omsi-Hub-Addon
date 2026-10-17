@@ -4,6 +4,9 @@ Omsi-Hub is its own desktop app. It contains no openOMSI code: it works with the
 player installed (0.2.22 or newer) through openOMSI's command line and its plugin API, and reads
 OMSI 2's files with its own readers. See `PLAN.md` for why, `INVENTORY.md` for what is ported.
 
+It runs on **Windows, macOS and Linux** from the first version. The platform specifics are
+collected under [Platforms](#platforms).
+
 ## The parts
 
 ```
@@ -104,13 +107,14 @@ synthetic fixtures. The field names follow what our old code used, so a port mos
 **`hub-game`** (the game):
 
 - `detect::inspect(folder, home) -> Install { exe, version, version_from, plugins_dir }`.
-- `check_folder(folder, home) -> Checked { install, compat }`.
+- `check_folder(folder, home) -> Checked { install, compat }`, and `check_folder_probing(folder,
+  home, cache)`, which asks `openomsi --version` once when no file says the version.
 - `compat::{FIRST_SUPPORTED = 0.2.22, estimate, negotiate, check}`.
 - `install::{install, disable, status, plugin_dir}`.
 - `bridge::{Assignment, Hello, Report, write_assignment, read_hello, ReportReader, from_log}`.
 - `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`).
-- `process::{start, Game, ask_version}`.
-- `find::{omsi2_candidates, openomsi_candidates}`.
+- `process::{start, Game, ask_version, ensure_executable}`.
+- `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
 
 ## The data folder
 
@@ -133,22 +137,32 @@ reads. The setup offers them once. `import` is a stub until the company port kno
    - The player picks the openOMSI folder, or one `find` offers.
    - `hub_game::check_folder` finds the program (`openomsi.exe`, `openomsi` or the macOS bundle,
      in any case).
-   - It reads the version without starting the game: from the Windows `ProductVersion`, the
-     bundle's `Info.plist` or the folder's name.
+   - It reads the version without starting the game where a file says it: the Windows
+     `ProductVersion`, the bundle's `Info.plist`, or the folder's name
+     (`openOMSI-0.2.30-linux-x64`).
+   - Otherwise it asks `openomsi --version` once. openOMSI answers that from its command-line
+     parser and ends before any of the game starts. The answer is kept per program file in
+     `openomsi-versions.json` in the data folder. This is the usual case on Linux.
    - `compat` refuses anything older than 0.2.22, with a message.
    - The OMSI 2 folder must have `Omsi.exe`, `maps`, `Vehicles`, `Sceneryobjects` and
      `Splines`.
    - Both folders are saved in `settings.json`.
 2. **The plugin**: `addon_enable` installs `plugin/*.lua` (embedded at build time) into
    openOMSI's `Plugins/omsihub/`, switches it on and parks it off. The content folder follows
-   openOMSI's rule: the program's folder, `openOMSI/` inside the OMSI 2 folder, or
-   `~/.openomsi/content`.
+   openOMSI's rule, the same on every system:
+   - the program's folder (beside the bundle on macOS), or `openOMSI/` inside the OMSI 2
+     folder;
+   - `~/.openomsi/content` when that folder may not be written to (Program Files, `/opt`,
+     `/Applications`).
+
+   `hub_core::paths::content_dir_of` finds the same folder without writing anything.
 3. **A drive** (`hub_drive {duty}`):
    - The page's `Duty` becomes a `LaunchSpec` (`hub_api::drive::launch_spec`): `--root`,
      `--map`, `--bus`, `--line`/`--tour`/`--trip`, `--time`, `--date` … official flags only.
    - What the command line cannot say goes to the plugin as its assignment
      (`hub_game::bridge`): a company's duty, its legs, a free line, the display font.
-   - The game starts in its own folder (`process::start`), and a thread watches it.
+   - The game starts in its own folder (`process::start`, which sets the executable bit a ZIP
+     may have lost), and a thread watches it.
    - When it ends, the page gets `game-ended`. The reports are then read from the plugin's
      `data/` (`bridge::ReportReader`, or the log for an openOMSI without file functions).
 
@@ -180,8 +194,55 @@ reads. The setup offers them once. `import` is a stub until the company port kno
 ```
 cargo test --workspace          # every crate, the plugin harness, the app's unit tests
 cargo build -p omsi-hub         # the app (target/debug/omsi-hub)
-cd app && npx @tauri-apps/cli@2 build   # the installers (NSIS, .app/.dmg)
+cd app && npx @tauri-apps/cli@2 build   # the packages: NSIS; .app/.dmg; AppImage, .deb, .rpm
 ```
 
-The toolchain is pinned in `rust-toolchain.toml`. CI (`.github/workflows/ci.yml`) runs fmt,
-clippy, the tests, `node --check` on the page's scripts, and a Tauri build on Windows and macOS.
+The toolchain is pinned in `rust-toolchain.toml`. CI (`.github/workflows/ci.yml`) runs on
+Windows, macOS and Linux (ubuntu-latest):
+
+- fmt, clippy and the tests;
+- `node --check` on the page's scripts;
+- a Tauri build. On Linux it also makes the AppImage, `.deb` and `.rpm`, and runs the app's
+  selftest through the first-run setup under Xvfb.
+
+## Platforms
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Packages | NSIS installer, with WebView2's bootstrapper | `.app`, `.dmg` | AppImage (the updater's), `.deb`, `.rpm` (`app/tauri.linux.conf.json`) |
+| Web view | WebView2 | WKWebView | WebKitGTK 4.1 |
+| Data folder | `%APPDATA%Omsi-Hub` | `~/Library/Application Support/Omsi-Hub` | `$XDG_DATA_HOME/Omsi-Hub` (`~/.local/share/Omsi-Hub`) |
+| openOMSI's program | `openomsi.exe` | `openOMSI.app/Contents/MacOS/openomsi` | `openomsi`, from the `openOMSI-<version>-linux-x64.zip` release |
+| Its version | `ProductVersion`, else the folder's name | `Info.plist`, else the folder's name | the folder's name, else `openomsi --version` (once) |
+| Bytes route | `http://hub.localhost/bytes/…` | `hub://localhost/bytes/…` | `hub://localhost/bytes/…` |
+
+**Building on Linux** needs Tauri's packages. On Debian or Ubuntu:
+
+```
+sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev   librsvg2-dev patchelf libssl-dev build-essential
+```
+
+**openOMSI on Linux.** The setup offers the folders it finds (`hub_game::find`):
+
+- `~/openOMSI*`;
+- `openOMSI` and `openOMSI-*-linux-x64` folders in the Downloads folder (and the desktop's
+  translated name for it, from `~/.config/user-dirs.dirs`), on the Desktop and in `~/Games`,
+  `~/Applications`, `~/.local/share` and `/opt`.
+
+A program unpacked without its executable bit gets it before it is started
+(`process::ensure_executable`).
+
+**OMSI 2 on Linux** is the Windows game in Steam, through Proton. The setup looks in:
+
+- `~/.steam/steam`, `~/.steam/root` and `~/.local/share/Steam`;
+- the Flatpak's `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`;
+- every extra library their `libraryfolders.vdf` lists.
+
+In each one it checks `steamapps/common/OMSI 2`.
+
+**File names in any case.** OMSI 2's content names its files carelessly, and Linux's file
+systems keep case apart. `hub_omsi::vfs` finds every part of a path in any case; where two names
+differ only in case, the exact one wins. `crates/hub-omsi/tests/case_sensitive.rs` proves this on
+a case-sensitive temp folder. The Linux CI job sets `OMSIHUB_REQUIRE_CASE_SENSITIVE=1`, so the
+test cannot skip there unnoticed. On Windows the same proof runs in a folder made case-sensitive
+with `fsutil file setCaseSensitiveInfo <dir> enable`, by pointing `TMP` at it.

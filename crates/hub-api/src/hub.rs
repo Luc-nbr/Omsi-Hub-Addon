@@ -89,7 +89,9 @@ pub fn check_openomsi(folder: &str) -> Value {
     if folder.is_empty() {
         return json!({ "ok": false, "problem": "missing", "text": "Choose the folder openOMSI is in" });
     }
-    match hub_game::check_folder(Path::new(folder), &hub_core::paths::home_dir()) {
+    // (the version asked of the program once where no file says it: Linux's usual case)
+    let cache = hub_core::data_dir().join("openomsi-versions.json");
+    match hub_game::check_folder_probing(Path::new(folder), &hub_core::paths::home_dir(), &cache) {
         Err(problem) => json!({ "ok": false, "problem": problem, "text": problem.text() }),
         Ok(c) => {
             let too_old = c.install.version.as_ref().is_some_and(|v| *v < hub_game::compat::FIRST_SUPPORTED);

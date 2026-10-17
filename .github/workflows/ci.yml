@@ -14,6 +14,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # What Tauri needs to build on Linux (WebKitGTK 4.1 and its friends)
+  LINUX_DEPS: libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev build-essential
 
 jobs:
   rust:
@@ -22,9 +24,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
       # (rustup takes the toolchain rust-toolchain.toml pins, with rustfmt and clippy)
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
@@ -35,6 +40,9 @@ jobs:
         run: cargo clippy --workspace --all-targets
       - name: cargo test
         run: cargo test --workspace
+        env:
+          # (Linux's temp folder is case-sensitive: hub-omsi's case test must really run there)
+          OMSIHUB_REQUIRE_CASE_SENSITIVE: ${{ runner.os == 'Linux' && '1' || '' }}
 
   ui:
     name: UI scripts
@@ -58,14 +66,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            build: --no-bundle
+          - os: macos-latest
+            build: --no-bundle
+          # (Linux's packages are made too: the AppImage, the updater's, and .deb and .rpm)
+          - os: ubuntu-latest
+            build: --bundles appimage,deb,rpm
     steps:
       - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS xvfb xdg-utils file
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: tauri build (no bundle signing, no release)
+      - name: tauri build (no signing, no release)
         working-directory: app
-        run: npx --yes @tauri-apps/cli@2 build --no-bundle
+        shell: bash
+        run: npx --yes @tauri-apps/cli@2 build ${{ matrix.build }}
+      - name: Linux packages made
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ls -l target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm
+      - name: the app's selftest on Linux (Xvfb), through the first-run setup
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          OMSIHUB_SELFTEST: '1'
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: |
+          OMSIHUB_DATA_DIR="$RUNNER_TEMP/omsihub-data" OMSIHUB_SELFTEST_FIXTURES="$PWD/fixtures" \
+            timeout 120 xvfb-run -a target/release/omsi-hub
