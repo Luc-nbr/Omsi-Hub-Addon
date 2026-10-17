@@ -60,7 +60,7 @@ export function Setup({ onDone }) {
       <h1>${t('Welcome to Omsi-Hub')}</h1>
       <p class="dim">${t('Omsi-Hub works with the openOMSI you have installed and your original OMSI 2. It keeps its own data and never changes their files.')}</p>
       <${FolderStep} id="setup-openomsi" title=${t('Your openOMSI folder')} hint=${t('The folder openOMSI is in (openOMSI 0.2.22 or newer).')} value=${openomsi} check=${checkO} suggestions=${suggest.openomsi} onChange=${setOpenomsi} />
-      <${FolderStep} id="setup-omsi2" title=${t('Your OMSI 2 folder')} hint=${t('The original OMSI 2 (Steam or retail), with its maps and buses.')} value=${omsi2} check=${checkR} suggestions=${suggest.omsi2} onChange=${setOmsi2} />
+      <${FolderStep} id="setup-omsi2" title=${t('Your OMSI 2 folder')} hint=${t('The original OMSI 2 with its maps and buses: from Steam (on Linux, Steam with Proton) or the retail disc.')} value=${omsi2} check=${checkR} suggestions=${suggest.omsi2} onChange=${setOmsi2} />
       <div class="step">
         <h2>${t('Language')}</h2>
         <select value=${lang} onChange=${(e) => setLanguage(e.target.value)}>

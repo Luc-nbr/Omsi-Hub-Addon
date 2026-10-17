@@ -10,6 +10,29 @@ const params = new URLSearchParams(location.search);
 
 /** Running in the app (else: the browser mock). */
 export const inApp = !!(tauri && tauri.core) && !params.has('mock');
+/** (the old launcher's names, for the ported pages: the app is never the phone's) */
+export const inTauri = inApp;
+export const onPhone = false;
+
+/** A command's error: its text, also as `String(e)` (the frame's pages show that) and as
+ * `e.message` (the ported pages read that). */
+export class CallError extends Error {
+  toString() {
+    return this.message;
+  }
+}
+const failed = (e) => {
+  throw e instanceof CallError ? e : new CallError(typeof e === 'string' ? e : (e && e.message) || String(e));
+};
+
+// (the window's own commands the ported pages call through `call`, as the old launcher let
+// them: they go to the helpers below)
+const OWN = {
+  pick_folder: (a) => pickFolder(a.title),
+  pick_file: (a) => pickFile(a.title, a.filters),
+  open_url: (a) => openUrl(a.url),
+  open_path: (a) => openPath(a.path),
+};
 
 let mock = null;
 
@@ -21,16 +44,17 @@ async function mockBackend() {
 /** A command of hub-api (`hub_boot`, `co_state` …); `args` is one object. Rejects with the
  *  command's error text. */
 export async function call(cmd, args = {}) {
-  if (inApp) return tauri.core.invoke('call', { cmd, args });
+  if (OWN[cmd]) return OWN[cmd](args || {});
+  if (inApp) return tauri.core.invoke('call', { cmd, args }).catch(failed);
   const b = await mockBackend();
-  return b.call(cmd, args);
+  return b.call(cmd, args).catch(failed);
 }
 
 /** A command that answers bytes: an ArrayBuffer. */
 export async function callBytes(cmd, args = {}) {
-  if (inApp) return tauri.core.invoke('call_bytes', { cmd, args });
+  if (inApp) return tauri.core.invoke('call_bytes', { cmd, args }).catch(failed);
   const b = await mockBackend();
-  return b.callBytes(cmd, args);
+  return b.callBytes(cmd, args).catch(failed);
 }
 
 /** The URL of a bytes command, for an <img src>: the app's `hub` protocol

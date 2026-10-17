@@ -1,0 +1,193 @@
+// Omsi-Hub's shell, after our game-drawn launcher (`crates/omsi-launcher-ui/src/flow.rs`): the
+// ground edge to edge, the glass bar along the top, and under it either the drive's steps - the
+// start (how do you want to drive today?) among them - an editor, or a page (`pages/index.js`)
+// in a wide sheet with the way back in its corner; the bus company over the whole window, with
+// its own bar. `app.js` hands the shell the pages once the first-run setup is done.
+
+import { html, useEffect, useLayoutEffect, useState } from '../../vendor/preact-htm.js';
+import { S, set, useStore } from '../store.js';
+import { applyHubTheme } from './theme.js';
+import { Bar, Palette } from './bar.js';
+import { Flow, STEP_NAMES, goStep } from './flow.js';
+import { Head, Icon, tr } from './bits.js';
+import './settings-extra.js';
+import { CompanyScreen, companyPage } from '../company/company.js';
+import { EDITORS, EditorPage, editorOf, openLineEditor, openLivery } from '../editors/index.js';
+import { StatusLine } from '../editors/kit.js';
+import { Welcome, welcomeAtStart } from './welcome.js';
+import { TourOverlay } from './tour.js';
+// (Omsi-Hub online: the invites' notices and the account's panel over every page)
+import { OnlineLayer } from './online.js';
+// (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
+import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
+import { GameEndDialogs } from './gameend.js';
+// (Ctrl and the wheel size the launcher, outside RosterFlow)
+import { installZoom } from './zoom.js';
+// (words shortened with an ellipsis: the whole of them as a tooltip)
+import { installAutoTitles } from './autotitle.js';
+// (the layout checker, on `window.hubLayout` for the pictures' grid of window sizes)
+import './layout.js';
+// (the opening: Omsi-Hub's logo drawn over the page as the launcher opens)
+import { startIntro } from './intro.js';
+
+/** Our look is the whole app's (`.hub` on <html> scopes hub.css). */
+export const HUB = true;
+document.documentElement.classList.add('hub');
+
+/** What our frame keeps: the step of the drive, the palette open or not. */
+S.hub = { step: 'mode', palette: false };
+
+/** The pages in the sheet as our launcher names them: icon, title and the line under it
+ * (`pages::about`); `pages/index.js` gives the rest. */
+export const ABOUT = {
+  settings: ['settings', 'Settings', 'Every change is saved at once; the game reads them when it starts.'],
+  online: ['public', 'Online', 'Friends, the leaderboard and cloud saves. Optional: everything works offline.'],
+};
+
+/** Go to a page (`drive` is the drive's steps, at `step` when given). */
+export function go(page, step) {
+  set({ page, hub: { ...S.hub, palette: false, ...(step ? { step } : {}) } });
+}
+
+/** The page `OMSI_LAUNCHER_PAGE` names (as our game-drawn launcher once read it): a page
+ * (`settings`, `mods` ...) or a step of the drive (`drive:map`, `drive:3`). */
+function startPage(p, pages) {
+  if (!p) return;
+  const [name, part, more] = p.toLowerCase().split(':').map((x) => x.trim());
+  if (name === 'bus company') {
+    // (the company's id as it is written)
+    companyPage(part, p.split(':')[2]?.trim());
+    return;
+  }
+  // (the editors: "Editor", "Timetable", "Line editor" ... as our game-drawn launcher names them)
+  const ed = editorOf(name);
+  // (`line editor:first:displays`: the player's first line of the map, on its tab)
+  if (ed === 'lines' && part) {
+    openLineEditor({ line: part === 'first' ? 'first' : Number(part), tab: more || '' });
+    return;
+  }
+  // (`livery:chosen`: the studio on the bus chosen for the drive)
+  if (ed === 'livery' && part === 'chosen') {
+    openLivery({ bus: 'chosen' });
+    return;
+  }
+  if (ed) {
+    go(ed);
+    return;
+  }
+  if (name === 'drive' || name === 'home') {
+    const step = /^\d+$/.test(part || '') ? STEP_NAMES[Number(part)] : part;
+    // (`drive:bus:chosen`: the bus chosen on the ground, not the tiles)
+    if (step === 'bus' && more === 'chosen') S.hub.busView = 'bus';
+    // (`drive:bus:depots`: the bus's depot files, editors/hof.js)
+    if (step === 'bus' && more === 'depots') S.hub.busView = 'depots';
+    go('drive', STEP_NAMES.includes(step) ? step : 'mode');
+    return;
+  }
+  const page = pages.find((x) => x && (x[0] === name || x[1].toLowerCase() === name));
+  if (page) go(page[0]);
+}
+
+let booted = false;
+/** The opening while it plays (`intro.js`). */
+let intro = null;
+
+/** The smallest window the pages are laid out for (CSS px): a larger "Launcher size" never
+ * makes the layout smaller than this - at 200 % a small window laid the editors' columns over
+ * each other and put the start's tiles past its edge (Luc, Beta 52). */
+export const MIN_STAGE = [760, 480];
+
+/** The interface's size (as Omsi-Hub's game-drawn launcher had it): laid out for a 1440 x 820
+ * window, drawn smaller under that (down to 80 %), times the setting "Launcher size" - as large
+ * as the window allows (`MIN_STAGE`). */
+export function scale() {
+  const own = Math.max(0.6, Math.min(2, Number(S.settings?.launcher_scale) || 1));
+  const want = Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820)) * own;
+  return Math.min(want, Math.max(1, Math.min(innerWidth / MIN_STAGE[0], innerHeight / MIN_STAGE[1])));
+}
+
+/** Whether the window has the keyboard (upstream's resting while a game runs asks). */
+function useFocused() {
+  const [focused, setFocused] = useState(() => document.hasFocus());
+  useEffect(() => {
+    const on = () => setFocused(true);
+    const off = () => setFocused(false);
+    addEventListener('focus', on);
+    addEventListener('blur', off);
+    return () => {
+      removeEventListener('focus', on);
+      removeEventListener('blur', off);
+    };
+  }, []);
+  return focused;
+}
+
+export function HubShell({ pages, Toasts }) {
+  const s = useStore();
+  const focused = useFocused();
+  applyHubTheme();
+  document.documentElement.classList.toggle('hub-still', s.settings?.animations === false);
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const r = () => redraw((n) => n + 1);
+    addEventListener('resize', r);
+    return () => removeEventListener('resize', r);
+  }, []);
+  useEffect(installZoom, []);
+  useEffect(installAutoTitles, []);
+  // (before the first picture of the page: the opening covers it from its first frame)
+  useLayoutEffect(() => {
+    intro = startIntro();
+  }, []);
+  useEffect(() => {
+    if (booted || s.boot?.selftest) return;
+    booted = true;
+    // (`OMSIHUB_INTRO` and `OMSIHUB_PAGE`, when the app passes them: pictures of a page)
+    intro?.asked(s.boot?.intro);
+    startPage(s.boot?.page, pages);
+    welcomeAtStart();
+  }, []);
+  useUpdates();
+  // (the update's dialog and its notice over whatever is drawn, and the word on a game that
+  // ended on an error)
+  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} />`;
+  // (the launcher rests while a game it started runs and the window is in the background, so
+  // that the game has the graphics card to itself)
+  const resting = !s.boot?.selftest && s.settings?.launcher_rest !== false && s.poll.instances?.length > 0 && !focused;
+  if (resting) {
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
+      <div class="splash resting"><${Icon} name="directions_bus" size=${40} /><p>${tr('The launcher rests while you drive, so that the game has the graphics card to itself. It is back as soon as the game ends.')}</p></div>
+      ${updates}<${Toasts} /></div>`;
+  }
+  // the welcome: in place of the page while it is open (phase 3, `welcome.js`)
+  if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} />${updates}<${Toasts} /></div>`;
+  // the bus company: the whole window its own (its own bar)
+  if (s.page === 'company') {
+    // (Omsi-Hub 6/6: the company's tour over it)
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${TourOverlay} /><${OnlineLayer} />${updates}<${Toasts} /></div>`;
+  }
+  // (an editor's page: ours, `editors/index.js`)
+  const editor = EDITORS[s.page] ? s.page : null;
+  const page = s.page === 'drive' || editor ? null : pages.find((x) => x && x[0] === s.page && x[3]);
+  return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
+    ${editor ? html`<${EditorPage} id=${editor} />` : page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
+    ${!EDITORS[s.page]?.full && html`<${Bar} />`}
+    ${s.hub.palette && html`<${Palette} />`}
+    <${StatusLine} />
+    <${TourOverlay} />
+    <${OnlineLayer} />
+    ${updates}
+    <${Toasts} />
+  </div>`;
+}
+
+/** A page in the wide sheet under the bar: our head says what it is and for what, the way back
+ * in its corner. */
+function PageSheet({ id, label, Page }) {
+  const [icon, title, sub] = ABOUT[id] || ['info', label, ''];
+  return html`<section class="hub-sheet page" key=${id}>
+    <${Head} icon=${icon} title=${title} sub=${tr(sub)}
+      tools=${html`<button type="button" class="hub-btn hub-page-back" onClick=${() => go('drive')}><${Icon} name="chevron_left" size=${18} />${tr('Back')}</button>`} />
+    <div class="page hub-page-body"><${Page} /></div>
+  </section>`;
+}
