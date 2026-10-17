@@ -10,7 +10,7 @@
 // they run in the browser mock, and in the app with `?selftest=full`.
 
 import { call, inApp } from './api.js';
-import { t } from './i18n.js';
+import { setLanguage, t } from './i18n.js';
 import { PAGES } from './pages/index.js';
 import { get, set, subscribe } from './store.js';
 
@@ -84,6 +84,40 @@ export const CHECKS = [
     document.querySelectorAll('#settings .hub-seg button')[1].click();
     await until(() => (document.querySelector('#set-openomsi') || {}).textContent === fx.openomsi);
     set({ page: 'drive' });
+  }],
+  ['setup: the old saves are offered once and copied', async () => {
+    // (with the fixtures the app points the old folder at fixtures/old-openomsi)
+    if (!window.__OMSIHUB_FIXTURES__ || get().setup) return;
+    await until(() => document.querySelector('#migrate'), 4000).catch(() => {});
+    if (!document.querySelector('#migrate')) return;
+    const found = (document.querySelector('#migrate-found') || {}).textContent || '';
+    check(/Stadtbus Grundorf/.test(found) && /Grundorf/.test(found), 'what was found: ' + found);
+    document.querySelector('#migrate-copy').click();
+    await until(() => document.querySelector('#migrate-done'), 5000);
+    const st = await call('hub_setup_state');
+    check(st.migrate.offer === false && st.settings.migrated === true, 'offered again');
+    check(st.settings.language === 'de' && st.settings.accent === '#2a75f7', 'the old settings: ' + JSON.stringify(st.settings));
+    await setLanguage('en');
+    await call('hub_settings_patch', { patch: { language: 'en' } });
+  }],
+  ['settings: the openOMSI tab and the privacy link', async () => {
+    if (get().setup) return;
+    set({ page: 'settings' });
+    await until(() => document.querySelectorAll('#settings .hub-seg button').length > 1);
+    document.querySelectorAll('#settings .hub-seg button')[0].click();
+    await until(() => document.querySelector('#settings-privacy .ol-pv-link'));
+    document.querySelectorAll('#settings .hub-seg button')[1].click();
+    // (not driven yet: checked at the first drive)
+    await until(() => /first drive/.test((document.querySelector('#addon-checked') || {}).textContent || ''), 5000);
+    set({ page: 'drive' });
+  }],
+  ['api: every command answers in the app (none unknown)', async () => {
+    // (the drive's steps and the plugin's page: a few of the commands the round added)
+    for (const [cmd, args] of [['hub_maps', {}], ['hub_buses', {}], ['hub_weather', {}], ['addon_state', {}], ['hub_migrate_scan', {}]]) {
+      let said = '';
+      try { await call(cmd, args); } catch (e) { said = String(e); }
+      check(!/unknown command/.test(said), cmd + ': ' + said);
+    }
   }],
   ['shell: every page draws', async () => {
     if (get().setup) {

@@ -152,13 +152,13 @@ installed here):
 
 | Prefix | Module | Now |
 |---|---|---|
-| `hub_` | `hub`, `drive` | Boot, texts, first-run setup, migration scan, drives |
-| `addon_` | `addon` | `addon_state` and `addon_enable`; the rest goes to the plugin port |
+| `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts) |
+| `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
 | `co_` | `company` | Ported (`co_more_*` too); bus photos, fleet-map roads, duty map: not available |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
-| `ol_` | `online` | Not ported |
-| `cs_` | `cloud` | Not ported |
+| `ol_` | `online` | Ported |
+| `cs_` | `cloud` | Ported |
 | `tt_` | `timetable` | Not ported |
 | `de_` | `depot` | Not ported |
 
@@ -169,7 +169,7 @@ installed here):
   home, cache)`, which asks `openomsi --version` once when no file says the version.
 - `compat::{FIRST_SUPPORTED = 0.2.22, estimate, negotiate, check}`.
 - `install::{install, disable, status, plugin_dir}`.
-- `bridge::{Assignment, Hello, Report, write_assignment, read_hello, ReportReader, from_log}`.
+- `bridge::{Assignment, Leg, Hello, Report, write_assignment, read_hello, ReportReader, ReplyReader, from_log}`.
 - `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`).
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
@@ -187,8 +187,14 @@ two folders, the language, `setup_done`, `migrated`) and `omsi-hub.log`. The por
 company saves here under the old file names (`companies/`, `careers/`, `trips/`, `lines/` …).
 
 The old Omsi-Hub's saves in `~/.openomsi` are found by `hub_core::migrate::scan`, which only
-reads. The setup offers them once; `import` copies them 1:1 into the data folder (never moves
-or changes the old ones).
+reads (`OMSIHUB_OLD_DATA_DIR` points it elsewhere: the tests and the selftest use
+`fixtures/old-openomsi`). The shell offers them once after the setup (`setup.js`
+`MigrateOffer`), with what `migrate::preview` found: the companies by name, the careers, the
+own lines, the depot files, the settings taken over and the driver. `import` copies them 1:1
+into the data folder (never moves or changes the old ones); from the old `settings.cfg` it takes
+the keys the new app still uses (`migrate::OWN_KEYS`: the look, the company's layout, the
+navigator's `nav_*`, `ibis_auto`, the updates, `bus_lead` …, made tidy as the old launcher read
+them) and the language; `launcher.json`'s profile becomes the settings' `driver`.
 
 ## Finding and starting openOMSI
 
@@ -215,15 +221,41 @@ or changes the old ones).
      `/Applications`).
 
    `hub_core::paths::content_dir_of` finds the same folder without writing anything.
-3. **A drive** (`hub_drive {duty}`):
+3. **A drive** (`hub_drive {duty}`; a company's duty through `co_act` `launch_start`, which
+   first hands the company's part to `company::plugin::assign_duty`):
    - The page's `Duty` becomes a `LaunchSpec` (`hub_api::drive::launch_spec`): `--root`,
-     `--map`, `--bus`, `--line`/`--tour`/`--trip`, `--time`, `--date` … official flags only.
-   - What the command line cannot say goes to the plugin as its assignment
-     (`hub_game::bridge`): a company's duty, its legs, a free line, the display font.
+     `--map`, `--bus`, `--line`/`--tour`/`--trip`, `--time`, `--date` … official flags only. A
+     duty of parts (a shift, a company's duty) puts its first part there (`--whole-tour`);
+     entry -1 is `--auto-entry`. `--company`, `--duty-leg` and `--free-line` are never used.
+   - The plugin is made ready (`addon::ready`: put in or updated unless the player parked it
+     off) and given the assignment (`addon::give`, `bridge::Assignment`): the company and its
+     duty, the legs (`bridge::Leg`, from `compose`'s `line|tour|first@stop|trips@stop`; the
+     plugin's `legs.lua` chains them with `duty.start`, takes a relief's first trip from its
+     stop and ends the duty after the last part), the free route, the sheet, controls, fare,
+     contract and crew, the display font and the IBIS (off where the game lacks them: `compat`
+     says so), the navigator's settings and the sign-on's personnel number.
    - The game starts in its own folder (`process::start`, which sets the executable bit a ZIP
-     may have lost), and a thread watches it.
-   - When it ends, the page gets `game-ended`. The reports are then read from the plugin's
-     `data/` (`bridge::ReportReader`, or the log for an openOMSI without file functions).
+     may have lost).
+   - **The bridge's loop** (`drive::watch`), every 2 s while it runs and once at its end:
+     `addon::book` reads `data/reports.jsonl` on (per plugin folder, kept in `addon.json`; a new
+     folder from its end; the game's log for a plugin without file functions) and books:
+
+     | Report | Booked into |
+     |---|---|
+     | `trip` | the driver's record `trips/<driver>.jsonl` (the careers and the company's day read it; the career is read again, a driving test judged) |
+     | `note`, `defect`, `fault` of a company's duty | the company's orders `companies/<id>.orders.jsonl` (carried out by the open company: `remote::take`) |
+     | `live` (a `LiveEvent`) | the company's live file `companies/<id>.live.jsonl` |
+     | `duty_start`, `duty_end` | the log |
+
+     The open company takes `data/replies.jsonl` (the messages) and `data/status.json` (service
+     control's dispatcher) itself (`company::messages::tick`) and writes `data/messages.json`;
+     the on-time brief goes to `data/ontime.json` from `data/live.json`
+     (`company::ontime::refresh`); notices go to `data/notices.json` as they come
+     (`addon::notify_game`); the plugin's texts are `texts.lua`.
+   - When it ends, the page gets `game-ended` (`code`, `seconds`, and what was `booked`).
+   - `crates/hub-api/tests/drive.rs` drives a company's duty end to end against a fake openOMSI
+     (`tests/support/fake_openomsi.rs`, Cargo's `fake-openomsi` program) that writes the
+     plugin's files and ends.
 
 ## How a feature port plugs in
 
