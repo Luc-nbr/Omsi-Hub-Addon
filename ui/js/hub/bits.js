@@ -18,6 +18,13 @@ export function tr(text, vars) {
   return s;
 }
 
+/** On macOS the shortcuts are Cmd's (⌘), on Windows and Linux Ctrl's. */
+export const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/** The modifier's name as the keyboard says it. */
+export const MOD = MAC ? '⌘' : 'Ctrl';
+/** A text that names Ctrl (`Ctrl+K`, `Ctrl 0`), with ⌘ on macOS. */
+export const keys = (text) => (MAC ? String(text).replace(/Ctrl\+?\s?/g, '⌘') : text);
+
 /** The few names the old pages used that are not Material's own. */
 const ALIASES = { bus: 'directions_bus', users: 'groups', print_receipt: 'receipt' };
 
