@@ -7,6 +7,18 @@ use crate::text::CfgFile;
 use crate::ReadError;
 use std::path::{Path, PathBuf};
 
+/// Two file names are the same name but for case (any letters, not only ASCII: `Grünau` is
+/// `GRÜNAU`), as Windows takes them.
+pub fn same_name(a: &str, b: &str) -> bool {
+    a == b || a.eq_ignore_ascii_case(b) || (!a.is_ascii() && a.to_lowercase() == b.to_lowercase())
+}
+
+/// A path as OMSI's files write it (`Vehicles\Foo\BAR.bus`), with `/` (blanks around it, `.`
+/// parts and doubled slashes taken out). Its case stays: [`resolve_in`] finds it in any.
+pub fn normalize(rel: &str) -> String {
+    rel.trim().split(['/', '\\']).filter(|s| !s.is_empty() && *s != ".").collect::<Vec<_>>().join("/")
+}
+
 /// A file or folder of `dir` by its name, in any case: the exact name first, else the first
 /// one equal but for case. The name comes back as it is on disk.
 pub fn find_child(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -15,13 +27,13 @@ pub fn find_child(dir: &Path, name: &str) -> Option<PathBuf> {
     if let Some(p) = entries.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy() == name)) {
         return Some(p.clone());
     }
-    entries.into_iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))).or_else(|| exact.exists().then_some(exact))
+    entries.into_iter().find(|p| p.file_name().is_some_and(|n| same_name(&n.to_string_lossy(), name))).or_else(|| exact.exists().then_some(exact))
 }
 
-/// `rel` under `base`, each part found in any case.
+/// `rel` under `base` (`/` or `\`), each part found in any case.
 pub fn resolve_in(base: &Path, rel: &str) -> Option<PathBuf> {
     let mut p = base.to_path_buf();
-    for part in rel.split(['/', '\\']).filter(|s| !s.is_empty() && *s != ".") {
+    for part in rel.trim().split(['/', '\\']).filter(|s| !s.is_empty() && *s != ".") {
         p = if part == ".." { p.parent()?.to_path_buf() } else { find_child(&p, part)? };
     }
     Some(p)
@@ -99,7 +111,7 @@ impl Vfs {
             let Ok(entries) = std::fs::read_dir(dir) else { continue };
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
-                if !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                if !out.iter().any(|(n, _)| same_name(n, &name)) {
                     out.push((name, e.path().is_dir()));
                 }
             }
@@ -144,6 +156,13 @@ mod tests {
         assert!(matches!(vfs.read("maps/none.cfg"), Err(ReadError::NotFound(_))));
         let p = vfs.resolve("maps/Grundorf/Holidays.txt").unwrap();
         assert_eq!(vfs.relative(&p).unwrap(), "Maps/Grundorf/Holidays.txt");
+    }
+
+    #[test]
+    fn names_compare_in_any_case_and_paths_get_slashes() {
+        assert!(same_name("TTData", "ttdata") && same_name("Grünau.HOF", "GRÜNAU.hof") && !same_name("a.cfg", "b.cfg"));
+        assert_eq!(normalize(" Vehicles\\Foo\\\\.\\BAR.bus "), "Vehicles/Foo/BAR.bus");
+        assert_eq!(normalize("model/model.cfg"), "model/model.cfg");
     }
 
     #[test]

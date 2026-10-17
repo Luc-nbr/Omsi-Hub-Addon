@@ -1,0 +1,19 @@
+-----------------------
+Time Table Line File
+-----------------------
+
+Created with Omsi Version 2.3.004
+Date: 01.01.2000
+
+[priority]
+3
+
+[newtour]
+1
+Busses
+1023
+
+[addtrip]
+10_out
+1
+120.000
