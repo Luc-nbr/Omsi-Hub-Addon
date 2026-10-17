@@ -1,8 +1,8 @@
-<!-- privacy-version: 1 -->
+<!-- privacy-version: 2 -->
 <!-- Maintainer: written to match what the code does; have it checked by someone who knows the GDPR. -->
 # Privacy Statement
 
-**Omsi-Hub. Version 1, effective 16 October 2026.**
+**Omsi-Hub. Version 2, effective 17 October 2026.**
 
 ## 1. Introduction
 
@@ -50,7 +50,7 @@ The optional phone and tablet displays operate exclusively within the user's loc
 
 ## 4. Personal data processed for an account
 
-Creating an account is optional. It is required only for the friends list, invitations, the leaderboard and cloud saves. For account holders, Omsi-Hub processes the following categories of personal data.
+Creating an account is optional. It is required only for the friends list, invitations, the leaderboards and cloud saves. For account holders, Omsi-Hub processes the following categories of personal data.
 
 | Category of data | Purpose of processing | Legal basis |
 | --- | --- | --- |
@@ -59,11 +59,16 @@ Creating an account is optional. It is required only for the friends list, invit
 | Display name and friend code | Enabling other users to find and identify the account holder | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Friends, friend requests and blocked users | Providing the friends list | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Online status, time of last activity, and the session code while hosting a session | Informing friends of availability and allowing them to join; visible to friends only | Performance of a contract (Art. 6(1)(b) GDPR) |
-| Invitations to a session (deleted automatically after 15 minutes) | Allowing a friend to be invited into a session | Performance of a contract (Art. 6(1)(b) GDPR) |
+| Invitations to a session (they can no longer be accepted after 15 minutes) | Allowing a friend to be invited into a session | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Career statistics: points, level, number of duties, minutes driven, kilometres | Displaying the user's profile | Performance of a contract (Art. 6(1)(b) GDPR) |
 | The same career statistics, on the public leaderboard | Publication on the leaderboard; only once the user has enabled this, and the user may disable it at any time | Consent (Art. 6(1)(a) GDPR) |
+| A game company's name, short name, colours, country, map, game mode and figures (cash, monthly profit, buses, lines, staff, passengers, punctuality, reputation), together with the display name, on the public company leaderboard | Publication on the company leaderboard; only for a company for which the user has enabled this, and the user may disable it at any time, which removes the company from the leaderboard | Consent (Art. 6(1)(a) GDPR) |
 | Up to two cloud saves of game companies | Enabling the user to continue playing on another device; accessible to the account holder only | Performance of a contract (Art. 6(1)(b) GDPR) |
 | The version of this Privacy Statement accepted, and the date and time of acceptance | Demonstrating that the user has been informed and has agreed | Legal obligation and legitimate interest (Art. 6(1)(c) and (f) GDPR) |
+
+### 4.1 Bug reports
+
+Anyone may send a bug report, from the Website or the Software, with or without an account. A bug report contains the description entered by the user and the category chosen; the page, browser (user agent) and language, or the version of the Software and the operating system; the account identifier when the user is signed in, or otherwise an email address only if the user provides one; and a salted hash of the sender's IP address, used solely to limit the number of reports. Bug reports are processed to correct errors and to reply to the reporter, on the basis of legitimate interest (Art. 6(1)(f) GDPR) or, for account holders, the performance of a contract (Art. 6(1)(b) GDPR).
 
 Omsi-Hub does not use personal data for automated decision-making or profiling, does not sell personal data and does not display advertising.
 
@@ -73,19 +78,21 @@ Omsi-Hub engages the following parties in the processing of personal data.
 
 | Party | Role and data concerned | Location |
 | --- | --- | --- |
-| Supabase, Inc. | Processor: hosting of accounts, the database and cloud saves | Frankfurt, Germany (European Union) |
-| Omsi-Hub's email service provider | Processor: sending verification and password-recovery emails | Under a data processing agreement |
+| Supabase, Inc. | Processor: hosting of accounts, the database, cloud saves and bug reports, and the Website's release information | Frankfurt, Germany (European Union) |
+| Omsi-Hub's email service provider | Processor: sending verification and password-recovery emails, and delivering bug reports to info@omsihub.com (with the reporter's address as reply address, where known) | Under a data processing agreement |
 | The hosting provider of omsihub.com | Processor: serving the Website; server logs may briefly contain IP addresses | Under a data processing agreement |
 | Google LLC | Independent controller, only where the user chooses to sign in with a Google account; Google's own privacy policy applies | United States |
-| GitHub, Inc. | Independent controller for update checks and downloads | United States |
+| GitHub, Inc. | Independent controller for the Software's update checks and for downloads the user starts | United States |
 
 Where personal data is transferred to a country outside the European Economic Area, this takes place on the basis of an adequacy decision of the European Commission, including the EU–U.S. Data Privacy Framework, or the Standard Contractual Clauses adopted by the European Commission.
 
 ## 6. Retention periods
 
 - **Account data** is retained for as long as the account exists.
-- **Invitations** are deleted automatically after 15 minutes.
-- **Deleting the account.** The user may delete the account at any time, in the Software (Account → Delete account) or on the Website. All associated personal data is then erased without delay: the profile, friends, invitations, statistics and cloud saves.
+- **Invitations** can no longer be accepted after 15 minutes. They are deleted when dismissed, and together with the account.
+- **Bug reports** are retained for 12 months and then deleted; a report linked to an account is erased together with that account.
+- **Company leaderboard entries** are removed as soon as the user disables publication, when the company is deleted, or together with the account; entries not updated for 30 days are no longer shown.
+- **Deleting the account.** The user may delete the account at any time, in the Software (Account → Delete account) or on the Website. All associated personal data is then erased without delay: the profile, friends, invitations, statistics, leaderboard entries, bug reports and cloud saves.
 - **Proof of consent** to this Privacy Statement is erased together with the account.
 
 ## 7. Security
@@ -116,11 +123,11 @@ The user also has the right to lodge a complaint with a supervisory authority. I
 
 ## 9. Minors
 
-An account may be created only by persons aged 16 or over, or with the consent of a parent or legal guardian. The Software may be used without an account at any age.
+An account may be created only by persons aged 16 or over, or with the consent of a parent or legal guardian; the user confirms this when creating an account. The Software may be used without an account at any age.
 
 ## 10. Cookies and local storage
 
-The Website does not use tracking or advertising cookies. To keep the user signed in, the Website stores a session token in the user's own browser (local storage). This is strictly necessary for the Services and is removed when the user signs out.
+The Website does not use cookies. In the user's own browser it stores only what is strictly necessary for the Website and the Services: in local storage, the session token that keeps the user signed in (removed when the user signs out) and the chosen theme and language; in session storage, which is cleared when the browser tab is closed, a cache of release information and short-lived sign-in state (the email address awaiting a verification code and the acceptance of this Privacy Statement during sign-up).
 
 ## 11. Amendments
 
