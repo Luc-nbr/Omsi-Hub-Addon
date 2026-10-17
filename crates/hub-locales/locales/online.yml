@@ -1,7 +1,7 @@
 _version: 2
-# Omsi-Hub online (docs/omsihub/ONLINE.md): the optional account, the friends and the invites - the
-# client's codes (crates/omsihub-online/src/codes.rs), the launcher's answers
-# (crates/omsi-launcher-api/src/omsihub/online.rs) and the page's panel (launcher/ui/js/omsihub/online.js).
+# Omsi-Hub online (docs/ONLINE.md): the optional account, the friends and the invites - the
+# client's codes (crates/hub-online/src/codes.rs), the launcher's answers
+# (crates/hub-api/src/online.rs) and the page's panel (ui/js/online/online.js).
 "Friend request sent.":
   de: "Freundschaftsanfrage gesendet."
   fr: "Demande d'ami envoyée."
@@ -751,3 +751,116 @@ _version: 2
   pl: "%{name} jest zablokowany."
   ru: "%{name} заблокирован."
   uk: "%{name} заблоковано."
+# (the new app's panel: the words the old launcher's own tables had, and the leaderboard switch)
+"Add":
+  de: "Hinzufügen"
+  fr: "Ajouter"
+  nl: "Toevoegen"
+  pl: "Dodaj"
+  ru: "Добавить"
+  uk: "Додати"
+"Back":
+  de: "Zurück"
+  fr: "Retour"
+  nl: "Terug"
+  pl: "Wstecz"
+  ru: "Назад"
+  uk: "Назад"
+"Code":
+  de: "PIN"
+  fr: "Code"
+  nl: "Pincode"
+  pl: "Kod"
+  ru: "Код"
+  uk: "Код"
+"Copy":
+  de: "Kopieren"
+  fr: "Copier"
+  nl: "Kopiëren"
+  pl: "Kopiuj"
+  ru: "Копировать"
+  uk: "Копіювати"
+"Dismiss":
+  de: "Kündigen"
+  fr: "Licencier"
+  nl: "Ontslaan"
+  pl: "Zwolnij"
+  ru: "Уволить"
+  uk: "Звільнити"
+"Join":
+  de: "Beitreten"
+  fr: "Rejoindre"
+  nl: "Deelnemen"
+  pl: "Dołącz"
+  ru: "Присоединиться"
+  uk: "Приєднатися"
+"Remove":
+  de: "Entfernen"
+  fr: "Retirer"
+  nl: "Verwijderen"
+  pl: "Usuń"
+  ru: "Убрать"
+  uk: "Прибрати"
+"Save":
+  de: "Speichern"
+  fr: "Enregistrer"
+  nl: "Opslaan"
+  pl: "Zapisz"
+  ru: "Сохранить"
+  uk: "Зберегти"
+"Withdraw":
+  de: "Zurückziehen"
+  fr: "Retirer"
+  nl: "Intrekken"
+  pl: "Wycofaj"
+  ru: "Отозвать"
+  uk: "Відкликати"
+"Leaderboard":
+  de: "Bestenliste"
+  fr: "Classement"
+  nl: "Ranglijst"
+  pl: "Ranking"
+  ru: "Таблица лидеров"
+  uk: "Таблиця лідерів"
+"Open the leaderboard":
+  de: "Bestenliste öffnen"
+  fr: "Ouvrir le classement"
+  nl: "Ranglijst openen"
+  pl: "Otwórz ranking"
+  ru: "Открыть таблицу лидеров"
+  uk: "Відкрити таблицю лідерів"
+"Show me on the public leaderboard":
+  de: "Mich in der öffentlichen Bestenliste zeigen"
+  fr: "M'afficher dans le classement public"
+  nl: "Toon mij op de openbare ranglijst"
+  pl: "Pokazuj mnie w publicznym rankingu"
+  ru: "Показывать меня в общей таблице лидеров"
+  uk: "Показувати мене в загальній таблиці лідерів"
+"You are off the leaderboard.":
+  de: "Du bist nicht mehr in der Bestenliste."
+  fr: "Vous n'apparaissez plus dans le classement."
+  nl: "Je staat niet meer op de ranglijst."
+  pl: "Nie jesteś już w rankingu."
+  ru: "Вас больше нет в таблице лидеров."
+  uk: "Вас більше немає в таблиці лідерів."
+"You are on the leaderboard now.":
+  de: "Du bist jetzt in der Bestenliste."
+  fr: "Vous apparaissez maintenant dans le classement."
+  nl: "Je staat nu op de ranglijst."
+  pl: "Jesteś teraz w rankingu."
+  ru: "Теперь вы в таблице лидеров."
+  uk: "Тепер ви в таблиці лідерів."
+"Your display name and your service record (points, level, duties, hours and kilometres driven) on omsihub.com. Off until you switch it on.":
+  de: "Dein Anzeigename und deine Dienstbilanz (Punkte, Stufe, Dienste, gefahrene Stunden und Kilometer) auf omsihub.com. Aus, bis du es einschaltest."
+  fr: "Votre nom affiché et vos états de service (points, niveau, services, heures et kilomètres parcourus) sur omsihub.com. Désactivé tant que vous ne l'activez pas."
+  nl: "Je weergavenaam en je dienstoverzicht (punten, niveau, diensten, gereden uren en kilometers) op omsihub.com. Uit totdat je het aanzet."
+  pl: "Twoja nazwa wyświetlana i przebieg służby (punkty, poziom, służby, przejechane godziny i kilometry) na omsihub.com. Wyłączone, dopóki tego nie włączysz."
+  ru: "Ваше отображаемое имя и послужной список (очки, уровень, смены, часы и километры за рулём) на omsihub.com. Выключено, пока вы его не включите."
+  uk: "Ваше ім'я для показу та послужний список (очки, рівень, зміни, години та кілометри за кермом) на omsihub.com. Вимкнено, доки ви його не ввімкнете."
+"No browser window? Copy the address and open it in your browser yourself.":
+  de: "Kein Browserfenster? Kopiere die Adresse und öffne sie selbst in deinem Browser."
+  fr: "Aucune fenêtre de navigateur ? Copiez l'adresse et ouvrez-la vous-même dans votre navigateur."
+  nl: "Geen browservenster? Kopieer het adres en open het zelf in je browser."
+  pl: "Brak okna przeglądarki? Skopiuj adres i otwórz go samodzielnie w przeglądarce."
+  ru: "Окно браузера не открылось? Скопируйте адрес и откройте его в браузере сами."
+  uk: "Вікно браузера не відкрилося? Скопіюйте адресу та відкрийте її в браузері самі."

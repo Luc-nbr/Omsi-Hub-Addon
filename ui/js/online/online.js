@@ -1,0 +1,577 @@
+// Omsi-Hub online (docs/ONLINE.md; the Rust side is crates/hub-api/src/online.rs, its client the
+// crate `hub-online`): the top bar's account button with the new requests and invites on it, the
+// panel - signing in and out (an account is made on the website), the email confirmed and the
+// password reset by a code (or the mail's link), the profile with the friend code and the
+// leaderboard switch, the account deleted; the friends with their online state, the requests,
+// the invites to a company session - and the invites' notices over every page. An account is
+// optional: "Play without an account" is always there, and offline the panel says so quietly.
+// The email address and the password go to Rust and are kept nowhere but in the form, until
+// signed in.
+//
+// The privacy statement (`../privacy.js`): it pops up before "Create an account" opens the
+// website and before Google signs in (accepted, or nothing happens), and is asked of a signed-in
+// player who has not agreed to its current version - agree, or sign out and play on locally -,
+// the account's features waiting meanwhile. Playing without an account asks nothing.
+//
+// Google signs in through the system's browser (`ol_oauth`: Rust's listener on 127.0.0.1 takes
+// the answer back); the panel waits meanwhile, and the player may cancel. Such an account has no
+// password: deleting it asks for a tick instead.
+//
+// Ported from the old launcher/ui/js/omsihub/online.js onto the new frame (api.js, store.js,
+// i18n.js). Where it goes: see index.js.
+
+import { html, useEffect, useState } from '../../vendor/preact-htm.js';
+import { call, openUrl } from '../api.js';
+import { language } from '../i18n.js';
+import { get, set, useStore } from '../store.js';
+import { Btn, Icon, loadSheet, Sure, Switch, toast, tr } from './bits.js';
+// (the account's cloud saves: the 2 slots - `cloud.js`)
+import { CloudSaves } from './cloud.js';
+import { askPrivacy, PrivacyLink, Statement } from '../privacy.js';
+
+loadSheet();
+
+const ask = (name, args = {}) => call(name, { ...args, lang: language() });
+
+// --- the state, shared by the button, the panel and the notices: asked every few seconds (Rust
+// answers it from what its worker last fetched, without a network)
+
+let last = null;
+const subs = new Set();
+let timer = null;
+
+function publish(v) {
+  last = v;
+  subs.forEach((f) => f(v));
+}
+
+export async function poll() {
+  try {
+    publish(await ask('ol_state'));
+  } catch (e) {}
+}
+
+/** Away after five minutes with the window in the background; back at once. */
+function installPresence() {
+  let away = null;
+  addEventListener('blur', () => {
+    clearTimeout(away);
+    away = setTimeout(() => ask('ol_presence', { away: true }).catch(() => {}), 5 * 60 * 1000);
+  });
+  addEventListener('focus', () => {
+    clearTimeout(away);
+    ask('ol_presence', { away: false }).catch(() => {});
+  });
+}
+
+/** The online state (`ol_state`), kept fresh every five seconds. */
+export function useOnline() {
+  const [v, setV] = useState(last);
+  useEffect(() => {
+    subs.add(setV);
+    if (!timer) {
+      poll();
+      timer = setInterval(poll, 5000);
+      installPresence();
+    }
+    return () => subs.delete(setV);
+  }, []);
+  return v;
+}
+
+/** A command; its message as a toast unless `quiet`, its error too unless `quiet` (the forms say
+ * theirs beside the fields). */
+async function act(name, args = {}, quiet = false) {
+  let r;
+  try {
+    r = await ask(name, args);
+  } catch (e) {
+    r = { error: String(e?.message || e) };
+  }
+  if (!quiet && r?.error) toast(r.error, r.code === 'offline' ? 'info' : 'error');
+  else if (!quiet && r?.message) toast(r.message, 'ok');
+  poll();
+  return r || {};
+}
+
+/** The panel opened (`tab`: account, friends, or `auto`: the friends once signed in). */
+export const openPanel = (tab) => set({ onlinePanel: tab || 'auto' });
+const closePanel = () => set({ onlinePanel: null });
+
+/** For the company's Multiplayer page: an invite to the session shared. */
+export const inviteFriend = (id) => act('ol_invite', { id });
+
+/** Join a friend's company session with its code, through "Play together"'s own join. */
+async function joinSession(code) {
+  let r;
+  try {
+    r = await call('tg_join', { code, lang: language() });
+  } catch (e) {
+    toast(String(e?.message || e), 'error');
+    return false;
+  }
+  if (!r || r.error || r.off) {
+    toast(r?.error || r?.tip || tr('Joining did not work.'), 'error');
+    return false;
+  }
+  closePanel();
+  set({ page: 'company' });
+  return true;
+}
+
+// --- small pieces ---------------------------------------------------------------------------------
+
+function Field({ label, type = 'text', value, onInput, max, placeholder, auto, onEnter, hint, id }) {
+  return html`<label class="ol-field">
+    <span>${label}</span>
+    <input id=${id} class="ol-input" type=${type} value=${value} maxLength=${max} placeholder=${placeholder || ''} autocomplete=${auto || 'off'} spellcheck=${false}
+      onInput=${(e) => onInput(e.currentTarget.value)} onKeyDown=${(e) => e.key === 'Enter' && onEnter && onEnter()} />
+    ${hint}
+  </label>`;
+}
+
+/** How strong a password looks (`check::strength`'s rule). */
+function strength(p) {
+  const n = [...p].length;
+  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length;
+  if (n < 8 || (n < 12 && kinds <= 2)) return 0;
+  if (n < 12 || (n < 16 && kinds <= 1) || kinds <= 1) return 1;
+  return 2;
+}
+
+function Strength({ p }) {
+  if (!p) return html`<em class="ol-hint">${tr('At least 8 characters. Longer is stronger.')}</em>`;
+  const s = strength(p);
+  const words = [tr('Weak password'), tr('Fair password'), tr('Strong password')];
+  return html`<em class=${'ol-hint ol-strength s' + s}><i></i><i></i><i></i>${words[s]}</em>`;
+}
+
+function Note({ icon = 'info', text, kind = '' }) {
+  return html`<p class=${'ol-note ' + kind}><${Icon} name=${icon} size=${14} /><span>${text}</span></p>`;
+}
+
+// --- Google ----------------------------------------------------------------------------------------
+
+/** Google's mark, in the button's own colour. */
+const GoogleMark = () =>
+  html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 10.2H12v3.9h5.5c-.5 2.5-2.7 4.3-5.5 4.3a6.4 6.4 0 1 1 4.2-11.2l2.8-2.8A10.3 10.3 0 0 0 12 1.7a10.3 10.3 0 1 0 0 20.6c5.6 0 10-3.9 10-10.3 0-.6-.1-1.2-.4-1.8z" /></svg>`;
+
+/** The Google button, or, while the browser has the sign-in, the wait with a cancel. */
+function GoogleSignIn({ onDone, onError, disabled }) {
+  const [wait, setWait] = useState(null);
+  const name = 'Google';
+  // (the Privacy Statement pops up first; accepted, the browser goes to Google)
+  const go = async () => {
+    if (!(await askPrivacy())) return;
+    onError('');
+    const r = await act('ol_oauth', { agree: true }, true);
+    if (r.error) return onError(r.error);
+    // (no browser opened - on Linux, no xdg-open handler -: the wait offers the address to copy)
+    openUrl(r.url).catch((e) => toast(String(e?.message || e), 'info'));
+    setWait({ url: r.url });
+    const a = await act('ol_oauth_wait', { id: r.id, agree: true }, true);
+    setWait(null);
+    if (a.error) {
+      if (a.code !== 'oauth_cancelled') onError(a.error);
+    } else onDone(a);
+  };
+  if (wait)
+    return html`<div class="ol-oa-wait" role="status">
+      <div class="ol-row"><${Icon} name="refresh" size=${16} class="ol-spin" /><b>${tr('Continue in your browser')}</b></div>
+      <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name })}</p>
+      <p class="ol-text">${tr('No browser window? Copy the address and open it in your browser yourself.')}</p>
+      <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => openUrl(wait.url).catch(() => {})} /><${Copy} text=${wait.url} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
+    </div>`;
+  return html`<button type="button" id="ol-google" class="ol-btn-x ol-oa-btn" disabled=${disabled} onClick=${go}>
+    <${GoogleMark} /><span>${tr('Sign in with %{name}', { name })}</span>
+  </button>`;
+}
+
+// --- the account --------------------------------------------------------------------------------
+
+/** Signed out: sign in, the email's code, the password forgotten; a new account on the website;
+ * and playing without. The address and the password typed at one step stay for the next: the
+ * code's step asks for the code only, and for the address only when no step before had it. The
+ * mail may carry a link instead of a code (Supabase's own templates until ours are pasted in,
+ * docs/ONLINE.md): its link opened, "I have opened the link" signs in with what was typed. */
+function SignedOut({ v }) {
+  const [step, setStep] = useState('sign_in');
+  const [f, setF] = useState({ email: '', password: '', code: '' });
+  // (what the step before had: not asked again)
+  const [kept, setKept] = useState({ email: false, password: false });
+  const [err, setErr] = useState('');
+  const [info, setInfo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const put = (k) => (x) => setF({ ...f, [k]: x });
+  const keep = () => setKept({ email: !!f.email.trim(), password: !!f.password });
+  const go = (s) => {
+    keep();
+    setStep(s);
+    setErr('');
+    setInfo('');
+  };
+  const send = async (name, args) => {
+    setBusy(true);
+    setErr('');
+    const r = await act(name, args, true);
+    setBusy(false);
+    // (an address not confirmed yet is the next step, not a failure)
+    if (r.error && r.step === 'verify' && step !== 'verify') setInfo(r.error);
+    else if (r.error) setErr(r.error);
+    else setInfo(r.message || '');
+    if ((r.step === 'verify' || r.step === 'sign_in') && r.step !== step) {
+      keep();
+      setStep(r.step);
+      setF((x) => ({ ...x, code: '' }));
+    }
+    if (r.ok && !r.step && (name === 'ol_sign_in' || name === 'ol_verify' || name === 'ol_reset')) {
+      if (r.message) toast(r.message, 'ok');
+      setF({ email: '', password: '', code: '' });
+    }
+    return r;
+  };
+  // (an account that has not accepted the current Privacy Statement is asked right after signing in)
+  const signIn = () => send('ol_sign_in', { email: f.email, password: f.password, agree: false });
+  // (an account is made on the website, after the Privacy Statement; its display name comes
+  // along at the first sign-in here)
+  const create = async () => {
+    if (!(await askPrivacy())) return;
+    openUrl(v?.sign_up_url).catch((e) => toast(String(e?.message || e), 'error'));
+    setErr('');
+    setInfo(tr('Create your account on the Omsi-Hub website, confirm your email address, then sign in here.'));
+  };
+  const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password, agree: false });
+  // (the mail's link opened instead: signed in with the password typed before, or asked for it)
+  const linked = () => (f.password ? signIn() : go('sign_in'));
+  const forgot = async () => {
+    const r = await send('ol_forgot', { email: f.email });
+    if (r.ok && step === 'forgot') {
+      keep();
+      setStep('reset');
+      // (the password typed at the sign-in is the forgotten one: the new one starts empty)
+      setF((x) => ({ ...x, password: '', code: '' }));
+    }
+  };
+  const reset = () => send('ol_reset', { email: f.email, code: f.code, password: f.password, agree: false });
+  const local = async () => {
+    await act('ol_local', { on: true }, true);
+    closePanel();
+  };
+  const email = html`<${Field} id="ol-email" label=${tr('Email address')} type="email" value=${f.email} onInput=${put('email')} max=${254} auto="email" />`;
+  const to = f.email.trim() || tr('your email address');
+  let body;
+  if (step === 'verify') {
+    body = html`<h3>${tr('Confirm your email address')}</h3>
+      <p class="ol-text">${tr('Enter the code from the email we sent to %{email}. If the email has a link instead, open it, then choose "I have opened the link".', { email: to })}</p>
+      ${!kept.email && email}
+      <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" onEnter=${verify} />
+      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} disabled=${!f.code.trim()} onClick=${verify} /><${Btn} kind="ghost" icon="link" label=${tr('I have opened the link')} disabled=${busy} onClick=${linked} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send the email again')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
+  } else if (step === 'forgot') {
+    body = html`<h3>${tr('Forgot your password?')}</h3>
+      ${kept.email
+        ? html`<p class="ol-text">${tr('We send an email to %{email}. With its code you choose a new password here.', { email: to })}</p>
+            <div class="ol-row"><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Use another address')} onClick=${() => setKept({ ...kept, email: false })} /></div>`
+        : html`<p class="ol-text">${tr('We send an email to your email address. With its code you choose a new password here.')}</p>${email}`}
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Send the email')} busy=${busy} onClick=${forgot} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Back')} onClick=${() => go('sign_in')} /></div>`;
+  } else if (step === 'reset') {
+    body = html`<h3>${tr('Choose a new password')}</h3>
+      <p class="ol-text">${tr('Enter the code from the email we sent to %{email}. If the email has a link instead, open it and choose your new password there.', { email: to })}</p>
+      <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" />
+      <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send the email again')} onClick=${forgot} /></div>`;
+  } else {
+    body = html`<h3>${tr('Sign in')}</h3>
+      ${email}
+      <${Field} id="ol-password" label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
+      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
+      <div class="ol-oa-or"><span>${tr('or')}</span></div>
+      <${GoogleSignIn} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
+      <div class="ol-oa-or"><span>${tr('or')}</span></div>
+      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url} onClick=${create} /></div>`;
+  }
+  return html`<div class="ol-account">
+    <p class="ol-lead">${tr('An account is optional. With one you add friends, see who is online and invite them to your company. Without one, everything else works as before.')}</p>
+    ${v?.offline && html`<${Note} icon="wifi" kind="quiet" text=${tr('Offline: the online features are back as soon as the network is.')} />`}
+    <div class="ol-form">${body}
+      ${err && html`<p class="ol-err">${err}</p>`}
+      ${info && !err && html`<p class="ol-ok">${info}</p>`}
+    </div>
+    <div class="ol-local">
+      ${v?.mode === 'local' ? html`<span class="ol-text">${tr('You play without an account.')}</span>` : html`<${Btn} icon="close" label=${tr('Play without an account')} onClick=${local} />`}
+      <span class="ol-fill"></span><${PrivacyLink} />
+    </div>
+  </div>`;
+}
+
+/** Copy a text, said with a tick for a moment. */
+function Copy({ text }) {
+  const [ok, setOk] = useState(false);
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setOk(true);
+        setTimeout(() => setOk(false), 1500);
+      })
+      .catch(() => {});
+  return html`<${Btn} icon=${ok ? 'check' : 'content_copy'} label=${ok ? tr('Copied') : tr('Copy')} onClick=${copy} />`;
+}
+
+/** Standing on the public leaderboard: the player's choice, off until switched on. */
+function Leaderboard({ v }) {
+  const [busy, setBusy] = useState(false);
+  const on = !!v.me?.board;
+  const flip = async (next) => {
+    setBusy(true);
+    await act('ol_leaderboard', { on: next });
+    setBusy(false);
+  };
+  return html`<div class="ol-field"><span>${tr('Leaderboard')}</span>
+    <${Switch} checked=${on} disabled=${busy} label=${tr('Show me on the public leaderboard')} onChange=${flip} />
+    <em class="ol-hint">${tr('Your display name and your service record (points, level, duties, hours and kilometres driven) on omsihub.com. Off until you switch it on.')}</em>
+    ${v.board_url && html`<div class="ol-row"><${Btn} kind="ghost" icon="emoji_events" label=${tr('Open the leaderboard')} onClick=${() => openUrl(v.board_url).catch(() => {})} /></div>`}
+  </div>`;
+}
+
+/** Signed in: the display name, the friend code, the leaderboard, signing out, deleting the
+ * account. */
+function Profile({ v }) {
+  const me = v.me || {};
+  const [name, setName] = useState(me.name || '');
+  const [err, setErr] = useState('');
+  const [del, setDel] = useState(false);
+  const [password, setPassword] = useState('');
+  // (an account without a password - made with Google - is deleted after a tick)
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setName(me.name || ''), [me.name]);
+  const save = async () => {
+    const r = await act('ol_profile', { name }, true);
+    setErr(r.error || '');
+    if (r.ok) toast(r.message, 'ok');
+  };
+  const remove = async () => {
+    setBusy(true);
+    const r = await act('ol_delete', { password: v.no_password ? '' : password }, true);
+    setBusy(false);
+    setErr(r.error || '');
+    if (r.ok) {
+      toast(r.message, 'ok');
+      setDel(false);
+      setPassword('');
+      setSure(false);
+    }
+  };
+  if (v.need_profile) {
+    return html`<div class="ol-account"><div class="ol-form">
+      <h3>${tr('Choose your display name')}</h3>
+      <${Field} label=${tr('Display name')} value=${name} onInput=${setName} max=${24} onEnter=${save} hint=${html`<em class="ol-hint">${tr('3 to 24 characters. Your friends see it.')}</em>`} />
+      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Save')} onClick=${save} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="logout" label=${tr('Sign out')} onClick=${() => act('ol_sign_out')} /></div>
+      ${err && html`<p class="ol-err">${err}</p>`}
+    </div></div>`;
+  }
+  return html`<div class="ol-account">
+    ${v.offline && html`<${Note} icon="wifi" kind="quiet" text=${tr('Offline: the online features are back as soon as the network is.')} />`}
+    <div class="ol-form">
+      <h3>${tr('Your profile')}</h3>
+      <${Field} label=${tr('Display name')} value=${name} onInput=${setName} max=${24} onEnter=${save} />
+      ${name.trim() !== (me.name || '') && html`<div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Save')} onClick=${save} /></div>`}
+      <div class="ol-field"><span>${tr('Your friend code')}</span>
+        <div class="ol-row"><b class="ol-code">${me.code || '—'}</b><span class="ol-fill"></span>${me.code && html`<${Copy} text=${me.code} />`}</div>
+        <em class="ol-hint">${tr('Give it to your friends: they add you with it.')}</em></div>
+      <${Leaderboard} v=${v} />
+      ${err && html`<p class="ol-err">${err}</p>`}
+      ${v.lasting === false && html`<${Note} text=${tr('This system has no credential store: you sign in again at the next start.')} />`}
+      <div class="ol-row"><${Btn} icon="logout" label=${tr('Sign out')} onClick=${() => act('ol_sign_out')} /><span class="ol-fill"></span><${PrivacyLink} /></div>
+    </div>
+    <${CloudSaves} />
+    <div class="ol-danger">
+      ${!del
+        ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete account')} onClick=${() => setDel(true)} />`
+        : html`<h3>${tr('Delete my account')}</h3>
+          <p class="ol-text">${tr('This deletes your profile, your friends, your invites, your cloud saves and then the account itself. Your companies on this PC stay, as local saves. It cannot be undone.')}</p>
+          ${v.no_password
+            ? html`<label class="ol-oa-sure"><input type="checkbox" checked=${sure} onChange=${(e) => setSure(e.currentTarget.checked)} /><span>${tr('I understand that deleting my account cannot be undone.')}</span></label>`
+            : html`<${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${72} auto="current-password" />`}
+          <div class="ol-row"><${Btn} kind="danger" icon="delete" label=${tr('Delete for good')} busy=${busy} disabled=${v.no_password ? !sure : !password} onClick=${remove} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Cancel')} onClick=${() => (setDel(false), setPassword(''), setSure(false))} /></div>`}
+    </div>
+  </div>`;
+}
+
+// --- the friends ----------------------------------------------------------------------------------
+
+function Invites({ v }) {
+  if (!v.invites?.length) return null;
+  return html`<section class="ol-sec"><div class="ol-caps"><b>${tr('Invites')}</b></div>
+    ${v.invites.map((i) => html`<${InviteRow} i=${i} />`)}</section>`;
+}
+
+function InviteRow({ i }) {
+  const join = async () => {
+    if (await joinSession(i.session)) act('ol_dismiss', { id: i.id }, true);
+  };
+  return html`<div class="ol-friend invite"><${Icon} name="wifi_tethering" size=${18} class="ol-accent" />
+    <div class="who"><b class="cut">${i.text}</b></div>
+    <span class="acts"><${Btn} kind="primary" icon="groups" label=${tr('Join')} onClick=${join} /><${Btn} kind="ghost" icon="close" label=${tr('Dismiss')} onClick=${() => act('ol_dismiss', { id: i.id }, true)} /></span>
+  </div>`;
+}
+
+function FriendRow({ f, v }) {
+  return html`<div class="ol-friend">
+    <span class=${'ol-dot ' + f.state} title=${f.state_label}></span>
+    <div class="who"><b class="cut">${f.name}</b><span class="dim cut">${f.state === 'offline' ? f.seen || f.state_label : f.state_label}</span></div>
+    <span class="acts">
+      ${f.join && html`<${Btn} kind="primary" icon="groups" label=${tr('Join')} title=${tr('Join their company session')} onClick=${() => joinSession(f.session)} />`}
+      ${v.hosting && v.together && html`<${Btn} icon="wifi_tethering" label=${tr('Invite to my company')} onClick=${() => act('ol_invite', { id: f.id })} />`}
+      <${Sure} icon="remove" label=${tr('Remove')} sure=${tr('Remove?')} onClick=${() => act('ol_remove', { id: f.id })} />
+      <${Sure} icon="stop_circle" label=${tr('Block')} sure=${tr('Block?')} onClick=${() => act('ol_block', { id: f.id })} />
+    </span>
+  </div>`;
+}
+
+function Friends({ v }) {
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState('');
+  const add = async () => {
+    const r = await act('ol_add', { code }, true);
+    setErr(r.error || '');
+    if (r.ok) {
+      toast(r.message, 'ok');
+      setCode('');
+    }
+  };
+  if (v.mode !== 'in' || v.need_profile) {
+    return html`<div class="ol-empty"><${Icon} name="group" size=${30} /><p>${tr('Sign in to add friends, see who is online and invite them to your company.')}</p>
+      <${Btn} kind="primary" icon="person" label=${tr('Sign in')} onClick=${() => openPanel('account')} /></div>`;
+  }
+  const incoming = v.requests.filter((r) => r.incoming);
+  const outgoing = v.requests.filter((r) => !r.incoming);
+  return html`<div class="ol-friends">
+    ${v.offline && html`<${Note} icon="wifi" kind="quiet" text=${tr('Offline: the online features are back as soon as the network is.')} />`}
+    <section class="ol-sec"><div class="ol-caps"><b>${tr('Add a friend')}</b>${v.me?.code && html`<span>${tr('Your code: %{code}', { code: v.me.code })}</span>`}</div>
+      <div class="ol-row"><input class="ol-input" value=${code} maxLength=${12} placeholder=${tr('Their friend code')} spellcheck=${false} onInput=${(e) => setCode(e.currentTarget.value)} onKeyDown=${(e) => e.key === 'Enter' && add()} />
+        <${Btn} kind="primary" icon="add" label=${tr('Add')} disabled=${code.trim().length < 8} onClick=${add} /></div>
+      ${err && html`<p class="ol-err">${err}</p>`}
+    </section>
+    <${Invites} v=${v} />
+    ${incoming.length > 0 && html`<section class="ol-sec"><div class="ol-caps"><b>${tr('Friend requests')}</b></div>
+      ${incoming.map((r) => html`<div class=${'ol-friend' + (r.new ? ' new' : '')}><${Icon} name="person" size=${18} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('wants to be your friend')}</span></div>
+        <span class="acts"><${Btn} kind="primary" icon="check" label=${tr('Accept')} onClick=${() => act('ol_respond', { id: r.id, accept: true })} /><${Btn} kind="ghost" icon="close" label=${tr('Decline')} onClick=${() => act('ol_respond', { id: r.id, accept: false })} /><${Sure} icon="stop_circle" label=${tr('Block')} sure=${tr('Block?')} onClick=${() => act('ol_block', { id: r.id })} /></span></div>`)}
+    </section>`}
+    <section class="ol-sec"><div class="ol-caps"><b>${tr('Friends')}</b><span>${tr('%{n} online', { n: v.online_count || 0 })}</span></div>
+      ${v.friends.length ? v.friends.map((f) => html`<${FriendRow} f=${f} v=${v} />`) : html`<p class="ol-text">${tr('No friends yet. Add one with their friend code.')}</p>`}
+      ${v.together && !v.hosting && v.friends.length > 0 && html`<${Note} icon="wifi_tethering" text=${tr('Share your company (Multiplayer) to invite friends to it.')} />`}
+    </section>
+    ${outgoing.length > 0 && html`<section class="ol-sec"><div class="ol-caps"><b>${tr('Sent requests')}</b></div>
+      ${outgoing.map((r) => html`<div class="ol-friend"><${Icon} name="schedule" size=${18} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('waiting for an answer')}</span></div>
+        <span class="acts"><${Sure} icon="close" label=${tr('Withdraw')} sure=${tr('Withdraw?')} onClick=${() => act('ol_remove', { id: r.id })} /></span></div>`)}
+    </section>`}
+  </div>`;
+}
+
+// --- the panel, the button, the notices -------------------------------------------------------------
+
+/** The account and the friends, as tabs: over the page (the button's panel), or `inline` (the
+ * Online page). */
+export function Panel({ v, tab, inline }) {
+  const [own, setOwn] = useState('auto');
+  const signed = v?.mode === 'in' && !v.need_profile;
+  const chosen = inline ? own : tab;
+  const now = !chosen || chosen === 'auto' ? (signed ? 'friends' : 'account') : chosen;
+  const pick = (id) => (inline ? setOwn(id) : openPanel(id));
+  useEffect(() => {
+    ask('ol_refresh')
+      .then(publish)
+      .catch(() => {});
+    ask('ol_seen').catch(() => {});
+    if (inline) return;
+    const k = (e) => e.key === 'Escape' && closePanel();
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, []);
+  const tabs = [
+    ['account', 'account_circle', 'Account'],
+    ['friends', 'group', 'Friends'],
+  ];
+  const box = html`<div class=${'ol-panel' + (inline ? ' inline' : '')}>
+      <header class="ol-head">
+        <${Icon} name=${signed ? 'group' : 'account_circle'} size=${22} />
+        <div class="t"><h2>${signed ? v.me?.name || tr('Omsi-Hub online') : tr('Omsi-Hub online')}</h2><p>${signed ? tr('Signed in') : v?.mode === 'local' ? tr('Playing without an account') : tr('Not signed in')}</p></div>
+        ${!inline && html`<button type="button" class="ol-icon-btn" title=${tr('Close')} onClick=${closePanel}><${Icon} name="close" size=${17} /></button>`}
+      </header>
+      <nav class="ol-tabs">${tabs.map(([id, icon, label]) => html`<button type="button" id=${'ol-tab-' + id} class=${'ol-tab' + (now === id ? ' on' : '')} onClick=${() => pick(id)}><${Icon} name=${icon} size=${15} />${tr(label)}${id === 'friends' && v?.badge > 0 && html`<span class="ol-badge in">${v.badge}</span>`}</button>`)}</nav>
+      <div class="ol-body">${!v ? html`<p class="ol-text">…</p>` : now === 'friends' ? html`<${Friends} v=${v} />` : v.mode === 'in' ? html`<${Profile} v=${v} />` : html`<${SignedOut} v=${v} />`}</div>
+    </div>`;
+  if (inline) return box;
+  return html`<div class="ol-overlay" onMouseDown=${(e) => e.target === e.currentTarget && closePanel()}>${box}</div>`;
+}
+
+/** The top bar's button: the account, or the friends with the new requests and invites on it.
+ * It opens and closes the panel (`OnlineLayer` draws it). */
+export function OnlineButton() {
+  const v = useOnline();
+  const open = useStore((s) => s.onlinePanel);
+  const signed = v?.mode === 'in';
+  const title = !signed ? tr('Account') : v.offline ? tr('Friends: offline') : tr('Friends: %{n} online', { n: v.online_count || 0 });
+  return html`<span class="ol-btn"><button type="button" id="ol-button" class=${'ol-icon-btn bar' + (open ? ' on' : '')} title=${title} aria-label=${title} onClick=${() => (get().onlinePanel ? closePanel() : openPanel())}>
+      <${Icon} name=${signed ? 'group' : 'account_circle'} size=${18} />
+    </button>${v?.badge > 0 && html`<span class="ol-badge">${v.badge}</span>`}${signed && v.offline && html`<span class="ol-off"></span>`}</span>`;
+}
+
+/** Signed in, and the current privacy statement not agreed to (an amended version, or an account
+ * made before there was one): accept, or sign out and play on locally. The account does nothing
+ * until then. */
+function PrivacyAsk({ v }) {
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const go = async (name) => {
+    setBusy(name);
+    const r = await act(name, {}, true);
+    setBusy('');
+    setErr(r.error || '');
+    if (r.ok && r.message) toast(r.message, 'ok');
+  };
+  const n = v.privacy?.version || 1;
+  return html`<div class="ol-overlay ol-pv-overlay" role="dialog" aria-modal="true" aria-label=${tr('Privacy Statement')}>
+    <div class="ol-pv-box ask">
+      <header class="ol-pv-head"><${Icon} name="lock" size=${22} /><div class="t"><h2>${tr('Privacy Statement')}</h2><p>${tr('Version %{n}', { n })}</p></div></header>
+      <div class="ol-pv-scroll">
+        <p class="ol-pv-lead">${v.privacy?.amended
+          ? tr('The Privacy Statement has been amended (version %{n}). Please review and accept it to continue using your account.', { n })
+          : tr('Please review and accept the Privacy Statement (version %{n}) to continue using your account.', { n })}</p>
+        <ul class="ol-pv-sum">
+          <li>${tr('Your account holds your email address, display name, friends, invitations, statistics and up to two cloud saves, stored on servers in the European Union.')}</li>
+          <li>${tr('Personal data is not sold, and no advertising or tracking is used.')}</li>
+          <li>${tr('You may delete your account at any time under Account → Delete account.')}</li>
+          <li>${tr('Omsi-Hub can be used without an account. If you sign out, you can continue to play locally.')}</li>
+        </ul>
+        <${Statement} />
+      </div>
+      ${err && html`<p class="ol-err">${err}</p>`}
+      <div class="ol-pv-acts">
+        <${Btn} kind="primary" icon="check" label=${tr('Accept')} busy=${busy === 'ol_privacy_accept'} disabled=${!!busy} onClick=${() => go('ol_privacy_accept')} />
+        <span class="ol-fill"></span>
+        <${Btn} kind="ghost" icon="logout" label=${tr('Sign out')} busy=${busy === 'ol_sign_out'} disabled=${!!busy} onClick=${() => go('ol_sign_out')} />
+      </div>
+    </div>
+  </div>`;
+}
+
+/** The invites' notices (new ones, over every page) and the panel when it is open; signed in
+ * without the privacy statement agreed to (an old account, or an amended statement), its
+ * question over everything instead. Mounted once at the shell's root. */
+export function OnlineLayer() {
+  const v = useOnline();
+  const open = useStore((s) => s.onlinePanel);
+  const [hidden, setHidden] = useState([]);
+  if (v?.mode === 'in' && v.privacy?.needed) return html`<${PrivacyAsk} v=${v} />`;
+  const fresh = (v?.invites || []).filter((i) => i.new && !hidden.includes(i.id)).slice(0, 2);
+  const hide = (id) => setHidden([...hidden, id]);
+  return html`${open && html`<${Panel} v=${v} tab=${open} />`}
+    ${!open && fresh.length > 0 && html`<div class="ol-notices">${fresh.map((i) => html`<div class="ol-notice">
+      <${Icon} name="wifi_tethering" size=${20} />
+      <div class="t"><b>${tr('Invite')}</b><span>${i.text}</span></div>
+      <div class="acts"><${Btn} kind="primary" icon="groups" label=${tr('Join')} onClick=${async () => { hide(i.id); if (await joinSession(i.session)) act('ol_dismiss', { id: i.id }, true); }} />
+        <${Btn} kind="ghost" label=${tr('Dismiss')} onClick=${() => (hide(i.id), act('ol_dismiss', { id: i.id }, true))} /></div>
+    </div>`)}</div>`}`;
+}
