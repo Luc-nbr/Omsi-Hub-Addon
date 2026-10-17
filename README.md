@@ -118,7 +118,7 @@ everything else keeps working.
 
 ## Licence
 
-[MIT](LICENSE) © 2026 Luc Ruigrok.
+[MIT](LICENSE) © 2026 Luc.R.
 
 Omsi-Hub is a fan project. It is not affiliated with the makers or publishers of OMSI 2, and it is a
 separate project from openOMSI.
