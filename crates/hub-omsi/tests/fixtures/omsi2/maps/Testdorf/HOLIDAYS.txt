@@ -1,0 +1,14 @@
+------1989------
+
+[holidays]
+19890701
+19890815
+Summer
+
+[holiday]
+19890504
+Ascension
+
+[holiday]
+19891225
+Christmas

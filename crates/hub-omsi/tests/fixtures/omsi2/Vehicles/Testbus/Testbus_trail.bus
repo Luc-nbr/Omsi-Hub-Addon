@@ -1,0 +1,10 @@
+[coupling_front]
+0
+4.1
+0.3
+
+[model]
+model\model.cfg
+
+[passengercabin]
+model\PASSENGERCABIN_trail.cfg

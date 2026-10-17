@@ -1,0 +1,93 @@
+	Depot file of Testdorf (synthetic)
+	for Omsi-Hub's tests
+
+[name]
+Testdorf
+
+[servicetrip]
+Betriebsfahrt
+
+[global_strings]
+2
+Testdorf
+Testdorf_Rollband
+
+stringcount_terminus
+3
+
+	string0:	IBIS display
+	string1:	Front, max 16 Zeichen
+	string2:	Roller blind
+
+stringcount_busstop
+2
+
+	busstop string 0: IBIS name
+
+	An example (a comment, not a destination):
+	[addterminus]
+	{code}
+
+[addterminus_allexit]
+0
+Leerfahrt
+LEERFAHRT
+
+Blank.tga
+................
+
+[addterminus]
+104
+Kirche
+Kirche
+KIRCHE
+   KIRCHE   
+Kirche.tga
+................
+
+[addterminus]
+101
+Depot
+
+DEPOT
+DEPOT
+Depot.tga
+
+[addbusstop]
+Grünau Markt
+GRÜNAU MARKT
+Grünau Markt
+................
+
+[addbusstop]
+Kirche
+KIRCHE
+Kirche
+
+-----------------------------------
+
+[infosystem_trip]
+1001
+DEPOT-KIRCHE
+104
+10
+
+[infosystem_busstop_list]
+4
+Depot
+Grünau Markt
+Hauptstraße
+Kirche
+
+-----------------------------------
+
+[infosystem_trip]
+1002
+KIRCHE-DEPOT
+101
+10
+
+[infosystem_busstop_list]
+2
+Kirche
+Depot

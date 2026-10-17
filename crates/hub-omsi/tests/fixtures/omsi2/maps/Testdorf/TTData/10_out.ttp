@@ -1,0 +1,44 @@
+-----------------------
+Time Table Trip File
+-----------------------
+
+Created with Omsi Version 2.3.004
+Date: 01.01.2000
+
+[trip]
+
+Kirche
+10
+
+.........................
+        Stations
+.........................
+
+[station_typ2]
+1001
+
+[station_typ2]
+1002
+
+[station_typ2]
+1003
+
+[station_typ2]
+1004
+
+
+.........................
+        Profiles
+.........................
+
+[profile]
+standard
+10.000
+
+[profile_man_dep_time]
+1
+2.000
+
+[profile]
+evening
+8.000

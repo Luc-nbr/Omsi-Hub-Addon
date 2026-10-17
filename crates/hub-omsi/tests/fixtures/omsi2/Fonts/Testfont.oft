@@ -1,0 +1,22 @@
+	[newfont]
+	{name}
+
+[newfont]
+Test Matrix 8
+testmatrix8.bmp
+testmatrix8_alpha.bmp
+8
+1
+
+[char]
+A
+0
+4
+0
+
+[newfont]
+Test Matrix 16 Ü
+testmatrix16.bmp
+testmatrix16_alpha.bmp
+16
+2

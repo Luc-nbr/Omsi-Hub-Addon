@@ -1,0 +1,44 @@
+====================================
+	Omsi Weather File (*.owt)
+====================================
+
+	[fog]
+	{range}
+
+[name]
+Grauer Tag
+
+[description]
+Regen und Wind, kühl.
+[end]
+
+[fog]
+199.99999686135
+0.99999998430675
+
+[wind]
+230
+4.3
+
+[temp]
+11
+9.5
+
+[press]
+997
+
+[clouds]
+Overcast 1
+200
+
+[precip]
+1
+173
+0
+-2
+0
+
+[groundwet]
+78
+255
+115.9
