@@ -30,6 +30,7 @@ pub mod service;
 pub mod settings;
 pub mod timetable;
 pub mod trips;
+pub mod ttrun;
 pub mod ttstore;
 pub mod vehicles;
 
