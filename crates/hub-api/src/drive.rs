@@ -1,10 +1,25 @@
 //! A drive started in the player's openOMSI: the page's [`Duty`] made into the official command
-//! line ([`launch_spec`]), the game started from the openOMSI folder of the settings, watched,
-//! and its end told to the page (`game-ended`).
+//! line ([`launch_spec`]), the plugin given its assignment, the game started from the openOMSI
+//! folder of the settings, the bridge looked at while it runs, and its end told to the page.
 //!
-//! What the command line cannot say - a company's duty, its legs, a free line, the display
-//! font, the object editor - goes to the plugin as its assignment (`hub_game::bridge`): **the
-//! plugin port** writes it before the start ([`start`] marks the place).
+//! **The drive's flow** ([`start`]): a company's duty (`co_act` `launch_start`, which gives the
+//! plugin the company's part first: `company::plugin::assign_duty`), a shift, a tour and a free
+//! drive (`hub_drive`) all come here:
+//!
+//! 1. the openOMSI of the settings checked (its version; one Omsi-Hub does not work with is
+//!    refused);
+//! 2. the plugin made ready (`addon::ready`: put in or brought up to date, unless the player
+//!    parked it off) and given the drive's assignment (`addon::give`): what the command line
+//!    cannot say - the company and its duty, the duty's parts (legs), a free route, the sheet,
+//!    the controls, the fare, the contract, the crew, the display font and the IBIS;
+//! 3. the game started with official flags only (`hub_game::launch::LaunchSpec`);
+//! 4. **the bridge's loop** on a thread of its own, every [`EVERY`] while the game runs: the
+//!    plugin's reports booked (`addon::book`), the company told (`company::after_booking`), its
+//!    own work done (the replies, the status, the inbox for the plugin: `messages::tick`), the
+//!    on-time brief written (`company::ontime::refresh`); the notices go to the plugin as they
+//!    come (`addon::notify_game`);
+//! 5. the game ended: the reports booked once more, then the page told (`game-ended`, with what
+//!    was booked).
 
 use crate::{to_json, Answer, Platform};
 use hub_core::Duty;
@@ -13,10 +28,12 @@ use hub_game::process::{self, Game};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The game Omsi-Hub started (one at a time).
 static GAME: Mutex<Option<Game>> = Mutex::new(None);
+/// How often the bridge's loop looks while the game runs.
+pub const EVERY: Duration = Duration::from_secs(2);
 
 fn some(s: &Option<String>) -> Option<String> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
@@ -41,7 +58,12 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
     s.number = some(&d.number);
     s.hof = some(&d.hof);
     s.set_vars = d.set_vars.clone();
-    s.entry = d.entry.and_then(|e| usize::try_from(e).ok());
+    // (-1: the entry point nearest to the duty's first stop, the game's own choice)
+    match d.entry {
+        Some(e) if e < 0 => s.auto_entry = true,
+        Some(e) => s.entry = usize::try_from(e).ok(),
+        None => {}
+    }
     s.date = some(&d.date);
     s.time = Some(d.time.trim().to_string()).filter(|t| !t.is_empty());
     s.weather = some(&d.weather);
@@ -57,6 +79,17 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         s.tour = some(&d.tour).filter(|_| s.line.is_some());
         s.trip = some(&d.trip).filter(|_| s.tour.is_some());
         s.whole_tour = d.whole_tour && s.trip.is_some();
+        // (a duty of several parts: the game starts the first part's tour, the plugin chains
+        // the rest with `duty.start` and ends the duty after the last)
+        if let Some(first) = d.legs.first().and_then(|l| crate::addon::leg_of(l)) {
+            s.line = Some(first.line);
+            s.tour = Some(first.tour);
+            s.trip = Some(first.first.to_string());
+            s.whole_tour = true;
+        }
+        if s.line.is_some() {
+            s.schedule = true;
+        }
     }
     s.lan = d.lan.as_deref().map(str::trim).and_then(|l| {
         if l == "host" {
@@ -94,31 +127,92 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
     if checked.compat.level == hub_game::compat::Level::Unsupported {
         return Err(checked.compat.notes.first().cloned().unwrap_or_else(|| "This openOMSI is not supported".into()));
     }
-    // (the plugin port: the assignment for the plugin is written here, before the start)
+    // the plugin given the drive (a drive without it still starts: the command line alone)
+    let data = hub_core::data_dir();
+    let issued = match crate::addon::ready(&checked.install.plugins_dir) {
+        Some(dir) => match crate::addon::give(&dir, d, &data) {
+            Ok(a) => Some(a.issued),
+            Err(e) => {
+                hub_core::log_line(&format!("drive: {e}"));
+                None
+            }
+        },
+        None => {
+            hub_core::log_line("drive: the Omsi-Hub plugin is off in this openOMSI: the drive has no assignment");
+            None
+        }
+    };
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
     let g = process::start(&checked.install.exe, &spec).map_err(|e| e.to_string())?;
     let pid = g.pid();
-    hub_core::log_line(&format!("drive: openOMSI started (pid {pid})"));
+    hub_core::log_line(&format!("drive: openOMSI started (pid {pid}): {}", spec.args().unwrap_or_default().join(" ")));
     *game = Some(g);
     drop(game);
     watch(p.emitter());
-    Ok(json!({ "started": true, "pid": pid }))
+    Ok(json!({ "started": true, "pid": pid, "issued": issued }))
 }
 
-/// Watch the game on a thread of its own until it ends, then tell the page.
+/// One look of the bridge: the reports booked, the company told, the on-time brief written.
+/// What was booked.
+pub fn look() -> crate::addon::Booked {
+    let b = crate::addon::book();
+    crate::company::after_booking(&b);
+    crate::company::ontime::refresh();
+    b
+}
+
+/// The bridge looked at once (`addon_poll`).
+pub fn poll_once() -> Value {
+    to_json(look()).unwrap_or(Value::Null)
+}
+
+/// Watch the game on a thread of its own until it ends: the bridge every [`EVERY`], and once
+/// more at the end; then tell the page.
 fn watch(emit: Option<crate::Emitter>) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(500));
-        let mut game = GAME.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(g) = game.as_mut() else { return };
-        if let Some(ended) = g.poll() {
-            *game = None;
-            drop(game);
-            hub_core::log_line(&format!("drive: openOMSI ended ({:?}) after {:.0} s", ended.code, ended.seconds));
-            if let Some(e) = &emit {
-                e("game-ended", to_json(ended).unwrap_or(Value::Null));
+    std::thread::spawn(move || {
+        // (the company's words on this thread in the player's language)
+        crate::company::words::set_language(&crate::addon::player_language());
+        let mut last = Instant::now();
+        let mut booked = crate::addon::Booked::default();
+        let mut add = |b: crate::addon::Booked| {
+            booked.reports += b.reports;
+            booked.trips += b.trips;
+            booked.orders += b.orders;
+            booked.live += b.live;
+            for d in b.drivers {
+                if !booked.drivers.contains(&d) {
+                    booked.drivers.push(d);
+                }
             }
-            return;
+            for c in b.companies {
+                if !booked.companies.contains(&c) {
+                    booked.companies.push(c);
+                }
+            }
+        };
+        loop {
+            std::thread::sleep(Duration::from_millis(250));
+            let ended = {
+                let mut game = GAME.lock().unwrap_or_else(|e| e.into_inner());
+                let Some(g) = game.as_mut() else { return };
+                let ended = g.poll();
+                if ended.is_some() {
+                    *game = None;
+                }
+                ended
+            };
+            if let Some(ended) = ended {
+                add(look());
+                hub_core::log_line(&format!("drive: openOMSI ended ({:?}) after {:.0} s; {} reports, {} trips booked", ended.code, ended.seconds, booked.reports, booked.trips));
+                if let Some(e) = &emit {
+                    e("game-ended", json!({ "code": ended.code, "seconds": ended.seconds, "booked": booked }));
+                }
+                return;
+            }
+            if last.elapsed() >= EVERY {
+                last = Instant::now();
+                add(look());
+            }
         }
     });
 }
@@ -132,18 +226,15 @@ pub fn state() -> Value {
     };
     match running {
         Some(pid) => json!({ "running": true, "pid": pid }),
-        None => {
-            *game = None;
-            json!({ "running": false })
-        }
+        None => json!({ "running": false }),
     }
 }
 
-/// The game ended by the app.
+/// The game ended by the app (the bridge's loop books the rest and tells the page).
 pub fn stop(_p: &dyn Platform) -> Value {
-    let taken = GAME.lock().unwrap_or_else(|e| e.into_inner()).take();
-    match taken {
-        Some(mut g) => to_json(g.stop()).unwrap_or(Value::Null),
+    let mut game = GAME.lock().unwrap_or_else(|e| e.into_inner());
+    match game.as_mut() {
+        Some(g) => to_json(g.stop()).unwrap_or(Value::Null),
         None => json!({ "running": false }),
     }
 }
@@ -168,7 +259,7 @@ mod tests {
 
     #[test]
     fn what_only_the_plugin_can_do_stays_off_the_command_line() {
-        let free = Duty { free_line: Some("10_a".into()), company: Some("c1".into()), legs: vec!["11/3".into()], editor: true, display_font: Some("x".into()), ..duty() };
+        let free = Duty { free_line: Some("10_a".into()), company: Some("c1".into()), legs: vec!["11|3|1|2".into()], editor: true, display_font: Some("x".into()), ..duty() };
         let a = launch_spec(&free, Path::new("C:/OMSI 2")).args().unwrap();
         assert!(!a.iter().any(|x| x == "--line" || x == "--tour" || x == "--company" || x == "--free-line" || x == "--duty-leg"), "{a:?}");
         let host = Duty { lan: Some("host".into()), ..duty() };
@@ -177,5 +268,19 @@ mod tests {
         assert!(launch_spec(&join, Path::new("r")).args().unwrap().windows(2).any(|w| w == ["--lan-join", "auto"]));
         let tut = Duty { tutorial: Some(2), ..duty() };
         assert_eq!(launch_spec(&tut, Path::new("r")).args().unwrap(), ["--root", "r", "--tutorial", "2"]);
+    }
+
+    #[test]
+    fn a_shift_starts_its_first_part_and_leaves_the_rest_to_the_plugin() {
+        let shift = Duty { line: None, tour: None, legs: vec!["14|1|3|2".into(), "9|4|1|1".into()], entry: Some(-1), ..duty() };
+        let a = launch_spec(&shift, Path::new("r")).args().unwrap();
+        let has = |f: &str, v: &str| a.windows(2).any(|w| w[0] == f && w[1] == v);
+        assert!(has("--line", "14") && has("--tour", "1") && has("--trip", "3"), "{a:?}");
+        assert!(a.iter().any(|x| x == "--whole-tour") && a.iter().any(|x| x == "--auto-entry") && a.iter().any(|x| x == "--schedule"), "{a:?}");
+        // (the second part is not on the command line: the plugin takes it)
+        assert!(!a.iter().any(|x| x == "9" || x == "--duty-leg"), "{a:?}");
+        for x in a.iter().filter(|x| x.starts_with("--")) {
+            assert!(hub_game::launch::OFFICIAL_FLAGS.contains(&x.as_str()), "{x} is not an official flag");
+        }
     }
 }

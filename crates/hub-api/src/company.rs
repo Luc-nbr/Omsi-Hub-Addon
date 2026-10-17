@@ -25,7 +25,7 @@
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 mod age;
 pub(crate) mod agenda;
-mod career;
+pub(crate) mod career;
 pub mod casual;
 mod chooser;
 // (Beta 62: the country the company plays in - its people's names)
@@ -48,12 +48,14 @@ mod lines;
 // (the control room's messages to the drivers, and theirs: docs/omsihub/MESSAGES.md)
 pub(crate) mod messages;
 mod money;
+// (on time for the driver: the brief for the plugin's on-time card while the game runs)
+pub(crate) mod ontime;
 mod ops;
 mod overview;
 mod people;
 mod photos;
 mod reputation;
-// (the company's link to the plugin: delivered by the plugin port)
+// (the company's link to the plugin: its part of a duty's assignment, `crate::addon`)
 pub mod plugin;
 // (Beta 61: a sandbox company's rules, set by the player)
 mod portraits;
@@ -1173,6 +1175,26 @@ fn catch_up(s: &mut Session, c: Company, real: i64) {
                 s.clock.hold();
                 s.say(e, true);
             }
+        }
+    });
+}
+
+/// What the plugin's reports booked, taken in by the open company (the bridge's loop, after
+/// `addon::book`): the driver's career read again with the new trips (a driving test judged),
+/// and the company's new orders carried out at once. The session's own work (`with` → `work`:
+/// the replies and the status taken by `messages::tick`, the live events by `follow`) does the
+/// rest.
+pub fn after_booking(b: &crate::addon::Booked) {
+    with(|s| {
+        if !b.drivers.is_empty() {
+            career::refresh(s);
+            s.generation += 1;
+        }
+        let open = s.company.as_ref().is_some_and(|c| b.companies.iter().any(|x| *x == c.id));
+        if open {
+            s.orders_at = None;
+            depot_tick(s);
+            s.generation += 1;
         }
     });
 }

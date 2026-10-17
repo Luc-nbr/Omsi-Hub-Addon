@@ -54,6 +54,13 @@ function checkOpenomsi(folder) {
   };
 }
 
+/** The plugin's state in the mock's openOMSI. */
+let addonPlugin = 'missing';
+
+/** The old Omsi-Hub's saves the mock finds with `?migrate` (`migrate::preview`'s shape). */
+const OLD = { folder: 'C:/Users/Player/.openomsi', companies: [['stadtbus', 'Stadtbus Grundorf']], careers: ['luc'], lines: ['Grundorf'], depots: ['oo_Grundorf'], settings: ['accent', 'dark_mode', 'company_layout'], language: 'de', driver: 'Luc', files: 11, bytes: 6000 };
+const oldSaves = () => (params.has('migrate') && !settings.migrated ? { offer: true, folder: OLD.folder, companies: OLD.companies.map((c) => c[0]), careers: OLD.careers, files: OLD.files, preview: OLD } : { offer: false, companies: [], careers: [], files: 0 });
+
 function checkOmsi2(folder) {
   const ok = /omsi ?2/i.test(folder || '');
   return { ok, missing: ok ? [] : ['Omsi.exe'], text: ok ? '' : 'This is not the OMSI 2 folder: Omsi.exe not found' };
@@ -67,9 +74,9 @@ const MAPS = [
 ];
 
 const BUSES = [
-  { file: 'Vehicles/MAN_SD200/SD202.bus', name: 'MAN SD202', manufacturer: 'MAN', folder: 'MAN_SD200', type_name: 'Double-decker', description: 'Berlin double-decker, 1980s', paints: [['BVG', 'BVG']], default_paint: 'BVG', numbers: [['2571', 'B-V 2571']], missing_packs: [], hofs: ['Grundorf.hof'] },
-  { file: 'Vehicles/MAN_NL_NG/NL202.bus', name: 'MAN NL202', manufacturer: 'MAN', folder: 'MAN_NL_NG', type_name: 'Low-floor', description: 'City bus, low floor', paints: [['Weiss', 'White'], ['Grundorf', 'Grundorf']], default_paint: 'Weiss', numbers: [['17', '']], missing_packs: [], hofs: ['Grundorf.hof'] },
-  { file: 'Vehicles/MAN_NG/NG272.bus', name: 'MAN NG272', manufacturer: 'MAN', folder: 'MAN_NG', type_name: 'Articulated', description: 'Articulated city bus', paints: [['Weiss', 'White']], default_paint: 'Weiss', numbers: [], missing_packs: [], hofs: [] },
+  { file: 'Vehicles/MAN_SD200/SD202.bus', name: 'MAN SD202', manufacturer: 'MAN', folder: 'MAN_SD200', type_name: 'Double-decker', description: 'Berlin double-decker, 1980s', paints: ['BVG'], default_paint: 'BVG', numbers: [['2571', 'B-V 2571']], missing_packs: [], hofs: ['Grundorf.hof'] },
+  { file: 'Vehicles/MAN_NL_NG/NL202.bus', name: 'MAN NL202', manufacturer: 'MAN', folder: 'MAN_NL_NG', type_name: 'Low-floor', description: 'City bus, low floor', paints: ['Weiss', 'Grundorf'], default_paint: 'Weiss', numbers: [['17', '']], missing_packs: [], hofs: ['Grundorf.hof'] },
+  { file: 'Vehicles/MAN_NG/NG272.bus', name: 'MAN NG272', manufacturer: 'MAN', folder: 'MAN_NG', type_name: 'Articulated', description: 'Articulated city bus', paints: ['Weiss'], default_paint: 'Weiss', numbers: [], missing_packs: [], hofs: [] },
 ];
 
 const STOPS = ['Bahnhof', 'Marktplatz', 'Kirche', 'Schule', 'Waldweg', 'Endstation'];
@@ -110,10 +117,11 @@ const DEPOT = {
 const DEPOTS = [{ key: DEPOT.key, name: DEPOT.name, map: DEPOT.map, termini: DEPOT.termini.length }];
 
 const answers = {
-  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.6.0', bridge: 1 }),
+  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.7.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
   hub_texts: () => ({}),
-  hub_setup_state: () => ({ settings, openomsi: null, omsi2: null, migrate: { offer: false, companies: [], careers: [], files: 0 } }),
+  // (`?migrate` offers the old saves once, as `hub_setup_state` does when ~/.openomsi has some)
+  hub_setup_state: () => ({ settings, openomsi: null, omsi2: null, migrate: oldSaves() }),
   hub_setup_suggest: () => ({ openomsi: [], omsi2: [] }),
   hub_setup_openomsi: (a) => checkOpenomsi(a.folder),
   hub_setup_omsi2: (a) => checkOmsi2(a.folder),
@@ -132,11 +140,30 @@ const answers = {
     keep();
     return settings;
   },
-  hub_migrate_skip: () => ({ ok: true }),
+  hub_migrate_skip: () => ((settings.migrated = true), keep(), { ok: true }),
+  hub_migrate_scan: () => ({ folder: OLD.folder, items: [], companies: OLD.companies.map((c) => c[0]), careers: OLD.careers, preview: OLD }),
+  hub_migrate_import: () => ((settings.migrated = true), keep(), { imported: OLD.files, preview: OLD, settings }),
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
-  addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: 'missing' }, plugin_version: '1.6.0' }),
-  addon_enable: (a) => ({ state: a.on ? 'on' : 'off', version: '1.6.0' }),
+  // (the online account and the cloud saves, signed out: everything works offline)
+  ol_state: () => ({ mode: 'out', friends: [], invites: [], requests: [], badge: 0, online_count: 0, offline: false, together: false, hosting: false, privacy: { version: 2, needed: false } }),
+  ol_refresh: () => ({ ok: true }),
+  ol_seen: () => ({ ok: true }),
+  ol_presence: () => ({ ok: true }),
+  cs_state: () => ({ companies: {}, slots: 2, used: 0, local_label: 'Local save', cloud_label: 'Cloud save' }),
+  cs_open: () => ({}),
+  addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: addonPlugin }, plugin_version: '1.7.0', hello: null, checked: false, assigned: null }),
+  addon_enable: (a) => ((addonPlugin = a.on ? 'on' : 'off'), { state: addonPlugin, version: '1.7.0' }),
+  addon_remove: () => ((addonPlugin = 'missing'), { state: 'missing' }),
+  addon_set_folder: (a) => {
+    const c = checkOpenomsi(a.folder);
+    if (c.ok) (settings.openomsi_folder = a.folder), keep();
+    return { folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: addonPlugin }, plugin_version: '1.7.0', checked: false, ...(c.ok ? {} : { refused: { folder: a.folder, problem: c.text } }) };
+  },
+  addon_version: () => ({ version: checkOpenomsi(settings.openomsi_folder).version, min: '0.2.22' }),
+  addon_texts: () => ({ language: settings.language || 'en' }),
+  addon_reports: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
+  addon_poll: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
 
   // the drive
   hub_maps: () => MAPS,
@@ -144,7 +171,8 @@ const answers = {
   hub_weather: () => [{ file: 'weather/sunny.owt', name: 'Sunny' }, { file: 'weather/rain.owt', name: 'Rain' }],
   hub_lines: (a) => (/grundorf/i.test(a.map || '') ? LINES : []),
   hub_default_hof: () => 'Grundorf.hof',
-  hub_ibis: (a) => ({ line: a.line, routes: 2, destinations: 3, known: true }),
+  // (the line's routes in the depot file, as `content::ibis` answers)
+  hub_ibis: (a) => ({ hof: a.hof || 'Grundorf.hof', line: a.line, line_code: String(a.line || '').replace(/\D/g, '') || '1', routes: [{ code: '101', name: 'Endstation', terminus: 'Endstation' }, { code: '102', name: 'Bahnhof', terminus: 'Bahnhof' }], destinations: 3 }),
   hub_situations: () => [],
   hub_map_facts: () => ({}),
   hub_own_lines: () => [],
@@ -166,6 +194,8 @@ const answers = {
   hub_more_setvars: () => [],
   hub_more_bus_options: () => ({ options: [], reading: false }),
   hub_more_font_view: () => ({ failed: true, options: [] }),
+  // (a text on the bus's own display font, drawn by the game program: not in a browser)
+  hub_display_preview: () => ({ failed: true }),
   hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
   hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,
@@ -206,10 +236,15 @@ const answers = {
 export const backend = {
   async call(cmd, args) {
     const a = answers[cmd];
-    if (!a) throw `not ported yet: ${cmd}`;
+    if (!a) {
+      // (kept for a look at what a page asked that the mock lacks: `__OMSIHUB_MOCK_MISSING__`)
+      (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[cmd] = (globalThis.__OMSIHUB_MOCK_MISSING__[cmd] || 0) + 1;
+      throw `not ported yet: ${cmd}`;
+    }
     return a(args || {});
   },
   async callBytes(cmd) {
+    (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[`bytes:${cmd}`] = 1;
     throw `not ported yet: ${cmd}`;
   },
   on(event, fn) {

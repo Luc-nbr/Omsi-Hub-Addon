@@ -4,16 +4,19 @@
 --
 -- Installed and kept up to date by Omsi-Hub (crates/omsihub-plugin); a change by hand goes
 -- with its next update. The files it shares with Omsi-Hub (see src/bridge.rs):
---   assignment.lua        Omsi-Hub -> plugin: the duty, the notices, the texts
+--   assignment.lua        Omsi-Hub -> plugin: the duty (its parts: legs.lua), the notices
+--   texts.lua             Omsi-Hub -> plugin: the texts in the player's language
 --   data/notices.json     Omsi-Hub -> plugin: notices that come while the game runs
 --   data/messages.json    Omsi-Hub -> plugin: the control room's messages (messages.lua)
+--   data/ontime.json      Omsi-Hub -> plugin: the on-time card's brief (ontime.lua)
 --   data/hello.json       plugin -> Omsi-Hub: the handshake (what this openOMSI offers)
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 --   data/replies.jsonl    plugin -> Omsi-Hub: the driver's answers and quick buttons
 --   data/status.json      plugin -> Omsi-Hub: how the duty stands (for the dispatcher)
+--   data/live.json        plugin -> Omsi-Hub: where the bus is (ontime.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -77,6 +80,10 @@ end
 local function issued()
   return assignment and tonumber(assignment.issued) or 0
 end
+
+-- the duty's parts, chained with duty.start (legs.lua)
+local legs = require("legs")
+legs.setup(assignment)
 
 -- one line to Omsi-Hub: into a file of the data folder, else into the game's log
 local function send_out(file, tag, value, append)
@@ -238,14 +245,45 @@ local function ibis_rule()
   omsi.duty.set_auto_ibis(signon.at_work() and not (assignment and assignment.ibis == false))
 end
 
+local function say(text, title, icon, seconds)
+  if has["ui.toast"] then
+    omsi.ui.toast(text, { title = title, icon = icon, color = "#F58620", seconds = seconds or 10 })
+  else
+    omsi.message((title and title ~= "" and (title .. ": ") or "") .. text, seconds or 10)
+  end
+end
+
 local function start_duty()
   if not (assignment and has["duty.start"]) or duty_now() then return end
-  local ok, why = omsi.duty.start(assignment.line, assignment.tour, tonumber(assignment.trip) or 1, tonumber(assignment.stop) or 1)
+  local ok, why
+  if legs.any() then
+    local line, tour, trip, stop = legs.first()
+    ok, why = omsi.duty.start(line, tour, trip, stop)
+  else
+    ok, why = omsi.duty.start(assignment.line, assignment.tour, tonumber(assignment.trip) or 1, tonumber(assignment.stop) or 1)
+  end
   if not ok then
     local text = tr("The duty could not be started: %{reason}", { reason = why or "" })
     if has["ui.toast"] then omsi.ui.toast(text, { icon = "warning" }) else omsi.message(text, 8) end
   end
   panel()
+end
+
+-- the part of the duty under way is done (legs.lua): the next one taken, or the duty ended
+local function next_leg(what, line, tour, trip, stop)
+  if what == "next" and has["duty.start"] then
+    local ok, why = omsi.duty.start(line, tour, trip, stop)
+    if ok then
+      local n = legs.current()
+      say(tr("Part %{n} of %{of}: line %{line}, tour %{tour}", { n = n, of = legs.count(), line = line, tour = tour }), tr("Duty"), "route")
+      if has["duty.type_ibis"] and not (assignment and assignment.ibis == false) then omsi.duty.type_ibis() end
+    else
+      say(tr("The duty could not be started: %{reason}", { reason = why or "" }), nil, "warning", 8)
+    end
+  elseif what == "done" then
+    if has["duty.finish"] then omsi.duty.finish() end
+    say(tr("Your duty is done: take the bus back to the depot"), tr("Duty"), "flag")
+  end
 end
 
 -- --- the duty and its trips -------------------------------------------------------------------
@@ -356,6 +394,12 @@ omsi.on("duty", function(line, tour)
   if state.line and not line then strip.sign_off() end
   state.line, state.tour, state.last_trip = line, tour, nil
   if line then report("duty_start", { line = line, tour = tour }) end
+  -- (a part that begins with a relief on the way: taken again from its relief stop)
+  local from = legs.duty_began(line, tour)
+  if from and has["duty.start"] then
+    local _, l = legs.current()
+    omsi.duty.start(line, tour, l.first, from)
+  end
   panel()
 end)
 
@@ -364,12 +408,23 @@ omsi.on("trip_done", function(n, how, driving, comfort, tickets)
   local c = trip.current()
   local run = c and c.n == n and trip.finish(how == "arrived", delay(), watch) or nil
   trip_ended(run, fields)
+  next_leg(legs.trip_done(n))
   panel()
 end)
 
 omsi.on("stop_arrive", function(_, _, number, d)
   trip.arrive(number, d)
   messages.arrive(number)
+  -- (the part ends at a relief on the way: the trip ends here, the next part or the duty's end)
+  local now = duty_now()
+  if now and legs.relief_at(now.trip, number) then
+    local c = trip.current()
+    local run = c and c.n == now.trip and trip.finish(false, delay(), watch) or nil
+    trip_ended(run, { trip = now.trip, how = "relieved", delay = delay() })
+    say(tr("Your relief takes over here: your duty ends"), tr("Relief"), "group")
+    next_leg(legs.advance())
+    panel()
+  end
 end)
 omsi.on("stop_depart", function(_, _, number, d) trip.depart(number, d) end)
 omsi.on("jolt", function() trip.jolt() end)
@@ -403,6 +458,10 @@ local function watch_trips()
     local run = c and c.n == state.last_trip and trip.moved_on(watch) or nil
     trip_ended(run, { trip = state.last_trip, how = "arrived", delay = d.delay })
     trip.begin(d.trip, d.line, d.tour)
+    local done = state.last_trip
+    state.last_trip = d.trip
+    next_leg(legs.trip_done(done))
+    return
   end
   state.last_trip = d.trip
 end
@@ -417,8 +476,18 @@ local function display_font()
   omsi.bus.set_display_font(font)
 end
 
+-- a free drive along one route of a line: nobody keeps the time, the route is said once
+local free_said = false
+local function free_drive()
+  local route = assignment and assignment.free_line or ""
+  if free_said or route == "" then return end
+  free_said = true
+  say(tr("Free drive on line %{line}: %{route}", { line = assignment.line or "", route = route }), tr("Free drive"), "alt_route", 12)
+end
+
 omsi.on("vehicle", function(name)
   if name then display_font() end
+  if name then free_drive() end
   -- (the notices once the player is in the bus and sees them)
   if name and assignment then show_notices(assignment.notices) end
   if name and signon.at_work() then strip.signed_on() end

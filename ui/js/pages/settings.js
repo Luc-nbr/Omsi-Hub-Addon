@@ -26,7 +26,7 @@ function Row({ row, s }) {
     return html`<div class="setting-row"><span class="name">${tr(row.label)}</span><${Select} raw value=${s.lang} options=${langs.map((l) => [l, LANGUAGE_NAMES[l] || l])} onChange=${(l) => saveSettings({ language: l })} /></div>`;
   }
   if (row.type === 'button') {
-    return html`<div class="setting-row full"><div><${Button} icon=${row.icon} label=${row.label} onClick=${() => {
+    return html`<div class="setting-row full" id=${row.id}><div><${Button} icon=${row.icon} label=${row.label} onClick=${() => {
       const patch = row.patch();
       if (patch && Object.keys(patch).length) saveSettings(patch);
     }} /></div></div>`;

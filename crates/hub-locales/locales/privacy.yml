@@ -124,3 +124,10 @@ _version: 2
   pl: "Przed utworzeniem lub użyciem konta należy zaakceptować oświadczenie o ochronie prywatności."
   ru: "Перед созданием или использованием аккаунта необходимо принять заявление о конфиденциальности."
   uk: "Перед створенням або використанням облікового запису необхідно прийняти заяву про конфіденційність."
+"I am 16 or older, or have permission from a parent or guardian.":
+  de: "Ich bin 16 Jahre oder älter oder habe die Erlaubnis eines Elternteils oder Erziehungsberechtigten."
+  fr: "J'ai 16 ans ou plus, ou j'ai l'autorisation d'un parent ou d'un tuteur légal."
+  nl: "Ik ben 16 jaar of ouder, of heb toestemming van een ouder of voogd."
+  pl: "Mam co najmniej 16 lat lub mam zgodę rodzica lub opiekuna prawnego."
+  ru: "Мне 16 лет или больше, либо у меня есть разрешение родителя или законного опекуна."
+  uk: "Мені 16 років або більше, або я маю дозвіл батьків чи законного опікуна."

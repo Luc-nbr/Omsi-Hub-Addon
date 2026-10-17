@@ -19,7 +19,8 @@
 //! `OMSIHUB_SELFTEST=1` runs the page's selftests and ends with their report (exit code 0 when
 //! all passed, 1 when one failed, 2 when the page gave none within a minute);
 //! `OMSIHUB_SELFTEST_FIXTURES=<the repository's fixtures/>` adds the first-run setup, filled in
-//! with the fake folders there.
+//! with the fake folders there, and the old saves of `fixtures/old-openomsi` offered and copied;
+//! the data folder is then a temporary one unless `OMSIHUB_DATA_DIR` says another.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Deserialize;
@@ -265,6 +266,20 @@ fn sniff(b: &[u8]) -> &'static str {
 
 fn main() {
     let selftest = std::env::var_os(SELFTEST_ENV).is_some_and(|v| !v.is_empty() && v != "0");
+    // (the selftest on the fixtures: a data folder of its own unless one is given, and the old
+    // Omsi-Hub's saves from the fixture of an old ~/.openomsi, so the setup offers them)
+    if selftest {
+        if let Some(dir) = std::env::var_os(FIXTURES_ENV).map(std::path::PathBuf::from) {
+            if std::env::var_os(hub_core::paths::DATA_DIR_ENV).is_none() {
+                let data = std::env::temp_dir().join(format!("omsihub-selftest-{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&data);
+                std::env::set_var(hub_core::paths::DATA_DIR_ENV, data);
+            }
+            if std::env::var_os(hub_core::migrate::OLD_FOLDER_ENV).is_none() && dir.join("old-openomsi").is_dir() {
+                std::env::set_var(hub_core::migrate::OLD_FOLDER_ENV, dir.join("old-openomsi"));
+            }
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

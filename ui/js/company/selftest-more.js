@@ -26,8 +26,9 @@ export async function selftest(check, errors, shown) {
     [7, 'the depot', () => $('.cm-plan') && `${$$('.cm-bus').length} buses on the yard`],
     [8, 'the concessions', () => $$('.co-pg-card').length >= 3 && `${$$('.cm-tender').length} tenders`],
     [9, 'the fleet map', () => $('.cm-panel') && ($('.cm-mapbox') ? 'map and panel' : 'panel')],
-    [10, 'the research', () => $$('.cm-topic').length > 20 && `${$$('.cm-topic').length} topics`],
-    [11, 'the workshop', () => $$('.cm-part').length === 10 && 'ten parts'],
+    // (Beta 65's pages: a tile a topic, a table row a spare part)
+    [10, 'the research', () => $$('.co-pgb-rs-tile').length > 20 && `${$$('.co-pgb-rs-tile').length} topics`],
+    [11, 'the workshop', () => $$('.co-pgb-ws-row:not(.head)').length === 10 && 'ten parts'],
     [12, 'the contracts', () => $('.co-pg-pills') && `${$$('.cm-goal').length} goals`],
   ];
   for (const [tab, name, what] of pages) {

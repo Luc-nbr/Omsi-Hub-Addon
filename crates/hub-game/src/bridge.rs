@@ -24,7 +24,8 @@
 //! * `data/live.json`: where the bus is (the trip, its stops, the delay), every few seconds,
 //!   for the on-time card's brief (`lua/ontime.lua`);
 //! * `data/reports.jsonl`: one [`Report`] a line - the duty taken, each trip done with its
-//!   ratings, the duty ended - appended as they happen ([`ReportReader`] reads what is new);
+//!   ratings, the driver's notes and defects, the company's live events, the duty ended -
+//!   appended as they happen ([`ReportReader`] reads what is new);
 //! * `data/replies.jsonl`: one [`Reply`] a line - a message delivered, read, accepted or
 //!   declined, a canned reply, a quick button to control ([`ReplyReader`]);
 //! * `data/status.json`: how the duty stands, written every few seconds ([`Status`]: the trip,
@@ -188,6 +189,28 @@ pub struct Assignment {
     /// The duty strip, the bus's handover notes and the walk-around of a company's duty
     /// (`lua/duty_strip.lua`; None: a drive of the player's own).
     pub crew: Option<Crew>,
+    /// A duty of several parts - a shift put together of tours, a company's duty with a relief
+    /// on the way - in the order they are driven (empty: `line`, `tour` and `trip` alone). The
+    /// plugin takes each with `duty.start` when the part before it is done, and ends the duty
+    /// after the last (`legs.lua`): what the old game's `--duty-leg` did.
+    pub legs: Vec<Leg>,
+    /// A free drive along one route of `line`: the route (its trip's name). The game keeps no
+    /// time on it; the plugin shows the route (what the old game's `--free-line` did).
+    pub free_line: String,
+}
+
+/// A part of a duty: trips `first` to `first + trips - 1` of a tour (from 1), the first of them
+/// taken from its stop `from_stop` on and the last driven to its stop `to_stop` where a driver
+/// is relieved on the way (stops from 1; 0: the trip's own first and last stop).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Leg {
+    pub line: String,
+    pub tour: String,
+    pub first: u32,
+    pub trips: u32,
+    pub from_stop: u32,
+    pub to_stop: u32,
 }
 
 /// A piece of the duty as the duty strip shows it: signing on, a trip, a break, signing off
@@ -301,6 +324,9 @@ pub struct Report {
     pub minutes: Option<f64>,
     /// The company's bus it is about (`Crew::bus`).
     pub bus_id: u32,
+    /// What happened to the company on the map (`"live"`): its own `LiveEvent` (a trip of one
+    /// of its buses, a breakdown), booked into the company's live file as it is.
+    pub event: Option<serde_json::Value>,
 }
 
 impl Report {
@@ -309,6 +335,10 @@ impl Report {
     }
 
     /// A handover note, a defect or a fault: what the driver's side of the company books.
+    pub fn is_live(&self) -> bool {
+        self.kind == "live" && self.event.is_some()
+    }
+
     pub fn is_crew(&self) -> bool {
         matches!(self.kind.as_str(), "note" | "defect" | "fault")
     }

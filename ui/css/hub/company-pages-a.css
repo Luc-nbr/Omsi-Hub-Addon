@@ -140,8 +140,10 @@
 :root.hub .co-pg-bin { position: absolute; z-index: 1; right: 8px; top: 8px; opacity: 0; transition: opacity 0.15s; }
 :root.hub .co-pg-bin .co-iconbtn { background-color: rgba(0, 0, 0, 0.5); color: #fff; }
 :root.hub .co-pg-company:hover .co-pg-bin, :root.hub .co-pg-company:focus-within .co-pg-bin { opacity: 1; }
-:root.hub .co-pg-companymark { position: relative; z-index: 1; align-self: flex-start; margin: -40px 0 0 22px; flex: none; width: 76px; height: 76px; border-radius: 50%; padding: 4px; background: var(--pg-card); box-shadow: var(--pg-shadow); display: inline-flex; }
+/* (the mark over the banner's foot - 8 px above the banner, 128 px of it, 40 px of the mark over it -, placed rather than pulled up so the card's parts lie apart; the body under it as the flow had it) */
+:root.hub .co-pg-companymark { position: absolute; z-index: 1; left: 22px; top: 96px; margin: 0; flex: none; width: 76px; height: 76px; border-radius: 50%; padding: 4px; background: var(--pg-card); box-shadow: var(--pg-shadow); display: inline-flex; }
 :root.hub .co-pg-companymark .co-mark { width: 68px; height: 68px; border-radius: 50%; }
+:root.hub .co-pg-companymark + .co-pg-companybody { margin-top: 36px; }
 :root.hub .co-pg-companybody { padding: 8px 20px 18px; display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
 :root.hub .co-pg-companyname { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 :root.hub .co-pg-companyname b { font-size: 15px; font-weight: 900; color: var(--pg-head); line-height: 1.35; }

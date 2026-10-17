@@ -34,8 +34,15 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         "hub_setup_openomsi" => Ok(check_openomsi(&arg::<String>(args, "folder")?)),
         "hub_setup_omsi2" => Ok(check_omsi2(&arg::<String>(args, "folder")?)),
         "hub_setup_save" => setup_save(&arg::<String>(args, "openomsi")?, &arg::<String>(args, "omsi2")?, arg::<Option<String>>(args, "language")?),
-        "hub_migrate_scan" => to_json(migrate::scan(&migrate::old_folder())),
-        "hub_migrate_import" => migrate::import(&migrate::scan(&migrate::old_folder())).map(|n| json!({ "imported": n })),
+        "hub_migrate_scan" => {
+            let found = migrate::scan(&migrate::old_folder());
+            Ok(json!({ "folder": found.folder, "items": found.items, "companies": found.companies, "careers": found.careers, "preview": migrate::preview(&found) }))
+        }
+        "hub_migrate_import" => {
+            let found = migrate::scan(&migrate::old_folder());
+            let n = migrate::import(&found)?;
+            Ok(json!({ "imported": n, "preview": migrate::preview(&found), "settings": Settings::load() }))
+        }
         "hub_migrate_skip" => {
             let mut s = Settings::load();
             s.migrated = true;
@@ -54,13 +61,14 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
             p.quit();
             Ok(Value::Null)
         }
-        _ => Err(format!("unknown command: {cmd}")),
+        // (the drive's steps: the maps, buses, lines, shifts, weather, depots … `content`)
+        _ => crate::content::call(cmd, args, p),
     }
 }
 
-/// A `hub_` command that answers bytes: none yet.
-pub fn call_bytes(cmd: &str, _args: &Value, _p: &dyn Platform) -> Result<Vec<u8>, String> {
-    Err(format!("unknown command: {cmd}"))
+/// A `hub_` command that answers bytes (`content`: the map's picture, a font's).
+pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, String> {
+    crate::content::call_bytes(cmd, args, p)
 }
 
 fn version() -> Value {
@@ -135,7 +143,7 @@ fn setup_state() -> Value {
         "settings": s,
         "openomsi": (!s.openomsi_folder.is_empty()).then(|| check_openomsi(&s.openomsi_folder)),
         "omsi2": (!s.omsi2_folder.is_empty()).then(|| check_omsi2(&s.omsi2_folder)),
-        "migrate": { "offer": !s.migrated && !found.is_empty(), "companies": found.companies, "careers": found.careers, "files": found.items.len() },
+        "migrate": { "offer": !s.migrated && !found.is_empty(), "folder": found.folder, "companies": found.companies, "careers": found.careers, "files": found.items.len(), "preview": migrate::preview(&found) },
     })
 }
 

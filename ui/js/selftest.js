@@ -85,6 +85,39 @@ export const CHECKS = [
     await until(() => (document.querySelector('#set-openomsi') || {}).textContent === fx.openomsi);
     set({ page: 'drive' });
   }],
+  ['setup: the old saves are offered once and copied', async () => {
+    // (with the fixtures the app points the old folder at fixtures/old-openomsi)
+    if (!window.__OMSIHUB_FIXTURES__ || get().setup) return;
+    await until(() => document.querySelector('#migrate'), 4000).catch(() => {});
+    if (!document.querySelector('#migrate')) return;
+    const found = (document.querySelector('#migrate-found') || {}).textContent || '';
+    check(/Stadtbus Grundorf/.test(found) && /Grundorf/.test(found), 'what was found: ' + found);
+    document.querySelector('#migrate-copy').click();
+    await until(() => document.querySelector('#migrate-done'), 5000);
+    const st = await call('hub_setup_state');
+    check(st.migrate.offer === false && st.settings.migrated === true, 'offered again');
+    // (the look and the navigator taken over; the language chosen in the setup kept)
+    check(st.settings.accent === '#2a75f7' && st.settings.company_layout === 'palette' && st.settings.nav_signon === true && st.settings.driver === 'Luc', 'the old settings: ' + JSON.stringify(st.settings));
+  }],
+  ['settings: the openOMSI tab and the privacy link', async () => {
+    if (get().setup) return;
+    set({ page: 'settings' });
+    await until(() => document.querySelectorAll('#settings .hub-seg button').length > 1);
+    document.querySelectorAll('#settings .hub-seg button')[0].click();
+    await until(() => document.querySelector('#settings-privacy button'));
+    document.querySelectorAll('#settings .hub-seg button')[1].click();
+    // (not driven yet: checked at the first drive)
+    await until(() => /first drive/.test((document.querySelector('#addon-checked') || {}).textContent || ''), 5000);
+    set({ page: 'drive' });
+  }],
+  ['api: every command answers in the app (none unknown)', async () => {
+    // (the drive's steps and the plugin's page: a few of the commands the round added)
+    for (const [cmd, args] of [['hub_maps', {}], ['hub_buses', {}], ['hub_weather', {}], ['addon_state', {}], ['hub_migrate_scan', {}]]) {
+      let said = '';
+      try { await call(cmd, args); } catch (e) { said = String(e); }
+      check(!/unknown command/.test(said), cmd + ': ' + said);
+    }
+  }],
   ['shell: every page draws', async () => {
     if (get().setup) {
       // (the folders are not chosen: the setup is what is shown)

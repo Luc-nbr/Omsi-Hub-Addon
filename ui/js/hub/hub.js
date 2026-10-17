@@ -19,7 +19,7 @@ import { TourOverlay } from './tour.js';
 // (Omsi-Hub online: the invites' notices and the account's panel over every page)
 import { OnlineLayer } from './online.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
-import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
+import { useUpdates, UpdateDialog, UpdatedNotice } from '../update.js';
 import { GameEndDialogs } from './gameend.js';
 // (Ctrl and the wheel size the launcher, outside RosterFlow)
 import { installZoom } from './zoom.js';

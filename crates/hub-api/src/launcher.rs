@@ -115,21 +115,11 @@ impl MapInfo {
     }
 }
 
-/// Every installed map with a `global.cfg`, sorted by name (none without the OMSI 2 folder).
+/// Every installed map with a `global.cfg`, sorted by name (none without the OMSI 2 folder);
+/// its `hof` the depot file its `[standarddepot]` group gives (`content::maps_in`).
 pub fn list_maps() -> Result<Vec<MapInfo>, String> {
     let Some(vfs) = paths::vfs() else { return Ok(Vec::new()) };
-    let mut out = Vec::new();
-    for (folder, is_dir) in vfs.list_dir("maps") {
-        if !is_dir {
-            continue;
-        }
-        let Some(path) = vfs.resolve(&format!("maps/{folder}/global.cfg")) else { continue };
-        let Ok(g) = hub_omsi::map::GlobalCfg::load(&path) else { continue };
-        let installed = vfs.bases().len() > 1 && path.starts_with(&vfs.bases()[0]);
-        out.push(MapInfo::of(&g, &folder, installed));
-    }
-    out.sort_by(|a, b| a.friendly.to_lowercase().cmp(&b.friendly.to_lowercase()));
-    Ok(out)
+    Ok(crate::content::maps_in(&vfs))
 }
 
 /// A weather file of OMSI 2's `Weather` folder.

@@ -31,6 +31,9 @@ const LINES = [
 ];
 const plate = (l) => ({ number: l.number, colour: l.colour });
 const lineOf = (name) => LINES.find((l) => l.name === name);
+/** The line editor's page for a line (`lines::edit_to`): the company's own line 205 is the line
+ * editor's third. */
+const editTo = (l) => (l && l.name === '205' ? 'line-editor=3' : null);
 
 const BUSES = [
   { id: 1, number: '17', name: 'MAN NL202', file: 'Vehicles/MAN_NL_NG/NL202.bus', livery: 'Grundorf', plate: 'GD-VB 17', kind: 'Solo bus, diesel', km: 412300, year: 2004, cond: 0.82, how: 'Bought' },
@@ -564,7 +567,7 @@ function lines(a) {
   const sel = a.selected && lineOf(a.selected) ? a.selected : null;
   const rows = LINES.map((l) => ({
     name: l.name, on: l.name === sel, plate: plate(l), caption: l.caption, own: l.name === '205' ? ['Own', 'A line of your own, made in the line editor'] : null, pending: null,
-    fare: fine(l.fare), fare_tip: 'The fare: what a trip costs', edit: l.name === '205' ? 'Edit the line' : null, edit_to: l.name === '205' ? 'line-editor=3' : null, timetable: 'Timetable', remove_tip: 'Give the line up',
+    fare: fine(l.fare), fare_tip: 'The fare: what a trip costs', edit: editTo(l) ? 'Edit the line' : null, edit_to: editTo(l), timetable: 'Timetable', remove_tip: 'Give the line up',
     bar: { label: 'Covered today', right: l.name === '102' ? '1 of 2' : '2 of 2', frac: l.name === '102' ? 0.5 : 1, tone: l.name === '102' ? 'warn' : 'ok', tip: 'Tours with a bus and every duty driven', click: 'planning' },
     km: `${l.km} km`,
   }));
@@ -913,8 +916,15 @@ function sidePanel(sel, arm, today) {
   };
 }
 
-/** The planning's actions (`co_more_act`): a driver or a bus given, the day's tools. */
+/** The more pages' actions (`co_more_act`): the planning's - a driver or a bus given, the day's
+ * tools, a line's sheet opened -, the research's, the workshop's and the sheet's. */
 function moreAct(a) {
+  if (String(a.act || '').startsWith('pe_')) return planEditAct(a);
+  const other = researchAct(a) || workshopAct(a);
+  if (other) {
+    bump();
+    return other;
+  }
   const t = TOURS[Number(a.ti)];
   switch (a.act) {
     case 'plan_give_driver':
@@ -936,7 +946,10 @@ function moreAct(a) {
       say('The day is cleared.');
       break;
     case 'plan_timetable':
-      return { plan_edit: false, popup: { icon: 'departure_board', title: 'The line\'s timetable', text: "The planning's timetable sheet is not in the browser mock.", unlock: '', go: null } };
+      // (RosterFlow on: its Timeplan takes the line; else the planning's own sheet)
+      if (st.rosterflow) return { hand_over: `timetable=${a.line}` };
+      sheet = lineOf(a.line) ? { line: a.line, tour: a.tour || null, date: a.date || co().date, sel: null } : null;
+      return { plan_edit: !!sheet };
     default:
   }
   bump();
@@ -1158,41 +1171,302 @@ function depot() {
   };
 }
 
-function research() {
-  const card = (key, title, icon, state, more = {}) => ({ key, title, icon, state, colour: '#1e88e5', section: 'Passengers', effect: '', info: '', money: '€12,000', money_tone: 'text', trophies: '2', trophies_tone: 'text', work: '20 days', work_all: '20 days with 1 researcher', stage: null, stages: 1, done: state === 'done' ? 1 : 0, frac: 0, said: '', left: '', needs: '', needs_list: [], start: null, primary: false, ...more });
-  return {
-    title: 'Research', sub: 'New abilities for the company, paid with money and trophies.',
-    strip: [{ icon: 'emoji_events', value: `${co().trophies} trophies`, tone: 'warn', tip: 'To spend on research' }, { icon: 'payments', value: eur(co().cash), tone: 'ok', tip: 'Cash' }],
-    banner: { key: 'tickets', name: 'Ticket machines', icon: 'confirmation_number', colour: '#1e88e5', stage: null, pct: '40 %', share: 0.4, paused: false, what: 'Passengers buy on board without the driver', line: '', days: '12 days left', crew: '1 researcher', staff: 'Tobias Schmitt researches', staff_tone: 'text', effect: 'Boarding 20 % quicker', pause: 'Pause', resume: 'Resume', pause_tip: 'The work is kept', stop: 'Stop', again: 'Press again', stop_tip: 'The work is lost' },
-    words: { now: 'UNDER WAY', available: 'Available', locked: 'Locked', done: 'Researched', running: 'Under way', locked_needs: 'Needs %{what}', close: 'Close', effect: 'What it does', cost: 'Cost', duration: 'Time', researchers: 'Researchers', needs: 'Needs', none: 'Nothing', info_open: 'Start it: the work begins tomorrow.', info_locked: 'Research what it needs first.', info_done: 'Researched: it works for the company.', info_running: 'Under way.' },
-    sections: [
-      { title: 'Passengers', colour: '#1e88e5', motif: 'groups', count: '1 of 3', cards: [card('wlan', 'Wi-Fi on board', 'wifi', 'done', { said: 'Researched', effect: 'Passengers +3 %' }), card('tickets', 'Ticket machines', 'confirmation_number', 'running', { frac: 0.4, said: '40 %', left: '12 days left', effect: 'Boarding 20 % quicker' }), card('screens', 'Passenger screens', 'tv', 'locked', { needs_list: ['Ticket machines'], effect: 'Reputation +2' })] },
-      { title: 'Fleet', colour: '#43a047', motif: 'directions_bus', count: '1 of 2', cards: [card('eco', 'Eco driving', 'eco', 'open', { start: 'Start (€9,000)', primary: true, effect: 'Diesel -6 %' }), card('electric', 'Electric buses', 'ev_station', 'done', { said: 'Researched', effect: 'Buy electric buses' })] },
-    ],
-  };
+// (the research tree as `company::research::TOPICS` has it: key, section, title, icon, stages,
+// money (€) and trophies of the first stage, researcher-days of work, what it needs - another
+// topic (a stage's `<topic>_<n>`) or the company's level -, and what it does in a few words)
+const SECTIONS = [
+  ['Buses', 'Buses and their running', [36, 150, 140], 'directions_bus'],
+  ['Upgrades', 'Bus upgrades', [70, 128, 210], 'star'],
+  ['Passengers', 'Passenger satisfaction', [52, 98, 178], 'person'],
+  ['Premises', 'Company premises', [52, 150, 82], 'home'],
+  ['Staff', 'Staff and their work', [124, 84, 196], 'groups'],
+  ['Workshop', 'Workshop and spare parts', [180, 106, 48], 'construction'],
+  ['Area', 'Expand the area of operation', [30, 134, 172], 'location_on'],
+  ['Tools', 'Additional tools', [216, 170, 54], 'add'],
+];
+const TOPICS = [
+  ['articulated', 'Buses', 'Articulated buses', 'directions_bus', 1, 40000, 0, 6, ['level:2'], 'Articulated buses at the dealers'],
+  ['double_deckers', 'Buses', 'Double-deckers', 'directions_bus', 1, 60000, 25, 10, ['level:4'], 'Double-deckers at the dealers'],
+  ['fuel', 'Buses', 'Reduce fuel consumption', 'speed', 5, 15000, 0, 4, [], '−2 % fuel a stage'],
+  ['dirt', 'Buses', 'Reduce dirt on the buses', 'water_drop', 3, 10000, 5, 4, [], '−10 % dirt a stage'],
+  ['wear', 'Buses', 'Reduce wear and tear', 'construction', 4, 20000, 0, 5, [], '−5 % wear a stage'],
+  ['air_conditioning', 'Upgrades', 'Air conditioning', 'ac_unit', 1, 25000, 10, 6, [], '+2 % passengers'],
+  ['passenger_info', 'Upgrades', 'Passenger information system', 'departure_board', 1, 30000, 15, 7, [], '+2 % passengers'],
+  ['wlan', 'Upgrades', 'WLAN', 'wifi', 1, 20000, 20, 6, ['passenger_info'], '+2 % passengers, internet contracts'],
+  ['usb', 'Upgrades', 'USB charging ports', 'bolt', 1, 15000, 20, 5, ['air_conditioning'], '+1.5 % passengers'],
+  ['premium_seats', 'Upgrades', 'Premium seats', 'airline_seat_recline_normal', 1, 45000, 35, 9, ['usb'], '+3 % passengers'],
+  ['stops', 'Passengers', 'Bus stop upgrades', 'location_on', 2, 30000, 15, 6, [], '+1.5 % passengers a stage'],
+  ['app', 'Passengers', 'Mobile app', 'smartphone', 3, 25000, 20, 6, ['passenger_info'], '+1 % passengers a stage'],
+  ['ticket_machines', 'Passengers', 'Ticket vending machines', 'confirmation_number', 3, 35000, 10, 6, [], '+1 % passengers, −3 % late trips a stage'],
+  ['priority', 'Passengers', 'Bus priority on the routes', 'traffic', 3, 40000, 25, 8, ['stops_1'], '−10 % late trips a stage'],
+  ['premises', 'Premises', 'Expand the company premises', 'garage', 3, 50000, 15, 8, [], '+6 bus places a stage'],
+  ['external_depots', 'Premises', 'External depots', 'home', 1, 80000, 40, 12, ['premises_1', 'level:3'], '+10 bus places, repairs out there'],
+  ['auto_cleaning', 'Staff', 'Automatic cleaning of the buses', 'autorenew', 1, 15000, 10, 5, [], 'The fleet stays at least 55 % clean'],
+  ['auto_washing', 'Staff', 'Automatic washing of the buses', 'water_drop', 1, 20000, 15, 6, ['auto_cleaning'], '+50 % buses washed a night'],
+  ['auto_refuelling', 'Staff', 'Automatic refuelling of the buses', 'sync_alt', 1, 25000, 20, 7, ['auto_cleaning'], '+50 % buses refuelled a night'],
+  ['auto_repair', 'Staff', 'Automatic repair at the external depots', 'construction', 1, 30000, 30, 8, ['external_depots'], 'Broken buses back a day sooner'],
+  ['ticket_inspectors', 'Staff', 'Ticket inspectors', 'badge', 1, 20000, 10, 5, [], 'Ticket inspectors can be hired'],
+  ['inspection', 'Staff', 'Working method of the ticket inspectors', 'visibility', 3, 10000, 15, 4, ['ticket_inspectors'], '+15 % passengers checked a stage'],
+  ['food', 'Staff', 'Better food for the employees', 'groups', 3, 12000, 10, 4, [], 'Happier, calmer staff'],
+  ['parts', 'Workshop', 'Cheaper spare parts', 'inventory_2', 3, 15000, 0, 5, [], '−10 % spare part prices a stage'],
+  ['repairs', 'Workshop', 'Faster repairs', 'timer', 3, 20000, 15, 6, [], '−10 % repair time a stage'],
+  ['area', 'Area', 'More concessions', 'map', 3, 60000, 30, 10, ['level:3'], '+1 concession a stage'],
+  ['park_and_ride', 'Area', 'Park and ride', 'local_parking', 1, 40000, 25, 8, ['area_1'], '+2 % passengers'],
+  ['shift_schedule', 'Tools', 'Shift schedule', 'calendar_month', 1, 10000, 5, 4, [], 'Core hours for the staff'],
+];
+/** The company's level (`levels`), the stages researched and the research under way. */
+const LEVEL = 2;
+const researched = { passenger_info: 1, air_conditioning: 1, fuel: 2, parts: 1, auto_cleaning: 1 };
+const rsRun = { topic: 'ticket_machines', stage: 1, share: 0.4, paused: false };
+
+/** A topic by its key, or by a stage's (`<topic>_<n>`); and whether a need is met. */
+const topicOf = (key) => TOPICS.find((t) => t[0] === key) || TOPICS.find((t) => t[4] > 1 && key === `${t[0]}_${key.slice(-1)}`);
+function needMet(n) {
+  if (n.startsWith('level:')) return LEVEL >= Number(n.slice(6));
+  const t = topicOf(n);
+  if (!t) return false;
+  return (researched[t[0]] || 0) >= (t[0] === n ? t[4] : Number(n.slice(-1)));
+}
+function needText(n) {
+  if (n.startsWith('level:')) return `Company level ${n.slice(6)}`;
+  const t = topicOf(n);
+  return !t ? n : t[0] !== n ? `${t[2]}, stage ${n.slice(-1)}` : t[2];
 }
 
-function workshop() {
-  const parts = [['Brake pads', 'disc_full', 14, 8, 20], ['Tyres', 'tire_repair', 6, 8, 16], ['Starter motors', 'electric_bolt', 0, 1, 3], ['Filters', 'filter_alt', 22, 10, 30]];
+function research() {
+  const card = ([key, sec, title, icon, stages, money, trophies, work, needs, effect]) => {
+    const done = researched[key] || 0;
+    const running = rsRun.topic === key ? rsRun : null;
+    const state = done >= stages ? 'done' : running ? 'running' : needs.every(needMet) ? 'open' : 'locked';
+    const [, label, colour] = SECTIONS.find((x) => x[0] === sec);
+    const out = {
+      key, title, icon, state, done, stages, frac: Math.min(1, (done + (running?.share || 0)) / stages), effect, info: effect, section: label, colour,
+      stage: stages > 1 && done < stages ? `Stage ${done + 1} of ${stages}` : null,
+    };
+    if (state === 'done') out.said = 'Researched';
+    else if (state === 'running') Object.assign(out, { said: `Researching: ${Math.round(running.share * 100)} %`, left: 'about 12 days to go' });
+    else {
+      const k = 1 + done * 0.5;
+      const t = trophies + done * 10;
+      const short = t - co().trophies;
+      Object.assign(out, {
+        work: `${Math.round(work * k)} days`, work_all: `${Math.round(work * k)} researcher-days of work`, money: eur(money * k * 100), money_tone: money * k * 100 > co().cash ? 'danger' : 'text',
+        trophies: short > 0 ? `${t} (${short} missing)` : String(t), trophies_tone: short > 0 ? 'danger' : 'text',
+      });
+      if (state === 'open') Object.assign(out, { start: 'Start research', primary: !rsRun.topic });
+      else {
+        const list = needs.filter((n) => !needMet(n)).map(needText);
+        Object.assign(out, { needs: `Needs: ${list.join(', ')}`, needs_list: list });
+      }
+    }
+    return out;
+  };
+  const run = rsRun.topic && topicOf(rsRun.topic);
+  const crew = { staff: 'Researchers at work: 1, 1.0 researcher-days of work a day.', staff_tone: 'soft', crew: '1 researcher' };
+  const secOf = (key) => SECTIONS.find((x) => x[0] === key);
   return {
-    head: { title: 'Workshop', sub: 'Spare parts, repairs and the mechanics.' }, most: 30,
-    kpis: [{ icon: 'directions_bus', tone: 'warn', label: 'In the workshop', value: '1', under: 'bus' }, { icon: 'inventory_2', tone: 'accent', label: 'Parts in stock', value: '42', under: 'of 69 to keep' }, { icon: 'warning', tone: 'danger', label: 'Parts short', value: '2', under: 'below the minimum' }, { icon: 'construction', tone: 'ok', label: 'Mechanics', value: '1', under: 'at work' }],
-    table: { title: 'SPARE PARTS', sub: 'What the stores hold, and an order.', cols: ['Part', 'Stock', 'Price', 'Order', 'Line'], less: 'Fewer', more: 'More',
-      rows: parts.map(([label, icon, stock, low, keep]) => ({ label, icon, stock, low, keep, level: String(stock), min: `min ${low}`, tone: stock < low ? 'danger' : stock < low * 1.5 ? 'warn' : 'ok', coming: label === 'Starter motors' ? '1 coming on Wed' : null, price: '€85', was: null, line: '€0', line_on: false })) },
-    summary: { title: 'THE ORDER', sub: 'Delivered to the depot.', ways: [['Normal', '3 days'], ['Express', 'Tomorrow, +25 %']], total: 'Total', amount: '€0', order: 'Order' },
-    foot: { note: 'Ordered parts come with the delivery chosen.', chosen: 0, sum_tone: 'text', clear: 'Clear' },
-    side: {
-      orders: { title: 'ON THE WAY', rows: [{ what: 'Delivered on Wed 21 Oct', parts: '1 starter motor' }] },
-      repair: { title: 'IN THE WORKSHOP', none: 'No bus in the workshop', none_sub: 'All buses ready', rows: [{ number: '2571', what: 'Starter motor', until: 'Until Wed 21 Oct', parts: 'Waits for a starter motor' }] },
-      waiting: { rows: [] },
-      defects: { title: 'DEFECTS REPORTED', sub: 'From the walk-around at sign-off', none: 'No defects.', rows: [{ icon: 'build', bus: '17', kind: 'Wiper', text: 'squeaks', date: '18 Oct', at: '18:20', who: 'Sabine Krüger', held_text: '', tone: 'dim', state: 'Noted' }] },
-      auto: { title: 'AUTOMATIC ORDERS', on: true, label: 'The stores order by themselves', text: 'Below the minimum, the stores order up to what they keep.', row: 'Next automatic order: Monday', row_tone: 'ok' },
-      mechanics: { title: 'MECHANICS', text: '1 mechanic: enough for 6 buses.', tone: 'text', link: 'To the staff', tab: 2 },
+    title: 'Research', sub: 'Invest in new technologies and improvements to make your operations more efficient, sustainable and profitable.',
+    strip: [
+      { icon: 'payments', value: eur(co().cash), tone: 'ok', tip: 'Cash' },
+      { icon: 'emoji_events', value: grouped(co().trophies), tone: 'warn', tip: 'Trophies: earned with goals and contracts, spent on research' },
+      { icon: 'star', value: `${co().reputation.toFixed(1)} %`, tone: 'accent2', tip: 'Rating: how the authority and the passengers see the company' },
+    ],
+    banner: run
+      ? {
+          name: run[2], key: run[0], stage: run[4] > 1 ? `Stage ${rsRun.stage} of ${run[4]}` : null, pct: `${Math.round(rsRun.share * 100)} %`, days: rsRun.paused ? 'Paused' : '12 days left', ...crew, effect: run[9],
+          paused: rsRun.paused, pause: 'Pause', resume: 'Resume', pause_tip: 'Pausing keeps the work done: nobody works on it until you resume it.',
+          what: run[4] > 1 ? `Researching: ${run[2]}, stage ${rsRun.stage} of ${run[4]}` : `Researching: ${run[2]}`, share: rsRun.share, tone: rsRun.paused ? 'warn' : 'accent',
+          line: `${Math.round(rsRun.share * 100)} % done, about 12 days to go at today's pace  ·  ${crew.staff}`,
+          icon: run[3], colour: secOf(run[1])[2], motif: secOf(run[1])[3],
+          stop: 'Stop the research', again: 'Click again to stop', stop_tip: 'Stopping gives back the trophies and half the money; the work done is lost.',
+        }
+      : { none: 'No research is running: choose one below and start it.', ...crew },
+    sections: SECTIONS.map(([sec, label, colour, motif]) => {
+      const cards = TOPICS.filter((t) => t[1] === sec).map(card);
+      return { title: label, colour, motif, cards, count: `${cards.filter((c) => c.state === 'done').length} of ${cards.length} researched` };
+    }),
+    info_tip: 'What it does', detail_caps: 'DETAILS', pick: 'Choose a research to see what it does.', cost_caps: 'NEXT STAGE', needs_caps: 'NEEDS FIRST',
+    words: {
+      money: 'Money', trophies: 'Trophies', work: 'Work', done: 'Researched', locked: 'Locked', now: 'Current research', available: 'Available', running: 'Under way', locked_needs: 'Locked: needs %{what}',
+      effect: 'Effect', cost: 'Cost', duration: 'Duration', researchers: 'Researchers', needs: 'Prerequisites', none: 'None', close: 'Close',
+      info_done: 'This research has already been completed. Its benefits are now active in your operations.',
+      info_running: 'This research is under way: its benefits come when its stage is done.',
+      info_open: 'Everything it needs is there: start it when you like. One research runs at a time.',
+      info_locked: 'It waits for what it needs: research that first, or reach the level it asks.',
     },
   };
 }
 
-const fleetmap = () => ({ reading: 'The map is drawn by the game program: not in the browser mock.' });
+/** The research's actions (`research::act`): one started, paused, stopped (null: not one of them). */
+function researchAct(a) {
+  switch (a.act) {
+    case 'research_start':
+      if (rsRun.topic) return { popup: { icon: 'search', title: 'One research at a time', text: 'Stop the research under way first, or wait until it is done.', unlock: '', go: null } };
+      Object.assign(rsRun, { topic: a.key, stage: (researched[a.key] || 0) + 1, share: 0, paused: false });
+      say('The research begins tomorrow.');
+      return {};
+    case 'research_pause':
+      rsRun.paused = !!a.on;
+      return {};
+    case 'research_stop':
+      Object.assign(rsRun, { topic: null, share: 0, paused: false });
+      say('The research is stopped.');
+      return {};
+    default:
+      return null;
+  }
+}
+
+// (the spare parts as `company::parts::Part::ALL` has them: label, icon, list price (€), what the
+// stores keep of it for twelve buses)
+const PARTS = [
+  ['Engine', 'settings', 3500, 1], ['Headlight', 'flashlight_on', 150, 3], ['Indicator', 'highlight', 40, 3], ['Wiper', 'rainy', 45, 3], ['Air conditioner', 'ac_unit', 1400, 1],
+  ['Router', 'wifi', 300, 1], ['Brake pads', 'stop_circle', 180, 3], ['Tyre set', 'autorenew', 1200, 2], ['Oil canister', 'water_drop', 110, 4], ['V-belt', 'sync_alt', 70, 2],
+];
+const stock = [1, 3, 2, 3, 0, 1, 1, 2, 4, 2];
+const partsAuto = { on: true };
+const EXPRESS_FEE = 4500;
+
+function workshop(a) {
+  const counts = PARTS.map((_, k) => Math.max(0, Number(a.counts?.[k]) || 0));
+  const express = !!a.express;
+  // (the research "Cheaper spare parts", stage 1: 10 % off the list price)
+  const price = (k) => Math.round(PARTS[k][2] * 0.9 * 100);
+  const n = counts.reduce((x, y) => x + y, 0);
+  const sum = counts.reduce((x, c, k) => x + c * price(k), 0) + (n && express ? EXPRESS_FEE : 0);
+  const worth = PARTS.reduce((x, _, k) => x + stock[k] * price(k), 0);
+  const short = PARTS.filter((p, k) => stock[k] < Math.ceil(p[3] / 2)).length;
+  const inWs = BUSES.filter((b) => b.workshop);
+  const cards = PARTS.map(([label, icon, list], k) => ({ label, icon, price: eur(price(k)), was: eur(list * 100), count: counts[k], stock: stock[k], line: eur(counts[k] * price(k)), line_on: counts[k] > 0 }));
+  const rows = cards.map((c, k) => {
+    const keep = PARTS[k][3];
+    const low = Math.ceil(keep / 2);
+    return { ...c, keep, low, min: `min ${low}`, level: `${stock[k]} / ${keep}`, tone: stock[k] === 0 ? 'danger' : stock[k] <= low ? 'warn' : 'ok', coming: k === 4 ? '1 on order' : null };
+  });
+  return {
+    figures: [
+      { label: 'Mechanics', value: '1', under: 'at work today', tone: 'text' },
+      { label: 'Waiting for parts', value: String(inWs.length), under: 'buses in the workshop', tone: inWs.length ? 'warn' : 'text' },
+      { label: 'On order', value: '1', under: 'parts on their way', tone: 'text' },
+      { label: 'In store', value: eur(worth), under: 'worth of spare parts', tone: 'text' },
+    ],
+    cards, most: 30, in_store: 'In store',
+    foot: { ways: ['Delivery at 16:00: free', `At once: ${eur(EXPRESS_FEE)}`], note: express ? 'In the stores as soon as it is bought.' : 'Ordered now, it comes today at 16:00.', sum: `Sum: ${eur(n ? sum : 0)}`, sum_tone: n && sum > co().cash ? 'danger' : 'text', chosen: n, buy: 'Buy', clear: 'Choose nothing' },
+    head: { title: 'Workshop', sub: 'Maintain your fleet, order spare parts and keep your buses on the road.' },
+    kpis: [
+      { icon: 'users', tone: 'info', label: 'Mechanics at work', value: '1 / 1', under: 'at work today' },
+      { icon: 'directions_bus', tone: inWs.length ? 'warn' : 'ok', label: 'Buses in the workshop', value: `${inWs.length} / ${BUSES.length}`, under: inWs.length ? `${inWs.length} waiting for parts` : 'none waiting for parts' },
+      { icon: 'inventory_2', tone: 'accent', label: 'Parts on order', value: '1', under: `${eur(worth)} in store` },
+    ],
+    table: { title: 'Spare parts', sub: 'Check your stock levels and order what you need', cols: ['Part', 'Stock', 'Unit price', 'Quantity', 'Line total'], rows, less: 'One less', more: 'One more' },
+    summary: { title: 'Order summary', sub: 'Choose delivery option and place your order', ways: [['Today 16:00', 'Free'], ['At once', eur(EXPRESS_FEE)]], total: 'Order total', amount: eur(n ? sum : 0), order: 'Order' },
+    side: {
+      waiting: { title: 'Waiting for parts', rows: inWs.map((b) => ({ number: b.number, parts: 'Air conditioner', since: 'waiting since Mon 19 Oct' })), none: 'No bus waits for a part.' },
+      orders: { title: 'On order', rows: [{ what: '1 parts, today 16:00', parts: '1 × Air conditioner  ·  ordered by the stores' }], none: 'Nothing is on order.' },
+      repair: { title: 'Buses in repair', rows: inWs.map((b) => ({ number: b.number, what: 'Repair', until: 'until Wed 21 Oct', parts: 'waits for: Air conditioner' })), none: 'No buses are currently in repair.', none_sub: 'Once a bus is in the workshop, it will appear here.' },
+      auto: { title: 'Automatic orders', on: partsAuto.on, label: 'The stores order by themselves', text: 'Below the minimum, the stores order up to what they keep.', row: short ? `Under their minimum now: ${short} parts` : 'Every part is above its minimum.', row_tone: !short ? 'ok' : partsAuto.on ? 'accent' : 'warn' },
+      mechanics: { title: 'Mechanics', text: '1 mechanic: enough for 6 buses.', tone: 'text', link: 'Staff page', tab: 2 },
+      defects: { title: 'Defects reported', sub: "From the drivers' walk-around checks and what went wrong on the way: each is a repair job here.", none: 'No open defects.', rows: [{ icon: 'build', bus: '17', kind: 'Wiper', text: 'squeaks', date: '18 Oct', at: '18:20', who: 'Sabine Krüger', held_text: '', tone: 'dim', state: 'Noted' }] },
+    },
+  };
+}
+
+/** The workshop's actions (`workshop::act`): parts bought, the stores' own ordering (null: not one
+ * of them). */
+function workshopAct(a) {
+  switch (a.act) {
+    case 'parts_auto':
+      partsAuto.on = !!a.on;
+      return {};
+    case 'parts_buy': {
+      const counts = (a.counts || []).map((x) => Math.max(0, Number(x) || 0));
+      if (!counts.some((x) => x > 0)) return {};
+      if (a.express) counts.forEach((c, k) => k < stock.length && (stock[k] += c));
+      say(a.express ? 'Bought: the spare parts are in the stores now.' : 'Ordered: the spare parts come today at 16:00.');
+      return { bought: true };
+    }
+    default:
+      return null;
+  }
+}
+
+/** The fleet map's panel and buses (`fleetmap::view`): the buses are placed on the routes the game
+ * program read, which the add-on has not (`co_more_map` is not available) - so, as in the app, the
+ * map is not built and no bus is on it; the panel has the clock and the lines. */
+function fleetmap() {
+  return {
+    built: false, title: 'FLEET MAP', live: { text: "Live: the company's time", tone: 'accent2' }, clock: `${hhmm(co().minute)}:00`, secs: co().minute * 60, playing: false, is_live: true, speed: 0,
+    tips: { run: 'Run the clock', stop: 'Stop the clock', x10: 'Ten times as fast', x60: 'Sixty times as fast', now: 'Back to now', close: 'Close' },
+    counts: 'On the road: 0  ·  at a terminus: 0  ·  tours today: 0',
+    legend: LINES.map((l) => ({ plate: plate(l), colour: l.colour, caption: l.caption, n: 0 })), no_lines: 'The company runs no line on this day.',
+    buses: [], picked: null, card: null,
+  };
+}
+
+// - a line's trips and timetable, the planning's own sheet (`plan_edit`) -
+
+/** The sheet open (`co_more_act` "plan_timetable"): its line, day, the tour to mark, the departure
+ * chosen. Only the fixed lines' view (a concession's timetable is the authority's: nothing to
+ * change); a line of the company's own is shown the same way in the mock. */
+let sheet = null;
+
+function planEdit() {
+  const l = sheet && lineOf(sheet.line);
+  if (!l) return { none: true };
+  const [a, b] = l.caption.split(' – ');
+  const ends = [b || l.caption, a || l.caption];
+  const tours = TOURS.filter((t) => t.line === l.name);
+  const run = Math.round(l.km * 2.6);
+  // (each tour's trips back and forth over its duties' span; their departures make the lanes)
+  const rows = tours.map((t) => {
+    const from = t.duties[0][0];
+    const to = t.duties[t.duties.length - 1][1];
+    const legs = [];
+    for (let m = from + 10, k = 0; m + run <= to; m += run + 10, k++) legs.push([m, m + run, k % 2]);
+    return { number: t.tour, title: `Tour ${t.tour}`, fate: 'kept', tip: 'Runs as it does now', bus: (BUSES.find((x) => x.id === t.bus) || {}).number || null, lose: false, legs, focus: sheet.tour === t.tour };
+  });
+  const sel = sheet.sel;
+  const lanes = ends.map((dest, k) => {
+    const deps = rows
+      .flatMap((r) => r.legs.filter((g) => g[2] === k).map((g) => ({ dep: g[0], arr: g[1], marked: r.focus })))
+      .sort((x, y) => x.dep - y.dep)
+      .map((d) => ({ dir: k, dep: d.dep, arr: d.arr, at: null, text: hhmm(d.dep), until: hhmm(d.arr), marked: d.marked, on: !!sel && sel.dir === k && Math.abs(sel.dep - d.dep) < 0.5 }));
+    return { word: 'Trips', to: `→ ${dest}`, dest, count: `${deps.length} departures`, deps };
+  });
+  const chosen = sel && lanes[sel.dir]?.deps.find((d) => d.on);
+  if (!chosen) sheet.sel = null;
+  const trips = lanes.reduce((n, x) => n + x.deps.length, 0);
+  const t0 = Math.floor(Math.min(...rows.flatMap((r) => r.legs.map((g) => g[0])), 5 * 60) / 60) * 60;
+  const t1 = Math.ceil(Math.max(...rows.flatMap((r) => r.legs.map((g) => g[1])), 22 * 60) / 60) * 60;
+  const fig = (label, v) => ({ label, now: v, then: v, tone: 'text' });
+  return {
+    line: l.name, plate: plate(l), title: `Trips and timetable of line ${l.number}`, caption: l.public || l.caption,
+    days: null, date: dayLabel(sheet.date || co().date), note: "The concession's timetable is the authority's: it runs as it is.", tone: 'warn', editable: false,
+    whole: [t0, t1], lanes, tools: null, sel: sheet.sel,
+    departures: 'DEPARTURES', whole_day: 'Whole day', hint: 'The wheel over the departures zooms into the hours',
+    choose: 'Choose a departure on the axis or in the list: drag it, type its time, or take it out.',
+    copy: 'Copy', take_out: 'Take the trip out', shift_tip: 'The whole trip so many minutes earlier or later',
+    tours_title: `TOURS: THE BUSES IT NEEDS (${rows.length})`, legend: null, no_tours: 'No tours on these days.', rows,
+    needs: {
+      caps: 'WHAT IT NEEDS', now: 'NOW', changed: 'CHANGED',
+      figures: [fig('Trips', String(trips)), fig('Tours', String(rows.length)), fig('Buses at the busiest hour', String(rows.length)), fig('Duties for drivers', String(tours.reduce((n, t) => n + t.duties.length, 0))), fig('Kilometres a day', `${grouped(trips * l.km)} km`)],
+      fleet: `The fleet has ${BUSES.length} buses for the line.`, fleet_tone: 'dim', tours: null, replan: null,
+    },
+    pattern: null, list_caps: 'AS A LIST', foot: null, dirty: false, close: 'Close', undo: 'Undo', again: 'Start again', again_tip: "The line's timetable as it is saved",
+    leave: { ask: 'Close without saving the changes?', yes: 'Close without saving', no: 'Keep changing' },
+  };
+}
+
+/** The sheet's actions (`plan_edit::act`): a departure chosen, closed (a fixed line changes nothing). */
+function planEditAct(a) {
+  if (a.act === 'pe_close') {
+    sheet = null;
+    return {};
+  }
+  if (!sheet) return { closed: true };
+  if (a.act === 'pe_sel') sheet.sel = a.pick ? { dir: Number(a.pick.dir) || 0, dep: Number(a.pick.dep) || 0, at: a.pick.at ?? null } : null;
+  return { sel: sheet.sel };
+}
 
 // - the buses the company works with (`co_vehicles`: the wizard's, the settings', the launcher's) -
 
@@ -1216,7 +1490,7 @@ function vehicles(a) {
 // --- the answers -------------------------------------------------------------------------------
 
 const VIEWS = { home, bell, overview, fleet, vehicle, people, lines, add_line: addLine, fare, money, fleet_value: fleetValue, inbox, agenda, launch, settings, time, confirm, report, career, dealer, ops, reputation, late_advice: lateAdvice, casual };
-const MORE = { planning, concessions, contracts, depot, research, workshop, fleetmap };
+const MORE = { planning, concessions, contracts, depot, research, workshop, fleetmap, plan_edit: planEdit };
 
 function doAct(a) {
   const c = co();
@@ -1407,8 +1681,10 @@ export const companyAnswers = {
   co_act: (a) => (co() ? doAct(a) : {}),
   co_hand_over: (a) => {
     st.speed = 0;
+    // (a line's timetable is the line editor's page for the line named: `lines::edit_to`, null
+    // for a line the company does not have)
     const m = /^(?:timetable=|plan-line=)([^|]*)/.exec(a.page || '');
-    return { edit: m ? 'line-editor=' + (LINES.findIndex((l) => l.name === m[1]) + 1) : null };
+    return { edit: m ? editTo(lineOf(m[1])) : null };
   },
   co_tour: () => ({ at: null }),
   co_line_of: (a) => ({ name: LINES[Number(a.id) - 1]?.name || null }),
@@ -1428,5 +1704,8 @@ export const companyAnswers = {
     return f ? f(a) : {};
   },
   co_more_act: (a) => (co() ? moreAct(a) : {}),
-  co_more_map: () => ({ reading: null, roads: [], routes: [], buses: [], stops: [] }),
+  // (as in the app: the roads were read by the old game program - `company::NOT_AVAILABLE`)
+  co_more_map: () => {
+    throw 'not available: the game drew this for the old launcher, and the add-on has no game renderer';
+  },
 };

@@ -220,7 +220,7 @@ export function PlanEdit({ W, H }) {
   };
 
   const days = v.days;
-  return html`<div class="pe" onPointerDown=${(e) => e.stopPropagation()}>
+  return html`<div class="pe" role="dialog" aria-modal="true" onPointerDown=${(e) => e.stopPropagation()}>
     <div class="pe-head" style=${`left:${x}px;top:18px;width:${w - Math.min(380, w * 0.4) - 54}px`}>
       <${Plate} p=${v.plate} h=${30} />
       <div class="words"><b class="cut">${v.title}</b><span class="cut">${v.caption}</span></div>

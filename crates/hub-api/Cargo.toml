@@ -18,3 +18,12 @@ anyhow.workspace = true
 chrono.workspace = true
 # (the updates: this repository's releases asked of GitHub's API, `update.rs`)
 ureq.workspace = true
+
+# A fake openOMSI for the drive's end-to-end test (`tests/drive.rs`): it writes the plugin's
+# files as the plugin in a real openOMSI would, then ends. Never shipped: the app links the library.
+[[bin]]
+name = "fake-openomsi"
+path = "tests/support/fake_openomsi.rs"
+test = false
+bench = false
+doc = false
