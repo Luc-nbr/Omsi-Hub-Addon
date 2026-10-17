@@ -1,0 +1,14 @@
+[package]
+name = "hub-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Omsi-Hub's domain: the bus company, RosterFlow, careers; its own timetable types (lines, tours, trips, stops) and duty; the data folder, the settings and the log"
+
+[dependencies]
+hub-omsi.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+dirs.workspace = true

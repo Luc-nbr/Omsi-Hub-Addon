@@ -1,0 +1,12 @@
+[package]
+name = "hub-omsi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Omsi-Hub's own OMSI 2 file readers and writers, written from the file formats: the text format and its codepages, the content folders, timetables, maps' global.cfg/ailists.cfg/Holidays.txt, depots (.hof), buses (.bus, passengercabin.cfg), display fonts (.oft) and weather (.owt)"
+
+[dependencies]
+serde.workspace = true
+encoding_rs.workspace = true
+chrono.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "hub-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Omsi-Hub's commands: the page's `call(cmd, args)` routed by prefix to the company, RosterFlow, online, the editors, the plugin and the app's own (`hub_`)"
+
+[dependencies]
+hub-core.workspace = true
+hub-omsi.workspace = true
+hub-game.workspace = true
+hub-locales.workspace = true
+hub-online.workspace = true
+serde.workspace = true
+serde_json.workspace = true
