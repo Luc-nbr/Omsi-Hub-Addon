@@ -61,13 +61,19 @@ fn the_timetable_folder_is_read() {
     assert!(ten.user_allowed);
     assert_eq!((ten.priority, ten.codepage), (1, Some(Codepage::Windows1252)));
     assert_eq!(ten.tours.iter().map(|t| (t.number.as_str(), t.ai_group.as_str(), t.days)).collect::<Vec<_>>(), [("1", "Busses", DayMask(799)), ("2", "Busses", DayMask(960))]);
-    assert_eq!(ten.tours[0].trips.iter().map(|t| (t.trip.as_str(), t.profile, t.departure)).collect::<Vec<_>>(), [("10_out", 0, 360.0), ("10_back", 0, 375.0), ("10_OUT", 1, 1430.0), ("10_back", 0, 5.0)]);
+    assert_eq!(
+        ten.tours[0].trips.iter().map(|t| (t.trip.as_str(), t.profile, t.departure)).collect::<Vec<_>>(),
+        [("10_out", 0, 360.0), ("10_back", 0, 375.0), ("10_OUT", 1, 1430.0), ("10_back", 0, 5.0)]
+    );
     assert!(!tt.lines[1].user_allowed);
 
     // a trip of [station_typ2] stops, named from Busstops.cfg (Windows-1252), on its own track
     let out = tt.trip("10_OUT").unwrap();
     assert_eq!((out.track.as_str(), out.display_name.as_str(), out.terminus.as_str(), out.line.as_str()), ("10_out", "", "Kirche", "10"));
-    assert_eq!(out.stops.iter().map(|s| (s.id, s.name.as_str(), s.track_index)).collect::<Vec<_>>(), [(1001, "Depot", None), (1002, "Grünau Markt", None), (1003, "Hauptstraße", None), (1004, "Kirche", None)]);
+    assert_eq!(
+        out.stops.iter().map(|s| (s.id, s.name.as_str(), s.track_index)).collect::<Vec<_>>(),
+        [(1001, "Depot", None), (1002, "Grünau Markt", None), (1003, "Hauptstraße", None), (1004, "Kirche", None)]
+    );
     assert_eq!(out.profiles.len(), 2);
     assert_eq!((out.profiles[0].name.as_str(), out.profiles[0].minutes, out.profiles[0].fixed_departures.clone()), ("standard", 10.0, vec![(1, 2.0)]));
     assert_eq!(tt.track_of(out).map(|t| t.entries.len()), Some(4));
@@ -183,13 +189,16 @@ fn the_lines_of_a_day_apply_chrono_the_calendar_and_the_day_masks() {
     let (t1, t2) = (&ten.tours[0], &ten.tours[1]);
     assert!(t1.runs && !t2.runs);
     assert_eq!((t1.next_run, t2.next_run), (Some(d("1989-06-06")), Some(d("1989-06-11"))));
-    assert_eq!(t1.trips.iter().map(|t| (t.index, t.name.as_str(), t.departure, t.arrival)).collect::<Vec<_>>(), [
-        (1, "10_out", 21_600.0, 22_200.0),
-        (2, "10_back", 22_500.0, 23_220.0),
-        (3, "10_OUT", 85_800.0, 86_280.0),
-        // (after midnight: the next day's seconds)
-        (4, "10_back", 86_700.0, 87_420.0),
-    ]);
+    assert_eq!(
+        t1.trips.iter().map(|t| (t.index, t.name.as_str(), t.departure, t.arrival)).collect::<Vec<_>>(),
+        [
+            (1, "10_out", 21_600.0, 22_200.0),
+            (2, "10_back", 22_500.0, 23_220.0),
+            (3, "10_OUT", 85_800.0, 86_280.0),
+            // (after midnight: the next day's seconds)
+            (4, "10_back", 86_700.0, 87_420.0),
+        ]
+    );
     assert_eq!((t1.first, t1.last), (21_600.0, 87_420.0));
     let back = &t1.trips[1];
     assert_eq!((back.line.as_str(), back.from.as_str(), back.terminus.as_str()), ("10", "Kirche", "Depot"));
@@ -313,10 +322,10 @@ fn ai_lists_and_the_day_s_depot_file() {
     assert_eq!(busses.hof.as_deref(), Some("Testdorf"));
     let t = &busses.typgroups[0];
     assert_eq!(t.file, "Vehicles\\Testbus\\Testbus.bus");
-    assert_eq!(t.entries.iter().map(|e| (e.number.as_str(), e.plate.as_str(), e.paint.as_str(), e.from, e.to)).collect::<Vec<_>>(), [
-        ("101", "TD-V 101", "Red", None, Some(19_891_231)),
-        ("102", "", "Blue", Some(19_890_601), None)
-    ]);
+    assert_eq!(
+        t.entries.iter().map(|e| (e.number.as_str(), e.plate.as_str(), e.paint.as_str(), e.from, e.to)).collect::<Vec<_>>(),
+        [("101", "TD-V 101", "Red", None, Some(19_891_231)), ("102", "", "Blue", Some(19_890_601), None)]
+    );
     assert!(t.entries[0].valid(19_890_530) && !t.entries[1].valid(19_890_530));
     // the Chrono folder's update gives the depot group another depot file and buses
     let later = AiLists::with_chrono(&map_dir(), &active_chrono_dirs(&map_dir(), d("1989-06-06")));
@@ -345,11 +354,14 @@ fn a_depot_file_is_read() {
     assert_eq!(t(0), (0, "Leerfahrt", None, true, vec!["LEERFAHRT".into(), "".into(), "Blank.tga".into()]));
     assert_eq!(t(1), (104, "Kirche", Some("Kirche"), false, vec!["KIRCHE".into(), "   KIRCHE   ".into(), "Kirche.tga".into()]));
     assert_eq!(t(2), (101, "Depot", None, false, vec!["DEPOT".into(), "DEPOT".into(), "Depot.tga".into()]));
-    assert_eq!(h.bus_stops.iter().map(|b| (b.ident.as_str(), b.strings.clone())).collect::<Vec<_>>(), [
-        ("Grünau Markt", vec!["GRÜNAU MARKT".to_string(), "Grünau Markt".to_string()]),
-        ("Kirche", vec!["KIRCHE".to_string(), "Kirche".to_string()])
-    ]);
-    assert_eq!(h.info_trips.iter().map(|t| (t.code.as_str(), t.name.as_str(), t.route.as_str(), t.line.as_str())).collect::<Vec<_>>(), [("1001", "DEPOT-KIRCHE", "104", "10"), ("1002", "KIRCHE-DEPOT", "101", "10")]);
+    assert_eq!(
+        h.bus_stops.iter().map(|b| (b.ident.as_str(), b.strings.clone())).collect::<Vec<_>>(),
+        [("Grünau Markt", vec!["GRÜNAU MARKT".to_string(), "Grünau Markt".to_string()]), ("Kirche", vec!["KIRCHE".to_string(), "Kirche".to_string()])]
+    );
+    assert_eq!(
+        h.info_trips.iter().map(|t| (t.code.as_str(), t.name.as_str(), t.route.as_str(), t.line.as_str())).collect::<Vec<_>>(),
+        [("1001", "DEPOT-KIRCHE", "104", "10"), ("1002", "KIRCHE-DEPOT", "101", "10")]
+    );
     assert_eq!(h.info_busstop_lists[0], ["Depot", "Grünau Markt", "Hauptstraße", "Kirche"]);
     assert_eq!(h.info_busstop_lists[1], ["Kirche", "Depot"]);
     assert!(h.has_line("10") && !h.has_line("11"));

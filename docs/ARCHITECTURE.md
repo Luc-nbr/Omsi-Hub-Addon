@@ -29,12 +29,11 @@ hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
 
 - `text`: `Codepage` with `detect`, `decode`, `decode_text` and `encode`; `CfgFile { path,
   lines, codepage, bom }` with `from_bytes`, `read`, `reader()`, `blocks(kw)`, `value(kw)` and
-  `to_bytes()`; `Reader` with `next_keyword`, `str`, `i32`, `f64` and `until`; and
-  `parse_i32`/`parse_f64`. **Works now.**
+  `to_bytes()`; `Reader` with `next_keyword`, `str`, `value`, `values(n)`, `run`, `i32`, `f64`
+  and `until`; and `parse_i32`/`parse_f64`.
 - `vfs`: `Vfs::new(root, content)`. It has `resolve(rel)`, `read`, `read_cfg`, `list_dir`,
   `is_file`/`is_dir` and `relative`. It searches the content folder first, then OMSI 2, in any
   case, with either slash. Also `find_child`, `resolve_in` and `missing_omsi2_essentials`.
-  **Works now.**
 - `timetable`:
   - the types `Timetable { lines, trips, tracks, stn_links, bus_stops }`, `Line`, `Tour`
     (`days: DayMask`), `TourTrip`, `Trip`, `TripStop`, `TripProfile`, `Track`, `TrackEntry`,
@@ -53,9 +52,11 @@ hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
 - `vehicle`: `Bus` (the `.bus` header) and `PassengerCabin` (`seats`, `standing`).
 - `font::font_names` (`.oft`) and `weather::Weather` (`.owt`).
 
-The types are fixed. The readers marked `todo!()` are the **hub-omsi port**'s work, with tests on
-synthetic fixtures. The field names follow what our old code used, so a port mostly changes its
-`use` lines. Renamed:
+**All of it works** (the hub-omsi port), with tests on a synthetic OMSI 2 folder
+(`crates/hub-omsi/tests/fixtures`) and an ignored test on a real install
+(`HUB_OMSI_REAL_ROOT=<OMSI 2 folder> cargo test -p hub-omsi --test real_data -- --ignored`).
+The field names follow what our old code used, so a port mostly changes its `use` lines.
+Renamed:
 
 | Old | New |
 |---|---|
@@ -67,6 +68,61 @@ synthetic fixtures. The field names follow what our old code used, so a port mos
 | `Vehicle` | `vehicle::Bus` |
 | `PassengerCabin.pass_positions` | `places` |
 | Calendar and Chrono `i32` dates | `NaiveDate` (`date_code` still gives `YYYYMMDD`) |
+| `Vehicle::cameras_driver[0].pos[0]` | `Bus::driver_camera_x` (and `left_hand_drive()`) |
+| `Vehicle::scripts.{scripts, constfiles, varlists}` | `Bus::scripts.{scripts, constfiles, varlists}` (`BusScripts`, paths with `/`) |
+| `Vehicle::registration_list: Option<(file, _, _)>` | `Bus::registration_list: Option<String>`, `registration_automatic`, `registration_free` |
+| `Vehicle::name`, `numbers_with_plates()` | `Bus::name()`, `Bus::numbers` (filled by `Bus::load`) |
+| `typgroup_entry_valid(e, d)` | `TypGroupEntry::valid(d)` |
+| `ailists_with_chrono(dir, chrono)` | `AiLists::with_chrono(dir, chrono)` |
+| `GlobalCfg.raw_tiles` | `GlobalCfg.tiles` |
+| `omsi_map::TimeZone` | `map::TimeZone` (`GlobalCfg::load` fills `GlobalCfg.timezone`) |
+
+**Added by the hub-omsi port** (nothing renamed or taken away):
+
+- `text`: `Codepage::Utf16Le`/`Utf16Be` (maps' `global.cfg` and some weather files are UTF-16),
+  `Codepage::bom()`/`is_utf16()`; `Reader::value`, `values(n)` and `run` (values that stop at
+  the next keyword). **A keyword counts only at the start of its line** (`keyword_of`), as OMSI
+  reads it: depot and bus files keep indented examples (`<TAB>[infosystem_trip]`) and
+  switched-off keywords (`<TAB>[registration_free]`) in their comments.
+- `timetable`: `DayMask::runs_on(&Calendar, date)` and the constants `HOLIDAY`, `SCHOOL_DAYS`,
+  `SCHOOL_HOLIDAYS`, `ALWAYS`; `Trip.train_reverse`; `TripStop.extra` (`[station]`'s values
+  after the name); `Trip::load`, `Track::load`; `Timetable::stop_name`, `track_of`;
+  `leg_lengths`, `trip_length`, `service_lines`, `parse_i64`.
+- `map`: `GlobalCfg.timezone` and `TimeZone`/`Dst` (`timezone.txt`); `date_of_code`;
+  `ChronoDir.deactivate_lines`, `.title`, `ChronoDir::read`, `active_on`;
+  `TypGroupEntry.plate`; `AiLists::update`, `depot_group`.
+- `hof`: `Comments::read(&CfgFile)`; `Hof::to_bytes`, `save`, `terminus(code)`, `bus_stop(name)`.
+- `vehicle`: `Bus.has_friendly_name`, `paints`, `ctc_dir`, `scripts: BusScripts`, `sound_ai`,
+  `driver_camera_x`, `coupling_front`, `number_list`, `registration_automatic`,
+  `registration_free`; `Bus::name`, `read_numbers`, `couple_back_path`, `passenger_cabin_path`,
+  `left_hand_drive`; `paints_in(dir)`; `capacity(&Bus)` (seats and standing places of all its
+  sections).
+- `weather`: `Weather.fog_height`, `wind_dir`, `wind_speed`, `dew_point`, `pressure`,
+  `cloud_base_m`, `precip_values`, `ground_wet_values`, `snow_on_road`, `codepage`;
+  `Weather::to_text`, `save`; `Precipitation::code`/`of_code`.
+
+**What the files turned out to mean** (checked on the OMSI 2 maps, buses and depot files
+installed here):
+
+- A tour's day mask: bits 0-6 Monday to Sunday, bit 7 public holidays, bit 8 school days, bit 9
+  school holidays. It runs when the day's bit (the public holiday's on one, else the weekday's)
+  and its school bit are set; a mask without school bits (older maps) ignores the school
+  calendar.
+- Chrono folders apply in the order of their names, from `[startdate]` to `[enddate]`. Their
+  `.ttl`/`.ttp`/`.ttr` take the place of the map's; their `StnLinks.cfg`/`Busstops.cfg` hold
+  only what they add (a link of the same two stops, a stop of the same id, replaced); their
+  `ailists.cfg` replaces the map's, their `ailists_#upd.cfg` replaces its groups of the same
+  name; `[deactivate_lines]` switch lines off.
+- `[standarddepot]` in `global.cfg` names the AI depot group (`ailists.cfg`) whose depot file
+  the player's bus gets: `depot_hof_on` takes it, else the first depot group.
+- A `.ttp`'s `[trip]` names its track first (empty: the track named like the trip):
+  `Trip.display_name` is that value as written, `Trip.track` the track driven.
+- In a `.hof`, `stringcount_terminus` and `stringcount_busstop` have no brackets;
+  `[addterminus_list]`/`[addbusstop_list]` hold one entry a line, tab-separated; older files
+  give a route's stops as `[infosystem_busstop]` one by one.
+- `replace_block` tells a `[StnLink]` by its two stops and a `[busstop]` by its object id
+  (their first values are a length and a name). The old `replace_block(&text, "")`, which took
+  the line editor's marked part out, has no counterpart: an empty block leaves the text as it is.
 
 **`hub-core`** (the domain):
 

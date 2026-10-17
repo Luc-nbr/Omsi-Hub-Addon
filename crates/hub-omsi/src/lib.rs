@@ -16,9 +16,9 @@
 //! * [`font`] - the names in a display font (`.oft`);
 //! * [`weather`] - a weather file (`.owt`).
 //!
-//! **Status:** [`text`] and [`vfs`] work; the other modules are the contract the ports code
-//! against - their types are fixed, their readers are `todo!()` until the hub-omsi port fills
-//! them in (with tests on synthetic fixtures).
+//! **Status:** every module works. The tests in `tests/fixtures.rs` read a synthetic OMSI 2
+//! folder (`tests/fixtures/omsi2`) and write its files back; `tests/real_data.rs` (ignored)
+//! does the same on a real install (`HUB_OMSI_REAL_ROOT`).
 
 pub mod error;
 pub mod font;
