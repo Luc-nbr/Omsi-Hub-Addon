@@ -71,16 +71,15 @@ const initials = (name) =>
     .map((w) => w[0].toUpperCase())
     .join('') || '?';
 
-/** A tile's photo (`buspick::draw_tile`): the bus in its livery as the game-drawn launcher took
- * it, its initials on the gradient while there is none. */
+/** A tile's photo (`buspick::draw_tile`): the bus in its livery (`photos.js`), its initials on
+ * the gradient while there is none. */
 export function TilePhoto({ file, paint, title }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let gone = false;
     setSrc(null);
-    // (Omsi-Hub 6/6: one not there is photographed by the game program, `photos.js`)
+    // (one not there is photographed from the model openOMSI writes, `photos.js`)
     const leave = file ? wantPhoto(file, paint) : null;
-    // (Omsi-Hub Bus3D: the page's own photo once it is taken, the older one meanwhile)
     if (file) photo(file, paint, (u) => !gone && setSrc(u)).then((u) => !gone && setSrc(u));
     return () => {
       gone = true;

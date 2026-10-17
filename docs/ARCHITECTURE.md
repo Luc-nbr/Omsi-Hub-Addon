@@ -162,7 +162,7 @@ installed here):
 |---|---|---|
 | `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
-| `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: not available |
+| `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: kept by `co_photo_save`, taken by the page from the 3D model (`ui/js/hub/photos.js`) |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
 | `ol_` | `online` | Ported |

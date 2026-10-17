@@ -40,12 +40,12 @@ export const initials = (name) =>
     .join('');
 
 /** A bus's photo (`photos().get` drawn with `image_cover`): the bus's initials on the night's
- * gradient until it is there, or when the game-drawn launcher never took it. */
+ * gradient until it is there, or when none can be taken. */
 export function Photo({ file, paint, name, style = '', mono = true }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let gone = false;
-    // (Omsi-Hub 6/6: one not there is photographed by the game program, `photos.js`)
+    // (one not there is photographed from the model openOMSI writes, `photos.js`)
     const leave = file ? wantPhoto(file, paint) : null;
     photo(file, paint, (u) => !gone && setSrc(u)).then((u) => !gone && setSrc(u));
     return () => {

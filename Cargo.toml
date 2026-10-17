@@ -46,6 +46,7 @@ ring = "0.17"
 encoding_rs = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 dirs = "6"
+base64 = "0.22"
 mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
 
 [profile.release]

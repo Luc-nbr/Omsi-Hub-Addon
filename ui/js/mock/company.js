@@ -1704,8 +1704,8 @@ export const companyAnswers = {
     return f ? f(a) : {};
   },
   co_more_act: (a) => (co() ? moreAct(a) : {}),
-  // (as in the app: the roads were read by the old game program - `company::NOT_AVAILABLE`)
+  // (the app reads the map's tiles: the mock has none)
   co_more_map: () => {
-    throw 'not available: the game drew this for the old launcher, and the add-on has no game renderer';
+    throw 'The map is not there in the mock: open Omsi-Hub itself';
   },
 };

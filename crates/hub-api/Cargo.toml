@@ -16,6 +16,8 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
+# (a bus's photo the page took, sent as base64: `company/photos.rs`)
+base64.workspace = true
 # (the updates: this repository's releases asked of GitHub's API, `update.rs`)
 ureq.workspace = true
 

@@ -1,8 +1,10 @@
-//! The buses' photos on the fleet's, the dealer's and Casual's tiles: the PNGs our game-drawn
-//! launcher took with the game's own renderer (`omsi-launcher-ui/src/busphoto.rs`) and keeps
-//! under `~/.openomsi/cache/busphotos/`. The page asks for a bus's photo in a paint once
-//! (`co_photo`) and shows the bus's initials while there is none; one never taken is taken by
-//! the game program for the page (`hub_photo`, Omsi-Hub 6/6) and kept there the same way.
+//! The buses' photos on the fleet's, the dealer's and Casual's tiles and on the bus step: PNGs
+//! kept in the data folder's `cache/busphotos/`, named as our game-drawn launcher named them
+//! (`omsi-launcher-ui/src/busphoto.rs`), so that the photos it took and the migration brought
+//! along are found too. The page asks for a bus's photo in a paint once (`co_photo`) and shows
+//! the bus's initials while there is none; one not there yet the page takes itself, from the
+//! model the player's openOMSI writes (`ui/js/hub/photos.js`), and hands it over to be kept
+//! (`co_photo_save`).
 
 use crate::launcher as core;
 use std::path::{Path, PathBuf};
@@ -36,16 +38,37 @@ fn photo_file(root: &str, bus: &str, paint: &str) -> PathBuf {
     core::data_dir().join("cache").join("busphotos").join(photo_name(&path.to_string_lossy(), paint, mtime))
 }
 
-/// The PNG of `bus` (its file, relative to OMSI's folder) in `paint` (empty: its own), when the
-/// game-drawn launcher took it.
+/// The PNG of `bus` (its file, relative to OMSI's folder) in `paint` (empty: its own), when it
+/// was taken: by the page (`save`), or by the game-drawn launcher (its cache, migrated).
 pub(super) fn png(bus: &str, paint: &str) -> Result<Vec<u8>, String> {
     if bus.trim().is_empty() {
         return Err("no bus".into());
     }
-    // (the photos the old game took, where the old launcher's cache was imported; no new ones:
-    // see `NOT_AVAILABLE`)
     let root = core::load_config().root;
-    std::fs::read(photo_file(&root, bus, paint)).map_err(|_| super::NOT_AVAILABLE.to_string())
+    std::fs::read(photo_file(&root, bus, paint)).map_err(|_| "no photo taken yet".to_string())
+}
+
+/// The largest photo kept.
+const MAX_BYTES: usize = 8 << 20;
+
+/// Keep the photo the page took of `bus` in `paint` (`co_photo_save`: a PNG, as base64), where
+/// `co_photo` finds it.
+pub(super) fn save(bus: &str, paint: &str, png_base64: &str) -> Result<(), String> {
+    use base64::Engine as _;
+    if bus.trim().is_empty() {
+        return Err("no bus".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(png_base64.trim()).map_err(|_| "the photo is no base64".to_string())?;
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.len() > MAX_BYTES {
+        return Err("the photo is no PNG".into());
+    }
+    let file = photo_file(&core::load_config().root, bus, paint);
+    if let Some(d) = file.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    let part = file.with_extension("png.part");
+    std::fs::write(&part, &bytes).map_err(|e| format!("{}: {e}", part.display()))?;
+    std::fs::rename(&part, &file).map_err(|e| format!("{}: {e}", file.display()))
 }
 
 #[cfg(test)]

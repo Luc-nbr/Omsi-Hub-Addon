@@ -22,6 +22,10 @@ Each version of the Omsi-Hub add-on, newest first. The release on GitHub links h
   with the mouse, zoomed with the wheel, turning by itself, with views from the front, the side
   and the back. The first time a look takes a while; then it is kept. Needs an openOMSI that has
   `--export-glb`.
+- **The buses' photos** on the fleet's, the dealer's and Casual's tiles and on the bus step: a bus
+  without one is photographed from the model openOMSI writes for the 3D view, one bus after the
+  other, while its tile is shown, and the photo is kept. The photos the old Omsi-Hub took are
+  still found.
 
 ## 0.1.0 (pre-release, for testing)
 

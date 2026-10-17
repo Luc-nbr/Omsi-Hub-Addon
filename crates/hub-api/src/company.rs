@@ -19,8 +19,9 @@
 //! commands) as they were. What they used of the old launcher is `crate::launcher` now (the
 //! maps, the driver, the game Omsi-Hub started); the company's link to the plugin is
 //! `plugin` (delivered by the plugin port); Play together answers as it does while it is off
-//! (`crate::together`). The bus photos were drawn by the old game: they answer
-//! [`NOT_AVAILABLE`]. The fleet map's and the duty map's roads are read by `content::roads`.
+//! (`crate::together`). The bus photos the old game drew are taken by the page now, from the
+//! model openOMSI writes (`photos`). The fleet map's and the duty map's roads are read by
+//! `content::roads`.
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 mod age;
@@ -1651,6 +1652,8 @@ fn route(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_hand_over" => with(|s| hand_over(s, args)),
         "co_tour" => Ok(tour::answer(args)),
         "co_duty_map" => duty_map(args, p),
+        // (a bus's photo the page took from the model openOMSI wrote: kept for `co_photo`)
+        "co_photo_save" => photos::save(&str_arg(args, "bus"), &str_arg(args, "livery"), &str_arg(args, "png")).map(|()| json!({ "ok": true })),
         // (a duty card saved as a picture: on this computer, never relayed)
         "co_dutycard_save" => Ok(dutycard::save_image(args)),
         // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's
@@ -1675,8 +1678,8 @@ pub fn call_bytes(cmd: &str, args: &Value, _p: &dyn Platform) -> Result<Vec<u8>,
 }
 
 /// A command of the bus company that answers bytes: a staff portrait's JPEG (`co_portrait`, `n`
-/// 1 to 300), a bus's photo as the game-drawn launcher took it (`co_photo`, `bus` and `livery`:
-/// not available, see [`NOT_AVAILABLE`]). None when `cmd` is not one.
+/// 1 to 300), a bus's photo (`co_photo`, `bus` and `livery`: `photos`). None when `cmd` is not
+/// one.
 fn bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         "co_portrait" => {
@@ -1833,11 +1836,6 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
     let edit = named.and_then(|n| s.company.as_ref()?.lines.iter().find(|l| l.name == n).and_then(lines::edit_to));
     Ok(json!({ "edit": edit }))
 }
-
-/// What a feature the old game drew for the launcher answers now: the add-on has no game
-/// renderer (`Platform::renderer` of the old launcher), so the bus photos are not there until the
-/// app draws them itself. (The maps' roads are read by `content::roads`.)
-pub const NOT_AVAILABLE: &str = "not available: the game drew this for the old launcher, and the add-on has no game renderer";
 
 /// The duty launcher's map (Omsi-Hub 6/6): the map's roads and the route of every trip of the
 /// duty (`{map, date, trips}`), as the route map draws them (`content::roads`).
