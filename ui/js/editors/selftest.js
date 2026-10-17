@@ -1,6 +1,7 @@
 // The editors' part of our self-check (`../selftest.js`, OMSIHUB_SELFTEST): every editor page
 // drawn without a script error, their commands answering - the Timetable page's lines of a map,
-// the bus's depot files, the depot editor's list. Nothing is saved.
+// the bus's depot files, what a new depot file starts from, the depot editor's list. Nothing
+// is saved.
 
 import { call } from '../api.js';
 import { S, set } from '../store.js';
@@ -38,6 +39,14 @@ export async function editorsSelftest(check, errors) {
       check("editors: the bus's depot files", m?.bus === bus.file, `${bus.file}: the map wants ${m?.want || '-'}`);
     } catch (x) {
       check("editors: the bus's depot files", false, x.message);
+    }
+  }
+  if (map) {
+    try {
+      const list = await call('de_sources', { hof: map.hof || '', map: map.file, bus: bus?.file || '', bus_name: bus?.name || '' });
+      check('editors: what a new depot file starts from', list?.[0]?.source?.kind === 'empty', `${list?.length ?? 0} sources`);
+    } catch (x) {
+      check('editors: what a new depot file starts from', false, x.message);
     }
   }
   try {

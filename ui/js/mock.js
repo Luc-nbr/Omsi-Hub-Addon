@@ -97,8 +97,8 @@ const LINES = [
 
 // --- the editors: a timetable to edit and a depot file of the player's ---------------------
 
-const ttLine = (l) => ({ path: `maps/Grundorf/TTData/${l.name}.ttl`, name: l.name, user_allowed: l.user_allowed, priority: 1, own: false, tours: l.tours.map((t) => ({ number: t.number, ai_group: t.ai_group, extra: 'Mo-Fr', trips: t.trips.map((x) => ({ trip: x.name, profile: 0, departure: x.departure / 60 })) })) });
-const TT = { dir: 'maps/Grundorf/TTData', folder: 'TTData', lines: LINES.map(ttLine), trips: LINES.flatMap((l) => [0, 1].map((k) => ({ name: l.tours[0].trips[k].name, line: l.name, terminus: l.tours[0].trips[k].terminus, profiles: ['0', '1'] }))) };
+const ttLine = (l) => ({ path: `maps/Grundorf/TTData/${l.name}.ttl`, name: l.name, user_allowed: l.user_allowed, priority: 1, own: false, tours: l.tours.map((t) => ({ number: t.number, ai_group: t.ai_group, days: 31, trips: t.trips.map((x) => ({ trip: x.name, profile: 0, departure: x.departure / 60 })) })) });
+const TT = { dir: 'maps/Grundorf', folder: 'Grundorf', lines: LINES.map(ttLine), trips: LINES.flatMap((l) => [0, 1].map((k) => ({ name: l.tours[0].trips[k].name, line: l.name, terminus: l.tours[0].trips[k].terminus, profiles: ['0', '1'] }))) };
 
 const DEPOT = {
   key: 'grundorf-eigen', file: 'grundorf-eigen.hof', name: 'Grundorf (own)', map: 'maps/Grundorf/global.cfg', dirty: false,
@@ -216,17 +216,20 @@ const answers = {
   // the timetable editor
   tt_load: (a) => (/grundorf/i.test(a.map || '') ? TT : { dir: '', folder: '', lines: [], trips: [] }),
   tt_save: (a) => ({ saved: (a.lines || []).length, error: null, lines: (a.lines || []).map((l) => ({ name: l.name, path: l.path, line: l })) }),
-  tt_edit: (a) => ({ line: a.line, tour: a.tour || 0 }),
-  tt_reset: () => ({ done: 0, own: 0, own_error: null }),
+  tt_edit: (a) => ({ line: a.line, tour: a.tour || 0, made: 0 }),
+  tt_reset: () => ({ done: "The timetable of Grundorf is the map's own again (the edited copy was removed)", own: 0, own_error: null }),
 
   // the depot editor
   de_show: () => ({ entries: DEPOTS, view: DEPOT, changed_elsewhere: null, error: null }),
   de_open: () => DEPOT,
-  de_view: () => DEPOT,
   de_edit: () => ({ view: DEPOT, sel: null }),
-  de_save: () => ({ view: { ...DEPOT, dirty: false } }),
-  de_delete: () => ({ entries: [], view: null }),
-  de_sources: () => ({ map: [{ file: 'Grundorf.hof', name: 'Grundorf' }], bus: [], own: DEPOTS }),
+  de_save: () => ({ view: { ...DEPOT, dirty: false }, entries: DEPOTS, copies: 0, name: DEPOT.name }),
+  de_delete: () => ({ entries: [], name: DEPOT.name }),
+  de_sources: () => [
+    { source: { kind: 'empty', path: null }, text: "Empty, laid out as OMSI's own", args: {} },
+    { source: { kind: 'map', path: 'Vehicles/MAN_SD200/Grundorf.hof' }, text: "A copy of the map's: %{hof}", args: { hof: 'Grundorf.hof' } },
+    { source: { kind: 'own', path: 'depots/grundorf-eigen.hof' }, text: 'A copy of mine: %{name}', args: { name: DEPOT.name } },
+  ],
   de_make: () => ({ entries: DEPOTS, view: DEPOT }),
 
   ...companyAnswers,

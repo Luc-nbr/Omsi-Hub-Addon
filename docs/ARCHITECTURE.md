@@ -159,8 +159,8 @@ installed here):
 | `tg_` | `together` | Later (needs a relay) |
 | `ol_` | `online` | Ported |
 | `cs_` | `cloud` | Ported |
-| `tt_` | `timetable` | Not ported |
-| `de_` | `depot` | Not ported |
+| `tt_` | `timetable` | Ported: a map's lines and tours, saved into the content folder's copy of its `TTData`, and the reset |
+| `de_` | `depot` | Ported: the player's own depot files (`hub_core::owndepot`), one open at a time |
 
 **`hub-game`** (the game):
 

@@ -3,14 +3,14 @@
 //!
 //! A name is a quoted string (`'co_view'`, `"hub_drive"`) of one of the dispatcher's prefixes, on
 //! a line that is not a comment. It counts as known when `hub-api`'s own code (its tests left
-//! out) names it as a literal - its `match` arm. The prefixes whose module is not ported yet
-//! (`tg_`, `tt_`, `de_`) are asked of the dispatcher itself, which must say "not ported yet"
+//! out) names it as a literal - its `match` arm. The prefix whose module is not ported yet
+//! (`tg_`) is asked of the dispatcher itself, which must say "not ported yet"
 //! (they do nothing): those are listed, not failed.
 
 use std::path::{Path, PathBuf};
 
 const PREFIXES: &[&str] = &["hub_", "addon_", "co_", "rf_", "tg_", "ol_", "cs_", "tt_", "de_"];
-const NOT_PORTED: &[&str] = &["tg_", "tt_", "de_"];
+const NOT_PORTED: &[&str] = &["tg_"];
 /// The window's own commands, which `api.js` answers itself (`OWN`): never sent to hub-api.
 const WINDOW: &[&str] = &["pick_folder", "pick_file", "open_url", "open_path"];
 /// The page's ways to send a command (`api.js`).

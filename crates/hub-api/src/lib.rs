@@ -98,7 +98,6 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
         c if c.starts_with("hub_") => hub::call_bytes(c, args, p),
         c if c.starts_with("co_") => company::call_bytes(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call_bytes(c, args, p),
-        c if c.starts_with("de_") => depot::call_bytes(c, args, p),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }
@@ -111,12 +110,11 @@ mod tests {
     #[test]
     fn commands_go_by_their_prefix() {
         assert_eq!(call("nope", &json!({}), &Quiet), Err("unknown command: nope".into()));
-        for cmd in ["tg_host", "tt_open", "de_open"] {
-            assert_eq!(call(cmd, &json!({}), &Quiet), Err(not_ported(cmd)), "{cmd}");
+        assert_eq!(call("tg_host", &json!({}), &Quiet), Err(not_ported("tg_host")));
+        // (the ported modules say so of a command they do not know)
+        for cmd in ["co_nope", "rf_nope", "tt_nope", "de_nope"] {
+            assert_eq!(call(cmd, &json!({}), &Quiet), Err(format!("unknown command: {cmd}")), "{cmd}");
         }
-        // (the company and RosterFlow are ported: a command they do not know is said so)
-        assert_eq!(call("co_nope", &json!({}), &Quiet), Err("unknown command: co_nope".into()));
-        assert_eq!(call("rf_nope", &json!({}), &Quiet), Err("unknown command: rf_nope".into()));
         assert_eq!(call_bytes("co_portrait", &json!({ "n": 0 }), &Quiet), Err("no portrait 0".into()));
         assert!(call_bytes("co_portrait", &json!({ "n": 1 }), &Quiet).is_ok_and(|b| b.starts_with(&[0xFF, 0xD8])));
         assert_eq!(call_bytes("xx", &json!({}), &Quiet), Err("unknown command: xx".into()));
