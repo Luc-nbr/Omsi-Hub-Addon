@@ -415,8 +415,9 @@ mod tests {
         let mut js = Vec::new();
         files(&root.join("../../ui/js"), "js", &mut js);
         for p in js {
-            // (the euro's look before the company's is known: `money.js` itself)
-            if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("money.js")) {
+            // (the euro's look before the company's is known: `money.js` itself; and the browser
+            // mock's answers, which stand in for this crate's own, already formatted)
+            if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("money.js")) || p.components().any(|c| c.as_os_str().eq_ignore_ascii_case("mock")) {
                 continue;
             }
             let text = std::fs::read_to_string(&p).unwrap_or_default().replace("\r\n", "\n");
