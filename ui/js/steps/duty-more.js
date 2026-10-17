@@ -142,7 +142,7 @@ function Ibis() {
     if (!key || ibisKey === key) return;
     ibisKey = key;
     const [bus, hof, line] = key.split('|');
-    call('ibis', { bus, hof, line })
+    call('hub_ibis', { bus, hof, line })
       .then((i) => ibisKey === key && set({ hubIbis: { key, i } }))
       .catch((e) => ibisKey === key && set({ hubIbis: { key, error: e.message } }));
   }, [key]);
