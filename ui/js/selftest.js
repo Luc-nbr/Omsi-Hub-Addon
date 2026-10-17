@@ -10,7 +10,7 @@
 // they run in the browser mock, and in the app with `?selftest=full`.
 
 import { call, inApp } from './api.js';
-import { setLanguage, t } from './i18n.js';
+import { t } from './i18n.js';
 import { PAGES } from './pages/index.js';
 import { get, set, subscribe } from './store.js';
 
@@ -96,9 +96,8 @@ export const CHECKS = [
     await until(() => document.querySelector('#migrate-done'), 5000);
     const st = await call('hub_setup_state');
     check(st.migrate.offer === false && st.settings.migrated === true, 'offered again');
-    check(st.settings.language === 'de' && st.settings.accent === '#2a75f7', 'the old settings: ' + JSON.stringify(st.settings));
-    await setLanguage('en');
-    await call('hub_settings_patch', { patch: { language: 'en' } });
+    // (the look and the navigator taken over; the language chosen in the setup kept)
+    check(st.settings.accent === '#2a75f7' && st.settings.company_layout === 'palette' && st.settings.nav_signon === true && st.settings.driver === 'Luc', 'the old settings: ' + JSON.stringify(st.settings));
   }],
   ['settings: the openOMSI tab and the privacy link', async () => {
     if (get().setup) return;
