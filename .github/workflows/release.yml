@@ -2,18 +2,28 @@
 # built by Tauri and put in a DRAFT release named after the version (`v<version>`). Luc publishes
 # the draft by hand (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
 #
+# A pre-release (for testers) is the same draft with GitHub's pre-release mark: run by hand with
+# "pre-release" on (the default), or a tag whose version has a `-` in it. Published, it stays a
+# pre-release: players download it themselves, and the app offers it to nobody.
+#
 # The updater files are signed and `latest.json` is attached only once the signing key is set up
 # (the secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, and the public key
 # in app/tauri.conf.json: docs/UPDATES.md "What Luc sets up"). Without them the installers are
 # built all the same, and the app offers "Download from GitHub" instead of installing itself.
 #
-# Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json), or by hand.
+# Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json, checked), or by
+# hand (Actions → Release → Run workflow). Run again, it uploads to the same draft.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "A pre-release (for testers; the app offers it to nobody)"
+        type: boolean
+        default: true
 
 concurrency:
   group: release-${{ github.ref }}
@@ -74,6 +84,28 @@ jobs:
         with:
           node-version: 22
 
+      # (the version the release is named after, the same in Cargo.toml and tauri.conf.json, and
+      # the tag's when a tag started it; whether it is a pre-release)
+      - name: Version and kind
+        id: kind
+        shell: bash
+        env:
+          ASKED: ${{ inputs.prerelease }}
+        run: |
+          app=$(node -p "require('./app/tauri.conf.json').version")
+          cargo=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          if [ "$app" != "$cargo" ]; then
+            echo "::error::app/tauri.conf.json has $app, Cargo.toml has $cargo: make them the same"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$app" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME is not v$app, the version in Cargo.toml and app/tauri.conf.json"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then pre="$ASKED"; else case "$app" in *-*) pre=true ;; *) pre=false ;; esac; fi
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "::notice::Omsi-Hub $app, pre-release: $pre"
+
       # (the updater files signed and latest.json attached only when the key is set up)
       - name: Updater signing set up?
         id: signing
@@ -102,7 +134,9 @@ jobs:
           tagName: v__VERSION__
           releaseName: Omsi-Hub __VERSION__
           releaseBody: |
-            Omsi-Hub __VERSION__: the add-on for openOMSI.
+            ${{ steps.kind.outputs.prerelease == 'true' && '**A pre-release, for testing.** The app does not offer it as an update: install it yourself. Something wrong? Tell us at info@omsihub.com or in an issue.' || '' }}
+
+            Omsi-Hub __VERSION__: the add-on for openOMSI. What is in it: [CHANGELOG.md](https://github.com/Luc-nbr/Omsi-Hub-Addon/blob/main/CHANGELOG.md).
 
             Needs openOMSI 0.2.22 or newer and an original OMSI 2. Omsi-Hub does not replace openOMSI: it builds on the openOMSI you have installed.
 
@@ -110,6 +144,6 @@ jobs:
             - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon) or `_x64.dmg` (Intel). The app is not notarised: the first time, right-click it and choose Open.
             - Linux: `Omsi-Hub_<version>_amd64.AppImage` (updates itself), or the `.deb` / `.rpm`.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
           includeUpdaterJson: ${{ steps.signing.outputs.json == 'true' }}
           args: ${{ matrix.args }} ${{ steps.signing.outputs.config }}

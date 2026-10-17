@@ -119,6 +119,26 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    version`) and `app/tauri.conf.json`'s. A draft or a pre-release is never offered. That makes
    a pre-release the place for a test build.
 
+## A pre-release (for testers)
+
+1. **Write what is in it** in `CHANGELOG.md` (the release links there), under the version.
+2. **Build it:** Actions → Release → Run workflow, on `main`, with "pre-release" on (the default).
+   The workflow checks that `Cargo.toml` and `app/tauri.conf.json` have the same version, and makes
+   a draft named `Omsi-Hub <version>` with the pre-release mark and the installers of the four
+   builds. Run it again after a fix: it uploads to the same draft.
+3. **Try the installers yourself**, then publish the draft (Releases → the draft → Edit →
+   Publish release). It stays a pre-release.
+
+What it means for players:
+
+- **Nobody is offered it.** The app's look skips pre-releases, and Tauri's updater reads
+  `releases/latest`, which is never a pre-release. Testers download and install it themselves.
+- **Testers are offered the next normal release** above it. So give that one a higher version
+  (after a 0.1.0 pre-release, the first normal release is 0.1.1 or 0.2.0): a normal 0.1.0 would
+  not be newer than the 0.1.0 they have.
+- **While the repository is private**, only people with access to it see the release and its
+  files: the download links do not work for anyone else.
+
 `latest.json`, if you ever write it by hand:
 
 ```json

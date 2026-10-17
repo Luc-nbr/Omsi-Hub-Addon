@@ -1,6 +1,7 @@
 # Omsi-Hub as its own code: the plan
 
-Status: proposal (2026-10-17). Owner: Luc. This repository is the new home of Omsi-Hub.
+Status: phases 1–5 done, phase 6 under way: 0.1.0 is being prepared as a pre-release (2026-10-17;
+see "Where it stands"). Owner: Luc. This repository is the new home of Omsi-Hub.
 
 ## The goal
 
@@ -94,9 +95,22 @@ from openOMSI.
 
 Phases 2–5 can run in parallel sessions once phase 1 fixes the interfaces.
 
+## Where it stands (2026-10-17)
+
+| Phase | |
+| --- | --- |
+| 1. Inventory | Done (`docs/INVENTORY.md`) |
+| 2. `hub-omsi` | Done, with tests on a synthetic OMSI 2 folder |
+| 3. `hub-core` + `hub-api` | Done: the company, RosterFlow, online, cloud saves, the timetable and depot editors. Later: playing together (`tg_`, needs a relay) and the line editor (needs the map's lanes) |
+| 4. `app/` + `ui/` | Done |
+| 5. `plugin/` + `hub-game` | Done; a drive is tested end to end against a fake openOMSI |
+| 6. Migration and release | The data move and the release workflow (Windows, macOS, Linux; pre-releases too) are done. Next: 0.1.0 as a pre-release (`CHANGELOG.md`, `docs/UPDATES.md` "A pre-release"), Luc's test on a real openOMSI and OMSI 2, the signing key, the repository public, then the old repository's last update and the website's download page |
+| 7. Upstream PRs | Not started |
+
 ## Open points for Luc
 
-- **The repository's GitHub address.** It is not set as `origin` here yet.
+- **The repository's GitHub address.** Settled: `github.com/Luc-nbr/Omsi-Hub-Addon` (private until
+  the first release).
 - **The game-drawn editors** (line editor and others in `omsihub-game`): web UI in the app, or drop?
   Decided per editor in phase 1.
 - **The app's name and identifier:** `Omsi-Hub`, with a new identifier (a fresh WebView profile) or the
