@@ -2120,6 +2120,7 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
             let trip = Trip {
                 name: name.clone(),
                 display_name: name.clone(),
+                track: name.clone(),
                 terminus: d.destination(),
                 line: number.clone(),
                 stops: d.stops.iter().map(|s| TripStop { id: s.id, name: s.name.clone(), track_index: None, ..Default::default() }).collect(),
