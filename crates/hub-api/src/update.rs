@@ -5,7 +5,7 @@
 //!   every half hour and when a game started from here has ended. Drafts and pre-releases are
 //!   skipped (and so is a tag with a `-` in it, `0.3.0-beta1`); the newest version above this
 //!   one is offered, with its page and its asset for this platform (the NSIS installer
-//!   `…-setup.exe` on Windows, the `.app.tar.gz` on macOS).
+//!   `…-setup.exe` on Windows, the `.app.tar.gz` on macOS, the `.AppImage` on Linux).
 //! * **The offer**: a dialog over the page (`hub_update`, asked about once a second): Update now,
 //!   Not now (that version is not offered again), What's new; "install updates without asking"
 //!   (`update_auto`) while no game runs; Settings' "Check now" and "look for updates"
@@ -13,7 +13,9 @@
 //! * **The installation** (the app, [`Installer`]): `tauri-plugin-updater` downloads the asset
 //!   named in the release's `latest.json`, checks its signature against the public key built
 //!   into the app, installs it and starts the new version (the NSIS installer does that itself
-//!   on Windows; on macOS the bundle is replaced and the app restarted). Without a registered
+//!   on Windows; on macOS the bundle and on Linux the AppImage file is replaced and the app
+//!   restarted). On Linux only an AppImage updates itself: a copy from a `.deb` is offered the
+//!   release's page. Without a registered
 //!   installer (the tests, a build without a signing key) "Update now" says so and offers the
 //!   release's page instead.
 //!
@@ -95,8 +97,16 @@ fn platform() -> (&'static str, &'static str) {
     (std::env::consts::OS, if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" })
 }
 
+/// The names a processor goes by in the assets' names (Tauri's Linux bundles say `amd64`).
+fn arch_names(arch: &str) -> &'static [&'static str] {
+    match arch {
+        "aarch64" => &["aarch64", "arm64"],
+        _ => &["x64", "amd64", "x86_64"],
+    }
+}
+
 /// The asset of a release for `os` and `arch`: Tauri's bundles (`Omsi-Hub_0.2.0_x64-setup.exe`,
-/// `Omsi-Hub_aarch64.app.tar.gz` or `_universal`, `.AppImage`).
+/// `Omsi-Hub_aarch64.app.tar.gz` or `_universal`, `Omsi-Hub_0.2.0_amd64.AppImage`).
 pub fn asset_for(assets: &[Value], os: &str, arch: &str) -> Option<Asset> {
     let all: Vec<Asset> = assets
         .iter()
@@ -106,7 +116,7 @@ pub fn asset_for(assets: &[Value], os: &str, arch: &str) -> Option<Asset> {
     let pick = |ends: &str| {
         let fits: Vec<&Asset> = all.iter().filter(|a| lower(a).ends_with(ends)).collect();
         // (this processor's first, then a universal one, then any)
-        fits.iter().find(|a| lower(a).contains(arch)).or_else(|| fits.iter().find(|a| lower(a).contains("universal"))).or_else(|| fits.first()).map(|a| (*a).clone())
+        fits.iter().find(|a| arch_names(arch).iter().any(|n| lower(a).contains(n))).or_else(|| fits.iter().find(|a| lower(a).contains("universal"))).or_else(|| fits.first()).map(|a| (*a).clone())
     };
     match os {
         "windows" => pick("-setup.exe"),
@@ -177,6 +187,18 @@ pub fn set_installer(i: Arc<dyn Installer>) {
 
 fn installer() -> Option<Arc<dyn Installer>> {
     INSTALLER.get().cloned()
+}
+
+/// Whether this copy can put a new version in its own place: on Linux only the AppImage can
+/// (`APPIMAGE` is its path); a copy from a `.deb` or a build of its own is updated by hand.
+fn self_updating(os: &str, appimage: bool) -> bool {
+    os != "linux" || appimage
+}
+
+/// `release` installed from within the app: signed (`latest.json`), the app's updater there, and
+/// this copy one that can be replaced.
+fn can_install(release: &Release) -> bool {
+    release.installable && installer().is_some() && self_updating(std::env::consts::OS, std::env::var_os("APPIMAGE").is_some())
 }
 
 // --- the state --------------------------------------------------------------------------------------
@@ -298,7 +320,7 @@ fn check(s: &mut State, asked: bool) {
 
 /// `release` downloaded and installed on its own thread; its progress into the state.
 fn install(s: &mut State, release: Release) {
-    let Some(inst) = installer().filter(|_| release.installable) else {
+    let Some(inst) = installer().filter(|_| can_install(&release)) else {
         // (no updater in this build, or a release without `latest.json`: its page instead)
         s.status = Status::Failed(tr("This version cannot be installed from within the app. Download it from its page on GitHub."));
         s.dismissed = false;
@@ -414,7 +436,7 @@ fn tick() -> Value {
         // (an offer put aside comes back for a newer version only)
         s.dismissed = s.dismissed_version.as_deref() == Some(r.version.as_str());
         // "install updates without asking" (not while a game runs)
-        if auto && !s.dismissed && !s.auto_started && !game && r.installable && installer().is_some() {
+        if auto && !s.dismissed && !s.auto_started && !game && can_install(&r) {
             s.auto_started = true;
             install(s, r);
         }
@@ -450,7 +472,7 @@ fn view(s: &mut State, auto: bool, game: bool) -> Value {
             "kind": "available", "icon": "system_update",
             "title": trf("Omsi-Hub %{version} is available", &[("version", &rel.version)]),
             "text": trf("You have %{current}. Update now? Omsi-Hub downloads the new version (%{size}) from GitHub, installs it and starts again. Your companies and settings stay as they are.", &[("current", current), ("size", &rel.asset.as_ref().map_or("?".into(), |a| mb(a.size)))]),
-            "auto": auto, "installable": rel.installable && installer().is_some(),
+            "auto": auto, "installable": can_install(rel),
         }),
         Status::Downloading { release, done, total } => json!({
             "kind": "busy", "icon": "download",
@@ -567,6 +589,19 @@ mod tests {
         // (a test build is offered nothing; GitHub's error object is no list)
         assert_eq!(pick(&list, "0.2.0-beta1", "windows", "x64"), None);
         assert_eq!(pick(&json!({ "message": "rate limited" }), "0.2.0", "windows", "x64"), None);
+    }
+
+    /// Linux: Tauri's AppImage (`amd64`, `aarch64`), never the `.deb`; and only an AppImage
+    /// replaces itself.
+    #[test]
+    fn linux_takes_the_appimage_for_its_processor() {
+        let a = |n: &str| json!({ "name": n, "size": 1, "browser_download_url": n });
+        let assets = vec![a("Omsi-Hub_0.3.0_amd64.deb"), a("Omsi-Hub_0.3.0_aarch64.AppImage"), a("Omsi-Hub_0.3.0_amd64.AppImage"), a("Omsi-Hub_0.3.0_amd64.AppImage.sig")];
+        assert_eq!(asset_for(&assets, "linux", "x64").unwrap().name, "Omsi-Hub_0.3.0_amd64.AppImage");
+        assert_eq!(asset_for(&assets, "linux", "aarch64").unwrap().name, "Omsi-Hub_0.3.0_aarch64.AppImage");
+        assert_eq!(asset_for(&[a("Omsi-Hub_0.3.0_amd64.deb")], "linux", "x64"), None);
+        assert!(self_updating("linux", true) && !self_updating("linux", false));
+        assert!(self_updating("windows", false) && self_updating("macos", false));
     }
 
     #[test]

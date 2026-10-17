@@ -126,7 +126,85 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
         return Err(format!("not a web address: {url}"));
     }
+    // (from an AppImage on Linux: the browser started without the AppImage's own libraries)
+    #[cfg(target_os = "linux")]
+    if let Some(dir) = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some()) {
+        return open_outside_appimage(&url, std::path::Path::new(&dir));
+    }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// The variables an AppImage's start script points into the AppImage (its GTK, GIO, GStreamer and
+/// libraries): `xdg-open` and the browser it starts would load those instead of the system's and
+/// may not start at all. Their entries inside the AppImage are taken out for the browser.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const APPIMAGE_VARS: &[&str] = &[
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "PATH",
+    "XDG_DATA_DIRS",
+    "XDG_CONFIG_DIRS",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GDK_PIXBUF_MODULEDIR",
+    "GIO_MODULE_DIR",
+    "GIO_EXTRA_MODULES",
+    "GSETTINGS_SCHEMA_DIR",
+    "GTK_PATH",
+    "GTK_EXE_PREFIX",
+    "GTK_DATA_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GST_PLUGIN_PATH",
+    "GST_PLUGIN_PATH_1_0",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "GST_PLUGIN_SCANNER",
+    "GST_PLUGIN_SCANNER_1_0",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PERLLIB",
+    "QT_PLUGIN_PATH",
+];
+
+/// A path list (or one path) without its entries inside `appdir`; None when nothing is left.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn without_appdir(value: &std::ffi::OsStr, appdir: &std::path::Path) -> Option<std::ffi::OsString> {
+    let kept: Vec<std::path::PathBuf> = std::env::split_paths(value).filter(|p| !p.as_os_str().is_empty() && !p.starts_with(appdir)).collect();
+    if kept.is_empty() {
+        None
+    } else {
+        std::env::join_paths(kept).ok()
+    }
+}
+
+/// `url` in the system's browser from inside an AppImage: `xdg-open` (or `gio open`) with the
+/// AppImage's own entries taken out of `APPIMAGE_VARS`.
+#[cfg(target_os = "linux")]
+fn open_outside_appimage(url: &str, appdir: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut last = String::new();
+    for (program, args) in [("xdg-open", vec![url]), ("gio", vec!["open", url])] {
+        let mut c = Command::new(program);
+        c.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        for k in APPIMAGE_VARS {
+            if let Some(v) = std::env::var_os(k) {
+                match without_appdir(&v, appdir) {
+                    Some(v) => c.env(k, v),
+                    None => c.env_remove(k),
+                };
+            }
+        }
+        match c.spawn() {
+            Ok(mut child) => {
+                // (reaped when it ends: the browser runs on by itself)
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+            Err(e) => last = format!("{program}: {e}"),
+        }
+    }
+    Err(last)
 }
 
 #[tauri::command]
@@ -250,5 +328,18 @@ mod tests {
         assert_eq!(bytes_request("/bytes/x", None).unwrap().1, Value::Null);
         assert_eq!(sniff(b"\x89PNG\r\n"), "image/png");
         assert_eq!(percent_decode("a%2Fb%zz"), "a/b%zz");
+    }
+
+    /// From an AppImage, the browser is started without the AppImage's own paths.
+    #[test]
+    fn the_appimages_own_paths_are_taken_out() {
+        use std::path::PathBuf;
+        let appdir = std::env::temp_dir().join("Omsi-Hub.AppDir");
+        let (inside, outside) = (appdir.join("usr").join("lib"), std::env::temp_dir().join("system-lib"));
+        let both = std::env::join_paths([inside.clone(), outside.clone()]).unwrap();
+        let kept: Vec<PathBuf> = std::env::split_paths(&without_appdir(&both, &appdir).unwrap()).collect();
+        assert_eq!(kept, [outside]);
+        assert_eq!(without_appdir(inside.as_os_str(), &appdir), None, "only the AppImage's: the variable goes");
+        assert!(APPIMAGE_VARS.contains(&"LD_LIBRARY_PATH") && APPIMAGE_VARS.contains(&"XDG_DATA_DIRS"));
     }
 }

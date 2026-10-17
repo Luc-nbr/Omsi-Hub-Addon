@@ -19,10 +19,12 @@ zstd = { version = "0.13", default-features = false }
 ring.workspace = true
 
 # The refresh token lives in the OS's own store only: Windows' Credential Manager, macOS's
-# Keychain, Linux's kernel keyring. Elsewhere (Android, iOS) nothing is kept between runs.
+# Keychain, Linux's Secret Service. Elsewhere (Android, iOS) nothing is kept between runs.
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", features = ["apple-native"] }
+# (Linux: the Secret Service - GNOME Keyring, KWallet, KeePassXC - over D-Bus, in pure Rust: zbus,
+# no libdbus to build against. Without one the session stays in memory: `store.rs`)
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3.6", features = ["linux-native"] }
+keyring = { version = "3.6", default-features = false, features = ["async-secret-service", "async-io", "crypto-rust"] }

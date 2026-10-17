@@ -166,7 +166,8 @@ function GoogleSignIn({ onDone, onError, disabled }) {
     onError('');
     const r = await act('ol_oauth', { agree: true }, true);
     if (r.error) return onError(r.error);
-    openUrl(r.url).catch((e) => toast(String(e?.message || e), 'error'));
+    // (no browser opened - on Linux, no xdg-open handler -: the wait offers the address to copy)
+    openUrl(r.url).catch((e) => toast(String(e?.message || e), 'info'));
     setWait({ url: r.url });
     const a = await act('ol_oauth_wait', { id: r.id, agree: true }, true);
     setWait(null);
@@ -178,7 +179,8 @@ function GoogleSignIn({ onDone, onError, disabled }) {
     return html`<div class="ol-oa-wait" role="status">
       <div class="ol-row"><${Icon} name="refresh" size=${16} class="ol-spin" /><b>${tr('Continue in your browser')}</b></div>
       <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name })}</p>
-      <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => openUrl(wait.url).catch(() => {})} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
+      <p class="ol-text">${tr('No browser window? Copy the address and open it in your browser yourself.')}</p>
+      <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => openUrl(wait.url).catch(() => {})} /><${Copy} text=${wait.url} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
     </div>`;
   return html`<button type="button" id="ol-google" class="ol-btn-x ol-oa-btn" disabled=${disabled} onClick=${go}>
     <${GoogleMark} /><span>${tr('Sign in with %{name}', { name })}</span>

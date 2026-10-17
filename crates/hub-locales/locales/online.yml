@@ -857,3 +857,10 @@ _version: 2
   pl: "Twoja nazwa wyświetlana i przebieg służby (punkty, poziom, służby, przejechane godziny i kilometry) na omsihub.com. Wyłączone, dopóki tego nie włączysz."
   ru: "Ваше отображаемое имя и послужной список (очки, уровень, смены, часы и километры за рулём) на omsihub.com. Выключено, пока вы его не включите."
   uk: "Ваше ім'я для показу та послужний список (очки, рівень, зміни, години та кілометри за кермом) на omsihub.com. Вимкнено, доки ви його не ввімкнете."
+"No browser window? Copy the address and open it in your browser yourself.":
+  de: "Kein Browserfenster? Kopiere die Adresse und öffne sie selbst in deinem Browser."
+  fr: "Aucune fenêtre de navigateur ? Copiez l'adresse et ouvrez-la vous-même dans votre navigateur."
+  nl: "Geen browservenster? Kopieer het adres en open het zelf in je browser."
+  pl: "Brak okna przeglądarki? Skopiuj adres i otwórz go samodzielnie w przeglądarce."
+  ru: "Окно браузера не открылось? Скопируйте адрес и откройте его в браузере сами."
+  uk: "Вікно браузера не відкрилося? Скопіюйте адресу та відкрийте її в браузері самі."
