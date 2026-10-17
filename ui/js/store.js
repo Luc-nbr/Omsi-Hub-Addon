@@ -34,6 +34,8 @@ const state = {
   cache: {},
 };
 const listeners = new Set();
+/** How many changes there were (a component that missed one before it listened draws again). */
+let version = 0;
 
 /** The state itself, for the ported pages that read it directly (`S.choice` …). Change it
  * with `set`, so that whoever draws it hears. */
@@ -49,6 +51,7 @@ export function get() {
 export function set(patch) {
   const p = typeof patch === 'function' ? patch(state) : patch;
   Object.assign(state, p);
+  version++;
   for (const l of [...listeners]) l(state);
 }
 
@@ -65,6 +68,7 @@ export function useStore(select) {
   const pick = select || ((s) => s);
   const [value, setValue] = useState(() => pick(state));
   const [, tick] = useState(0);
+  const drawnAt = version;
   useEffect(() => {
     const update = whole
       ? () => tick((n) => n + 1)
@@ -75,6 +79,7 @@ export function useStore(select) {
     const off = subscribe(update);
     // (a change between the first draw and this effect is not missed)
     if (!whole) update(state);
+    else if (version !== drawnAt) tick((n) => n + 1);
     return off;
   }, []);
   return whole ? state : value;

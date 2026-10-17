@@ -13,7 +13,7 @@ import { language } from '../i18n.js';
 import { saveSettings } from './drive.js';
 import { Icon, Button, Switch, tr } from './bits.js';
 
-/** The project Omsi-Hub is built on (the credit under the version, as a fork owes it). */
+/** The game Omsi-Hub works with (named under the version, with its home). */
 const UPSTREAM = 'https://github.com/openOMSI-Project/openOMSI';
 
 const ask = (what) =>
@@ -87,9 +87,9 @@ export function UpdateRow() {
       <${Button} icon="refresh" label=${u?.busy ? 'Checking...' : 'Check now'} disabled=${!!u?.busy} onClick=${() => updateAct('check')} />
       <span class="muted small grow">${u?.line || ''}</span>
     </div>
-    <div style="margin-top:8px"><${Button} kind="ghost" icon="open_in_new" raw label=${u?.repo || 'github.com/Luc-nbr/openOMSI'} onClick=${() => updateAct('repo')} /></div>
+    <div style="margin-top:8px"><${Button} kind="ghost" icon="open_in_new" raw label=${u?.repo || 'github.com/Luc-nbr/Omsi-Hub-Addon'} onClick=${() => updateAct('repo')} /></div>
     <div class="row wrap hub-credit" style="gap:8px;align-items:center;margin-top:10px">
-      <span class="muted small grow">${tr("Omsi-Hub is built on openOMSI, the open rebuild of OMSI 2's engine.")}</span>
+      <span class="muted small grow">${tr("Omsi-Hub works with openOMSI, the open rebuild of OMSI 2's engine.")}</span>
       <${Button} kind="ghost" icon="open_in_new" raw label=${UPSTREAM.replace('https://', '')} onClick=${() => call('open_url', { url: UPSTREAM }).catch(() => {})} />
     </div>
   </div>`;

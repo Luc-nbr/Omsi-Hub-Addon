@@ -135,7 +135,6 @@ const answers = {
   hub_migrate_skip: () => ({ ok: true }),
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
-  hub_page_error: () => null,
   addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: 'missing' }, plugin_version: '1.6.0' }),
   addon_enable: (a) => ({ state: a.on ? 'on' : 'off', version: '1.6.0' }),
 
@@ -165,7 +164,10 @@ const answers = {
     return { time: `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`, date: a.date, lead: 10, display_font: null };
   },
   hub_more_setvars: () => [],
-  hub_more_bus_options: () => ({ groups: [] }),
+  hub_more_bus_options: () => ({ options: [], reading: false }),
+  hub_more_font_view: () => ({ failed: true, options: [] }),
+  hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
+  hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,
   hub_depots: (a) => ({
     key: `${a.bus}|${a.map?.file || ''}`, bus: a.bus, map: a.map?.friendly || a.map?.name || '', want: 'Grundorf.hof', lacks: false, total: 3,
@@ -174,7 +176,7 @@ const answers = {
   }),
   hub_route_map: () => ({ roads: [{ p: [0, 0, 400, 0, 400, 300, 900, 300], w: 8, main: true }, { p: [400, 0, 400, -200], w: 6 }], route: [[0, 0, 400, 0, 400, 300, 900, 300]] }),
   hub_drive: (a) => {
-    setTimeout(() => backend.emit('game-ended', { ok: true, code: 0 }), 4000);
+    setTimeout(() => backend.emit('game-ended', { code: 0, seconds: 4 }), 4000);
     return { started: true, args: ['--map', a.duty.map] };
   },
   hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Addon', auto: false }),

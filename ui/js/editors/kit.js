@@ -14,8 +14,8 @@ import { SYMBOLS as EDITOR, STROKED } from '../symbols.js';
 // (the editors' icons join our look's, so that every page draws them by their names)
 for (const [k, v] of Object.entries(EDITOR)) if (!OURS[k]) OURS[k] = v;
 
-// (a script error goes into the launcher's log: the window has no console to say it in)
-const logError = (text) => import('../api.js').then((a) => a.call('hub_page_error', { text: String(text).slice(0, 2000) })).catch(() => {});
+// (a script error goes into Omsi-Hub's log, `hub_log`: the window has no console to say it in)
+const logError = (text) => import('../api.js').then((a) => a.call('hub_log', { line: 'page error: ' + String(text).slice(0, 2000) })).catch(() => {});
 addEventListener('error', (e) => logError(`${e.message} (${e.filename}:${e.lineno}:${e.colno})`));
 addEventListener('unhandledrejection', (e) => logError(e.reason?.stack || e.reason));
 

@@ -47,16 +47,17 @@ export function AddonPanel() {
   const inst = s.game;
   const level = inst?.compat && LEVELS[inst.compat.level];
   const plugin = s.plugin;
-  const folder = (icon, name, path, check) => html`<div class="row wrap hub-folder" style="gap:12px;align-items:center;margin-top:8px">
+  // (a path is shown as the system writes it: `\` on Windows, `/` on Linux and macOS)
+  const folder = (icon, name, path, check, hint) => html`<div class="row wrap hub-folder" style="gap:12px;align-items:center;margin-top:8px">
       <${Icon} name=${icon} />
-      <b style="min-width:90px">${name}</b>
-      <a href="#" class="grow" id=${name === 'openOMSI' ? 'set-openomsi' : 'set-omsi2'} style="word-break:break-all" onClick=${(e) => (e.preventDefault(), path && openPath(path))}>${path || tr('Not chosen')}</a>
+      <span style="min-width:150px"><b>${name}</b>${hint && html`<br /><span class="muted small">${tr(hint)}</span>`}</span>
+      <a href="#" class="grow hub-path" id=${name === 'openOMSI' ? 'set-openomsi' : 'set-omsi2'} style="word-break:break-all" onClick=${(e) => (e.preventDefault(), path && openPath(path))}>${path || tr('Not chosen')}</a>
       ${check && !check.ok && html`<span class="small bad">${tr(check.text || '')}</span>`}
     </div>`;
   return html`<div class="setting-row full hub-addon">
     <p class="muted small" style="margin:0 0 6px">${tr('Omsi-Hub works with the openOMSI you have installed and your original OMSI 2. It keeps its own data and never changes their files.')}</p>
-    ${folder('folder', 'openOMSI', s.folder, inst)}
-    ${folder('folder_open', 'OMSI 2', S.settings?.omsi2_folder, omsi2)}
+    ${folder('folder', 'openOMSI', s.folder, inst, '0.2.22 or newer')}
+    ${folder('folder_open', 'OMSI 2', S.settings?.omsi2_folder, omsi2, 'Steam, Steam with Proton, or retail')}
     <div class="row wrap" style="gap:12px;margin-top:12px">
       <${Button} icon="folder_open" label="Choose the folders again" disabled=${busy} onClick=${() => set({ setup: true })} />
       ${S.boot?.data_dir && html`<${Button} kind="ghost" icon="open_in_new" label="Omsi-Hub's data folder" onClick=${() => openPath(S.boot.data_dir)} />`}

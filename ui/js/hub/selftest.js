@@ -106,10 +106,12 @@ export async function selftest(check, errors) {
   tabs[0]?.click();
   await sleep(300);
   await globalThis.hubProbeScales('page settings');
+  // (a step's main action is there, in its corner, and is not pressed: the map's)
+  go('drive', 'map');
+  await sleep(600);
+  check('hub: the main action', !!$('.hub-go'), $('.hub-go')?.textContent || '');
   go('drive', 'mode');
   await sleep(400);
-  // (the step's main action is there, and is not pressed)
-  check('hub: the main action', !!$('.hub-go'), $('.hub-go')?.textContent || '');
 
   // our commands
   const c = S.choice;

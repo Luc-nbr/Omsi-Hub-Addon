@@ -121,7 +121,7 @@ function useOwnLines(map) {
 const places = new Map();
 function placesOf(map, date, trip) {
   const key = `${map}|${date}|${trip}`;
-  if (!places.has(key)) places.set(key, call('route_map', { map, date, trip }).catch(() => null));
+  if (!places.has(key)) places.set(key, call('hub_route_map', { map, date, trip }).catch(() => null));
   return places.get(key);
 }
 

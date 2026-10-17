@@ -4,6 +4,7 @@
 
 import { call } from '../api.js';
 import { S, set } from '../store.js';
+import { mapLabel } from './kit.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (q) => document.querySelector(q);

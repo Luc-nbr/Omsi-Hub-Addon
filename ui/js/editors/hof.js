@@ -135,7 +135,7 @@ async function add(m) {
       if (bus && v.folder?.toLowerCase() === bus.folder?.toLowerCase() && JSON.stringify(v.hofs) === JSON.stringify(bus.hofs) && !v.hofs.some((h) => h.toLowerCase() === m.source_name.toLowerCase())) v.hofs = [...v.hofs, m.source_name];
     }
     V.added = (V.added || 0) + 1;
-    const hof = await call('default_hof', { map: curMap() || null, bus: curBus() || null, date: S.choice.date, line: S.choice.free ? null : S.choice.line }).catch(() => S.hof);
+    const hof = await call('hub_default_hof', { map: S.choice.map, bus: S.choice.bus, date: S.choice.date, line: S.choice.free ? null : S.choice.line }).catch(() => S.hof);
     set({ hof });
     choose({ hof_manual: false, hof });
     note(tr('%{file} added beside %{bus}', { file: m.source.file, bus: name }), false);

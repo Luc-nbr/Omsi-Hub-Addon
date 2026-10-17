@@ -82,6 +82,7 @@ input[type=search]::-webkit-search-cancel-button { filter: grayscale(1); }
 .hub-migrate { position: fixed; left: 24px; bottom: 24px; width: min(420px, calc(100% - 48px)); z-index: 45; }
 
 /* Settings (pages/settings.js) */
+.hub-addon .hub-path { display: inline-block; min-height: 22px; line-height: 22px; overflow-wrap: anywhere; }
 .hub-settings { display: flex; flex-direction: column; gap: 18px; }
 .hub-settings .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
 .hub-settings .settings-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

@@ -11,7 +11,7 @@
 
 import { S, set } from '../store.js';
 import { saveSettings } from './drive.js';
-import { tr } from './bits.js';
+import { keys, MAC, tr } from './bits.js';
 import { rfOpen } from '../rosterflow/state.js';
 import { scale } from './hub.js';
 
@@ -21,7 +21,7 @@ export const MAX = 2;
 export const NOTCH = 0.05;
 export const KEY_STEP = 0.1;
 
-const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
 
 /** The size as the settings keep it: 60 to 200 %, in steps of 5 % (`core::launcher_scale`). */
 export const clampScale = (v) => Math.round(Math.max(MIN, Math.min(MAX, Number.isFinite(v) ? v : 1)) * 20) / 20;
@@ -46,7 +46,7 @@ export function zoomBy(by) {
     saving = setTimeout(() => saveSettings({ launcher_scale: launcherScale() }), 250);
   }
   // the note: one at a time, replaced while the wheel turns
-  let text = tr('Launcher size: %{pct} (Ctrl+wheel, Ctrl 0 for the normal size)', { pct: `${Math.round(to * 100)}%` });
+  let text = keys(tr('Launcher size: %{pct} (Ctrl+wheel, Ctrl 0 for the normal size)', { pct: `${Math.round(to * 100)}%` }));
   // (a window too small for the size asked: the pages as large as it allows, `hub.scale`)
   const fit = Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820));
   const shown = Math.round((scale() / fit) * 100);
