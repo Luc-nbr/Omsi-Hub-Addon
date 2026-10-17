@@ -159,7 +159,7 @@ mod tests {
     fn the_ibis_codes_come_from_the_depot_file_s_route() {
         let hof = Hof {
             termini: vec![Terminus { code: 41, texture_id: "Markt".into(), ..Default::default() }, Terminus { code: 42, texture_id: "Zentrum".into(), ..Default::default() }],
-            info_trips: vec![InfoTrip { code: "13001".into(), name: "A-B".into(), route: "42".into(), line: "130".into(), extra: vec![] }],
+            info_trips: vec![InfoTrip { code: "13001".into(), name: "A-B".into(), route: "42".into(), line: "130".into(), extra: vec![], ..Default::default() }],
             info_busstop_lists: vec![vec!["Station".into(), "Markt".into(), "Zentrum".into()]],
             ..Default::default()
         };

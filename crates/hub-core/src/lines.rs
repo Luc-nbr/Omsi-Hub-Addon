@@ -1731,7 +1731,7 @@ fn trip_stops(data: &Timetable, trip: &Trip) -> Vec<(i64, String, Option<usize>)
 /// A lane of a track from its values as the file has them (spline, path, tile, -, length, -).
 fn track_entry(values: Vec<f64>) -> TrackEntry {
     let at = |i: usize| values.get(i).copied().unwrap_or(0.0);
-    TrackEntry { spline: at(0) as i64, path: at(1) as i32, tile: at(2).max(0.0) as usize, length: at(4), values }
+    TrackEntry { spline: at(0) as i64, path: at(1) as i32, tile: at(2).max(0.0) as usize, length: at(4), values, ..Default::default() }
 }
 
 /// The track a map's trip drives, as the game takes it: the one its `[trip]` names, else the
@@ -2122,7 +2122,7 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                 display_name: name.clone(),
                 terminus: d.destination(),
                 line: number.clone(),
-                stops: d.stops.iter().map(|s| TripStop { id: s.id, name: s.name.clone(), track_index: None }).collect(),
+                stops: d.stops.iter().map(|s| TripStop { id: s.id, name: s.name.clone(), track_index: None, ..Default::default() }).collect(),
                 profiles,
                 ..Default::default()
             };
@@ -2147,7 +2147,7 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                     entries.push(track_entry(vec![s.id as f64, s.path as f64, ti as f64, 0.0, s.length as f64, 0.0]));
                 }
             }
-            out.files.push((format!("{name}.ttr"), Track { path: PathBuf::new(), name: name.clone(), entries }.to_text()));
+            out.files.push((format!("{name}.ttr"), Track { path: PathBuf::new(), name: name.clone(), entries, ..Default::default() }.to_text()));
             // the links the map lacks, and the stops it does not name
             for (k, g) in legs.iter().enumerate() {
                 let (a, b) = (&d.stops[k], &d.stops[k + 1]);
@@ -2161,13 +2161,20 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                     entries.push([s.id as f64, s.path as f64, ti as f64, s.length as f64, -1.0, 0.0, 0.0]);
                 }
                 let last = entries.len().saturating_sub(1) as f64;
-                let link = StnLink { length: g.length as f64, from_id: a.id, to_id: b.id, params: [g.from_lat as f64, g.to_lat as f64, g.from_s as f64, g.to_s as f64, 0.0, last], entries };
+                let link = StnLink {
+                    length: g.length as f64,
+                    from_id: a.id,
+                    to_id: b.id,
+                    params: [g.from_lat as f64, g.to_lat as f64, g.from_s as f64, g.to_s as f64, 0.0, last],
+                    entries,
+                    ..Default::default()
+                };
                 out.links.push((link, a.name.clone(), b.name.clone()));
             }
             for s in &d.stops {
                 if stops_done.insert(s.id) {
                     let tile = tile_index(s.tile).unwrap_or(0) as i32;
-                    out.stops.push(BusStopEntry { name: s.name.clone(), tile, object_id: s.id, params: [0.0, 0.0, 0.0] });
+                    out.stops.push(BusStopEntry { name: s.name.clone(), tile, object_id: s.id, params: [0.0, 0.0, 0.0], ..Default::default() });
                 }
             }
         }
@@ -2186,7 +2193,8 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                     number: t.number,
                     ai_group: ai_group.to_string(),
                     days: DayMask(extra as u32),
-                    trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: x.profile as i32, departure: x.departure }).collect(),
+                    trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: x.profile as i32, departure: x.departure, ..Default::default() }).collect(),
+                    ..Default::default()
                 }
             })
             .collect();
@@ -2195,11 +2203,11 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
         match &l.map {
             // (a line of the map's: in the place of the map's own file, by its name)
             Some(m) => {
-                let line = Line { path: PathBuf::new(), name: m.ttl.clone(), user_allowed: m.user_allowed, priority: m.priority, tours, codepage: None };
+                let line = Line { path: PathBuf::new(), name: m.ttl.clone(), user_allowed: m.user_allowed, priority: m.priority, tours, ..Default::default() };
                 out.shadows.push((format!("{}.ttl", m.ttl), line.to_text()));
             }
             None => {
-                let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours, codepage: None };
+                let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours, ..Default::default() };
                 out.files.push((format!("{stem}.ttl"), line.to_text()));
             }
         }
@@ -2918,11 +2926,11 @@ mod tests {
     fn map_timetable(dir: &Path) {
         std::fs::create_dir_all(dir).unwrap();
         let names = [(1, "Bahnhof"), (2, "Kirche"), (3, "Markt"), (4, "Markt"), (5, "Kirche"), (6, "Bahnhof")];
-        let stops: String = names.iter().map(|(id, n)| BusStopEntry { name: n.to_string(), tile: 0, object_id: *id, params: [0.0; 3] }.to_text()).collect();
+        let stops: String = names.iter().map(|(id, n)| BusStopEntry { name: n.to_string(), tile: 0, object_id: *id, params: [0.0; 3], ..Default::default() }.to_text()).collect();
         std::fs::write(dir.join("Busstops.cfg"), stops).unwrap();
         let link = |a: i64, b: i64, lanes: &[i64], len: f64| {
             let entries = lanes.iter().map(|l| [*l as f64, 0.0, 0.0, len / lanes.len() as f64, -1.0, 0.0, 0.0]).collect();
-            StnLink { length: len, from_id: a, to_id: b, params: [2.5, 2.5, 3.0, 4.0, 0.0, lanes.len() as f64 - 1.0], entries }.to_text("a", "b")
+            StnLink { length: len, from_id: a, to_id: b, params: [2.5, 2.5, 3.0, 4.0, 0.0, lanes.len() as f64 - 1.0], entries, ..Default::default() }.to_text("a", "b")
         };
         let links = [link(1, 2, &[10, 11], 500.0), link(2, 3, &[11, 12], 1000.0), link(4, 5, &[13], 1000.0), link(5, 6, &[14], 500.0)].concat();
         std::fs::write(dir.join("StnLinks.cfg"), links).unwrap();
@@ -2945,17 +2953,18 @@ mod tests {
         trip("7_out", "Markt", "7", &[1, 2, 3], vec![profile(6.0, &[(1, 2.0)]), profile(9.0, &[])]);
         trip("7_back", "Bahnhof", "7", &[4, 5, 6], vec![profile(6.0, &[])]);
         trip("7_short", "Kirche", "7E", &[1, 2], vec![profile(3.0, &[])]);
-        let track = Track { path: PathBuf::new(), name: "7_out".into(), entries: [10, 11, 12].iter().map(|l| track_entry(vec![*l as f64, 0.0, 0.0, 0.0, 300.0, 0.0])).collect() };
+        let track = Track { path: PathBuf::new(), name: "7_out".into(), entries: [10, 11, 12].iter().map(|l| track_entry(vec![*l as f64, 0.0, 0.0, 0.0, 300.0, 0.0])).collect(), ..Default::default() };
         std::fs::write(dir.join("7_out.ttr"), track.to_text()).unwrap();
-        let tt = |trip: &str, profile: i32, departure: f32| TourTrip { trip: trip.into(), profile, departure };
+        let tt = |trip: &str, profile: i32, departure: f32| TourTrip { trip: trip.into(), profile, departure, ..Default::default() };
         let tours = vec![
-            Tour { number: "1".into(), ai_group: "Busses".into(), days: DayMask(799), trips: vec![tt("7_out", 0, 360.0), tt("7_back", 0, 370.0), tt("7_out", 1, 380.0)] },
-            Tour { number: "2".into(), ai_group: "Busses".into(), days: DayMask(992), trips: vec![tt("7_out", 0, 480.0), tt("7_back", 0, 490.0)] },
-            Tour { number: "3".into(), ai_group: "Extra".into(), days: DayMask(799), trips: vec![tt("7_short", 0, 400.0)] },
+            Tour { number: "1".into(), ai_group: "Busses".into(), days: DayMask(799), trips: vec![tt("7_out", 0, 360.0), tt("7_back", 0, 370.0), tt("7_out", 1, 380.0)], ..Default::default() },
+            Tour { number: "2".into(), ai_group: "Busses".into(), days: DayMask(992), trips: vec![tt("7_out", 0, 480.0), tt("7_back", 0, 490.0)], ..Default::default() },
+            Tour { number: "3".into(), ai_group: "Extra".into(), days: DayMask(799), trips: vec![tt("7_short", 0, 400.0)], ..Default::default() },
         ];
         // (as OMSI's editor writes it: not as openOMSI would, so that a copy is told apart)
-        let text =
-            Line { path: PathBuf::new(), name: "7".into(), user_allowed: true, priority: 2, tours, codepage: None }.to_text().replace("Created with openOMSI", "Created with Omsi Version 2.3.004");
+        let text = Line { path: PathBuf::new(), name: "7".into(), user_allowed: true, priority: 2, tours, ..Default::default() }
+            .to_text()
+            .replace("Created with openOMSI", "Created with Omsi Version 2.3.004");
         std::fs::write(dir.join("7.ttl"), text).unwrap();
     }
 

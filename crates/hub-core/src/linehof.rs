@@ -1296,7 +1296,7 @@ pub(crate) mod tests {
         assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"), "{s:?}");
         assert_eq!(d.front(&s), ("KRANKENHAUS".to_string(), "NORDSTADT".to_string()));
         // the next one, with that one in the file
-        hof.termini.push(Terminus { code: 1, texture_id: "Krankenhaus Nordstadt".into(), terminus_stop: None, all_exit: false, strings: s });
+        hof.termini.push(Terminus { code: 1, texture_id: "Krankenhaus Nordstadt".into(), terminus_stop: None, all_exit: false, strings: s, ..Default::default() });
         let d = Depot::from_hof(hof, Vec::new());
         assert_eq!(d.roles[..8], USUAL);
         assert_eq!(d.front(&d.sign_defaults("Altdorf")), ("ALTDORF".to_string(), String::new()));

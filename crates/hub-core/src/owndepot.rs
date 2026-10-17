@@ -1082,7 +1082,7 @@ mod tests {
         for s in &mut d.hof.termini[quiet].strings {
             s.clear();
         }
-        d.hof.info_trips.push(hub_omsi::hof::InfoTrip { code: "4201".into(), name: "A-B".into(), route: "777".into(), line: "42".into(), extra: vec![] });
+        d.hof.info_trips.push(hub_omsi::hof::InfoTrip { code: "4201".into(), name: "A-B".into(), route: "777".into(), line: "42".into(), extra: vec![], ..Default::default() });
         d.hof.info_busstop_lists.push(vec!["Nirgendwo".into()]);
         d.hof.termini[a].texture_id = "Markt Ő".into();
         let issues = d.issues("Grundorf", Coding::Page(CodePage::Windows1252));
@@ -1147,7 +1147,7 @@ mod tests {
         doc.map = "Grundorf".into();
         let k = doc.add_destination("Sportplatz", false, false);
         assert_eq!(doc.hof.termini[k].code, 901);
-        doc.hof.info_trips.push(hub_omsi::hof::InfoTrip { code: "4201".into(), name: "X".into(), route: "901".into(), line: "42".into(), extra: vec![] });
+        doc.hof.info_trips.push(hub_omsi::hof::InfoTrip { code: "4201".into(), name: "X".into(), route: "901".into(), line: "42".into(), extra: vec![], ..Default::default() });
         doc.tidy();
         let path = create(&dir, &doc, Coding::Page(CodePage::Windows1252)).unwrap();
         let key = path.file_stem().unwrap().to_string_lossy().into_owned();
