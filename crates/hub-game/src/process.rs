@@ -88,8 +88,9 @@ pub fn ensure_executable(_exe: &Path) -> std::io::Result<()> {
 
 /// openOMSI at `exe` started with `spec`.
 pub fn start(exe: &Path, spec: &LaunchSpec) -> Result<Game, StartError> {
-    ensure_executable(exe).map_err(StartError::Io)?;
+    // (the spec checked before the program is touched: a bad drive says so on every system)
     let cmd = command(exe, spec).map_err(StartError::Spec)?;
+    ensure_executable(exe).map_err(StartError::Io)?;
     Game::spawn(cmd, exe).map_err(StartError::Io)
 }
 
