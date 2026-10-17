@@ -2377,6 +2377,11 @@ pub fn export_to_map(content: &Path, map_dir: &Path, reg: &Registry) -> Result<(
 mod tests {
     use super::*;
 
+    /// The timetable of the map in the folder `dir` (its `TTData`).
+    fn load_map(dir: &Path) -> Timetable {
+        Timetable::load(&dir.join("TTData"))
+    }
+
     fn stop(id: i64, name: &str, x: f64) -> StopRef {
         StopRef { tile: [0, 0], id, name: name.into(), at: [x, 0.0], ..Default::default() }
     }
@@ -2575,7 +2580,7 @@ mod tests {
         let masks = |reg: &Registry| -> HashSet<String> {
             let e = export(reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
             write_export(&dir, &e, &|_| Ok(())).unwrap();
-            let data = Timetable::load(&base);
+            let data = load_map(&base);
             data.lines.iter().find(|l| l.name == "oo_42").unwrap().tours.iter().map(|t| t.days.0.to_string()).collect()
         };
         // (Monday to Friday on school days: bit 8)
@@ -2768,7 +2773,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("Busstops.cfg"), "[busstop]\r\nBahnhof\r\n1\r\n1\r\n0.0\r\n0\r\n0\r\n").unwrap();
         assert_eq!(write_export(&dir, &e, &|_| Ok(())).unwrap(), 5);
-        let data = Timetable::load(&base);
+        let data = load_map(&base);
         let l = data.lines.iter().find(|l| l.name == "oo_42").expect("the line");
         assert!(l.user_allowed);
         assert_eq!(l.tours.len(), e.tours[&id]);
@@ -2794,7 +2799,7 @@ mod tests {
         reg.lines.clear();
         let e = export(&reg, &[(5, 5), (0, 0)], &map_links, &map_stops).unwrap();
         write_export(&dir, &e, &|_| Ok(())).unwrap();
-        let data = Timetable::load(&base);
+        let data = load_map(&base);
         assert!(data.lines.is_empty() && data.trips.is_empty() && data.tracks.is_empty() && data.stn_links.is_empty());
         assert_eq!(data.bus_stops.iter().map(|s| s.object_id).collect::<Vec<_>>(), vec![1]);
         let _ = std::fs::remove_dir_all(&base);
@@ -2987,7 +2992,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("omsi_lines_map_import_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         map_timetable(&base.join("TTData"));
-        let data = Timetable::load(&base);
+        let data = load_map(&base);
         let l = import_7(&data);
         // a direction a trip: the one run most, its way back, the short run
         assert_eq!(l.directions.iter().map(|d| d.map_trip.as_str()).collect::<Vec<_>>(), ["7_out", "7_back", "7_short"]);
@@ -3045,7 +3050,7 @@ mod tests {
         let (content, map) = (base.join("content"), base.join("omsi").join("maps").join("Dorf"));
         map_timetable(&map.join("TTData"));
         let original = std::fs::read(map.join("TTData").join("7.ttl")).unwrap();
-        let before = runs(&Timetable::load(&map), "7");
+        let before = runs(&load_map(&map), "7");
         // the player's own line 42 on the map, written first
         let mut reg = Registry { map: "Dorf".into(), ..Default::default() };
         line(&mut reg);
@@ -3059,10 +3064,10 @@ mod tests {
         write(&reg);
         let own: Vec<(String, Vec<u8>)> = ["oo_42.ttl", "oo_42_a.ttp", "oo_42_b.ttp", "oo_42_a.ttr"].iter().map(|f| (f.to_string(), std::fs::read(dir.join(f)).unwrap())).collect();
         // line 7 opened and saved as it came: it runs as the map's did, by its own trips
-        let data = Timetable::load(&copy);
+        let data = load_map(&copy);
         reg.add_map_line(import_7(&data));
         write(&reg);
-        let data = Timetable::load(&copy);
+        let data = load_map(&copy);
         let after = runs(&data, "7");
         assert_eq!(after, before, "saved as it came, it runs as the map's own did");
         let l7 = data.lines.iter().find(|l| l.name == "7").unwrap();
@@ -3086,7 +3091,7 @@ mod tests {
         l.directions[1].legs.pop();
         assert!(!l.directions[1].is_map_way() && l.directions[0].is_map_way());
         write(&reg);
-        let data = Timetable::load(&copy);
+        let data = load_map(&copy);
         let edited = runs(&data, "7");
         assert_eq!(edited[0].3[0], (vec![1, 2, 3], 365));
         assert_eq!(edited[0].3[1], (vec![4, 5], 370));
@@ -3098,7 +3103,7 @@ mod tests {
         assert!(!dir.join("7.ttl.orig").exists() && !dir.join(MAP_MANIFEST).exists());
         let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("oo_map")).collect();
         assert!(left.is_empty(), "{left:?}");
-        assert_eq!(runs(&Timetable::load(&copy), "7"), before);
+        assert_eq!(runs(&load_map(&copy), "7"), before);
         for (f, bytes) in &own {
             assert_eq!(&std::fs::read(dir.join(f)).unwrap(), bytes, "{f}: the player's own line untouched");
         }
@@ -3117,14 +3122,14 @@ mod tests {
         let dir = crate::ttstore::ttdata_dir(&content, &map, "Dorf").unwrap();
         assert_eq!(dir, map.join("TTData"), "written in place");
         let mut reg = Registry { map: "Dorf".into(), ..Default::default() };
-        reg.add_map_line(import_7(&Timetable::load(&map)));
+        reg.add_map_line(import_7(&load_map(&map)));
         reg.lines[0].table.retain(|t| t.tour != "3");
         let write = |reg: &Registry| {
             let (links, stops) = map_has(&dir);
             write_export(&dir, &export(reg, &[(0, 0)], &links, &stops).unwrap(), &crate::ttstore::keep_original).unwrap();
         };
         write(&reg);
-        assert_eq!(runs(&Timetable::load(&map), "7").len(), 2, "tour 3 dropped");
+        assert_eq!(runs(&load_map(&map), "7").len(), 2, "tour 3 dropped");
         // the Timetable page's reset: the map's own back, and the editor keeps it anew next time
         crate::ttstore::reset_timetable(&content, &map, "Dorf").unwrap();
         assert_eq!(std::fs::read(dir.join("7.ttl")).unwrap(), original);
