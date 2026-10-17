@@ -1,0 +1,18 @@
+# build output
+/target/
+/dist/
+/build/
+node_modules/
+
+# local settings and secrets
+.env
+.env.*
+*.local
+
+# editors and systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
