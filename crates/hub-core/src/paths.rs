@@ -48,17 +48,38 @@ pub fn root() -> Option<PathBuf> {
 }
 
 /// openOMSI's content folder for the chosen openOMSI (where it reads mods and its plugins
-/// from), when the openOMSI folder is set: its program's folder, or `openOMSI` inside the OMSI 2
-/// folder, or `~/.openomsi/content` (hub-game's `detect` rule).
+/// from), when the openOMSI folder is set. See [`content_dir_of`].
 pub fn content_dir() -> Option<PathBuf> {
     let s = crate::settings::Settings::load();
     if s.openomsi_folder.is_empty() {
         return None;
     }
-    let exe = hub_omsi::vfs::find_child(Path::new(&s.openomsi_folder), "openomsi.exe").or_else(|| hub_omsi::vfs::find_child(Path::new(&s.openomsi_folder), "openomsi"))?;
-    let dir = exe.parent()?.to_path_buf();
-    let inside = dir.join("openOMSI");
-    Some(if hub_omsi::vfs::find_child(&dir, "Omsi.exe").is_some() { inside } else { dir }).filter(|p| p.is_dir())
+    content_dir_of(Path::new(&s.openomsi_folder), &home_dir())
+}
+
+/// The content folder of the openOMSI in `folder`, by openOMSI's own rule, the same on
+/// Windows, macOS and Linux: the folder of its program (beside the `.app` bundle on macOS), or
+/// its `openOMSI` folder when it was unpacked into the OMSI 2 folder - unless that may not be
+/// written to (Program Files, `/opt`, `/Applications`), when it is `~/.openomsi/content`.
+///
+/// Omsi-Hub writes nothing to find it: the folder beside the program counts when openOMSI has
+/// used it (its `Plugins` or `Mods` is there) or when there is no `~/.openomsi/content`.
+/// (hub-game's `detect` makes the same choice by a write test when it installs the plugin.)
+pub fn content_dir_of(folder: &Path, home: &Path) -> Option<PathBuf> {
+    use hub_omsi::vfs::find_child;
+    let bundle = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).any(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("app")) && p.join("Contents/MacOS").is_dir());
+    let program = ["openomsi.exe", "openomsi"].iter().any(|n| find_child(folder, n).is_some_and(|p| p.is_file()));
+    if !program && !bundle {
+        return None;
+    }
+    let beside = if find_child(folder, "Omsi.exe").is_some() { folder.join("openOMSI") } else { folder.to_path_buf() };
+    let fallback = home.join(".openomsi").join("content");
+    let used = ["Plugins", "Mods"].iter().any(|n| find_child(&beside, n).is_some_and(|p| p.is_dir()));
+    if used || (beside.is_dir() && !fallback.is_dir()) {
+        Some(beside)
+    } else {
+        Some(fallback).filter(|f| f.is_dir())
+    }
 }
 
 /// The OMSI 2 content as openOMSI sees it: the content folder first, then the OMSI 2 folder.
@@ -76,10 +97,46 @@ pub fn resolve_content(rel: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("hub-core-paths-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn openomsi_s_content_folder_follows_its_rule_on_every_system() {
+        let home = dir("home");
+        // a Linux release unpacked in the home folder: its own folder
+        let linux = home.join("openOMSI-0.2.30-linux-x64");
+        std::fs::create_dir_all(&linux).unwrap();
+        std::fs::write(linux.join("openomsi"), b"").unwrap();
+        assert_eq!(content_dir_of(&linux, &home), Some(linux.clone()));
+        // once openOMSI went to ~/.openomsi/content (its folder could not be written), that one
+        std::fs::create_dir_all(home.join(".openomsi/content/Plugins")).unwrap();
+        assert_eq!(content_dir_of(&linux, &home), Some(home.join(".openomsi/content")));
+        // ... unless it used its own folder
+        std::fs::create_dir_all(linux.join("Plugins")).unwrap();
+        assert_eq!(content_dir_of(&linux, &home), Some(linux.clone()));
+        // inside the OMSI 2 folder: its openOMSI folder
+        let omsi2 = dir("omsi2");
+        std::fs::write(omsi2.join("Omsi.exe"), b"").unwrap();
+        std::fs::write(omsi2.join("openomsi.exe"), b"").unwrap();
+        std::fs::create_dir_all(omsi2.join("openOMSI/Mods")).unwrap();
+        assert_eq!(content_dir_of(&omsi2, &home), Some(omsi2.join("openOMSI")));
+        // no openOMSI at all
+        assert_eq!(content_dir_of(&home, &home), None);
+    }
+
     #[test]
     fn the_data_folder_is_omsi_hub_s_own() {
         let d = system_data_dir();
         assert_eq!(d.file_name().unwrap(), APP_FOLDER);
         assert!(!d.to_string_lossy().contains(".openomsi"));
+        if cfg!(target_os = "linux") {
+            // ($XDG_DATA_HOME, else ~/.local/share)
+            let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home_dir().join(".local/share"));
+            assert_eq!(d, xdg.join(APP_FOLDER));
+        }
     }
 }
