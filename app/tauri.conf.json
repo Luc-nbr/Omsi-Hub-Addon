@@ -16,7 +16,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "app", "dmg"],
     "publisher": "Omsi-Hub",
     "homepage": "https://omsihub.com",
     "copyright": "Copyright (c) Omsi-Hub",

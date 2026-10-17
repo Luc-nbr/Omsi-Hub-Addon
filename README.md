@@ -15,7 +15,7 @@
 <p align="center">
   <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-f58620">
   <img alt="Needs openOMSI 0.2.22 or newer" src="https://img.shields.io/badge/openOMSI-0.2.22%2B-2a75f7">
-  <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0a142e">
+  <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a142e">
   <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-34b26e">
 </p>
 
@@ -40,7 +40,8 @@ contains no openOMSI code.
 | --- | --- |
 | **openOMSI** | 0.2.22 or newer, we recommend the [latest release](https://github.com/openOMSI-org/openOMSI/releases). Omsi-Hub uses openOMSI's plugin API (ABI 1); older versions are refused. |
 | **OMSI 2** | An original copy (Steam or retail). openOMSI plays its maps, buses and mods. |
-| **System** | Windows 10 or 11 (64-bit), or macOS on Apple silicon or Intel. Linux is on its way. |
+| **System** | Windows 10 or 11 (64-bit); macOS on Apple silicon or Intel; or Linux (x64), with openOMSI's Linux build and OMSI 2 from Steam (through Proton, also the Flatpak Steam). |
+| **Linux packages** | An AppImage (the package the updater keeps up to date), or a `.deb` / `.rpm`. They need WebKitGTK 4.1 (`libwebkit2gtk-4.1`), which most desktops have. |
 
 The first start asks for your openOMSI folder and your OMSI 2 folder. Omsi-Hub keeps its own data and
 never changes the files of openOMSI or OMSI 2.
@@ -101,6 +102,7 @@ everything else keeps working.
 
 | Path | What |
 | --- | --- |
+| `app/`, `ui/`, `crates/`, `plugin/` | The app: its window, its page, its Rust crates and the plugin it puts into openOMSI ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) |
 | `assets/brand/` | The logo for light and dark backgrounds, the icon, the mark alone, and the banner above |
 | `tools/brand.mjs` | Draws the brand files from the one drawing of the mark (the website's `assets/mark.js`) |
 | `tools/banner.html` | The banner's source (rendered to `assets/brand/banner.png` at 1280 × 640, also for GitHub's social preview) |

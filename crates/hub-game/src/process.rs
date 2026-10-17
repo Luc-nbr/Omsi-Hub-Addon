@@ -66,8 +66,29 @@ fn no_window(cmd: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_: &mut Command) {}
 
+/// The program at `exe` made executable where the system has the bit (Linux, macOS): a release
+/// unpacked from its ZIP by many tools loses it. The bit is set for whoever may read the file.
+#[cfg(unix)]
+pub fn ensure_executable(exe: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perm = std::fs::metadata(exe)?.permissions();
+    let mode = perm.mode();
+    if mode & 0o111 == 0 {
+        perm.set_mode(mode | ((mode & 0o444) >> 2));
+        std::fs::set_permissions(exe, perm)?;
+    }
+    Ok(())
+}
+
+/// (Windows has no executable bit.)
+#[cfg(not(unix))]
+pub fn ensure_executable(_exe: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// openOMSI at `exe` started with `spec`.
 pub fn start(exe: &Path, spec: &LaunchSpec) -> Result<Game, StartError> {
+    ensure_executable(exe).map_err(StartError::Io)?;
     let cmd = command(exe, spec).map_err(StartError::Spec)?;
     Game::spawn(cmd, exe).map_err(StartError::Io)
 }
@@ -113,8 +134,10 @@ impl Game {
 
 /// What `exe --version` prints, waiting at most `wait`: the last resort for a version no file
 /// says (ported from the old add-on code). Starts the program, so the app asks only once per
-/// program file.
+/// program file (`crate::check_folder_probing` keeps the answer). openOMSI answers `--version`
+/// from its command line's parser and ends before anything of the game starts.
 pub fn ask_version(exe: &Path, wait: Duration) -> Option<GameVersion> {
+    ensure_executable(exe).ok()?;
     let mut cmd = Command::new(exe);
     cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     no_window(&mut cmd);
@@ -157,6 +180,25 @@ mod tests {
         let ended = rx.recv().unwrap();
         assert_eq!(ended.code, Some(0));
         assert!(ended.seconds >= 0.0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_program_unpacked_without_its_executable_bit_gets_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("hub-game-exec-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("openomsi");
+        std::fs::write(&exe, "#!/bin/sh\necho 'openomsi 0.2.31'\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o644)).unwrap();
+        ensure_executable(&exe).unwrap();
+        assert_eq!(std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o755);
+        // (and a script in openOMSI's place answers --version as the game does)
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(ask_version(&exe, Duration::from_secs(5)), Some(GameVersion::new(0, 2, 31)));
+        assert_eq!(std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o700);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
