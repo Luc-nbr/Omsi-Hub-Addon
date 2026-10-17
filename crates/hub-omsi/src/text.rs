@@ -8,6 +8,11 @@
 //! to OMSI and to its author's tools.
 //!
 //! Line ends are read as `\r\n`, `\n` or `\r`, and written as `\r\n` (as OMSI writes them).
+//!
+//! A keyword counts only at the very start of its line (`[name]`, blanks after it allowed), as
+//! OMSI reads it: an indented `\t[infosystem_trip]` is a comment - files use that to show an
+//! example, or to switch a keyword off. Maps' `global.cfg` and some weather files are UTF-16
+//! with a BOM; they are read, and written back, as such.
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +33,10 @@ pub enum Codepage {
     Windows1254,
     /// Baltic.
     Windows1257,
+    /// UTF-16, little-endian (maps' `global.cfg`, some weather files), with its BOM.
+    Utf16Le,
+    /// UTF-16, big-endian, with its BOM.
+    Utf16Be,
 }
 
 impl Codepage {
@@ -40,7 +49,24 @@ impl Codepage {
             Codepage::Windows1253 => encoding_rs::WINDOWS_1253,
             Codepage::Windows1254 => encoding_rs::WINDOWS_1254,
             Codepage::Windows1257 => encoding_rs::WINDOWS_1257,
+            Codepage::Utf16Le => encoding_rs::UTF_16LE,
+            Codepage::Utf16Be => encoding_rs::UTF_16BE,
         }
+    }
+
+    /// The BOM a file in this codepage starts with when it has one.
+    pub fn bom(self) -> &'static [u8] {
+        match self {
+            Codepage::Utf8 => UTF8_BOM,
+            Codepage::Utf16Le => b"\xFF\xFE",
+            Codepage::Utf16Be => b"\xFE\xFF",
+            _ => b"",
+        }
+    }
+
+    /// UTF-16: written with its BOM always.
+    pub fn is_utf16(self) -> bool {
+        matches!(self, Codepage::Utf16Le | Codepage::Utf16Be)
     }
 
     /// The codepage a language's Windows uses (`de`, `cs`, `ru` …), for a file that does not
@@ -64,6 +90,12 @@ const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 /// letters only Central European codepages place where 1252 has rare signs; else
 /// Windows-1252.
 pub fn detect(bytes: &[u8]) -> Codepage {
+    if bytes.starts_with(b"\xFF\xFE") {
+        return Codepage::Utf16Le;
+    }
+    if bytes.starts_with(b"\xFE\xFF") {
+        return Codepage::Utf16Be;
+    }
     if bytes.starts_with(UTF8_BOM) {
         return Codepage::Utf8;
     }
@@ -93,26 +125,23 @@ pub fn detect(bytes: &[u8]) -> Codepage {
 /// `bytes` as text in the codepage they are in, without a BOM.
 pub fn decode(bytes: &[u8]) -> (String, Codepage) {
     let cp = detect(bytes);
-    let body = bytes.strip_prefix(UTF8_BOM).unwrap_or(bytes);
+    let body = bytes.strip_prefix(cp.bom()).unwrap_or(bytes);
     (cp.encoding().decode_without_bom_handling(body).0.into_owned(), cp)
 }
 
 /// Any text file: UTF-16 (with its BOM) as well, else as [`decode`].
 pub fn decode_text(bytes: &[u8]) -> String {
-    if let Some(rest) = bytes.strip_prefix(b"\xFF\xFE") {
-        return encoding_rs::UTF_16LE.decode_without_bom_handling(rest).0.into_owned();
-    }
-    if let Some(rest) = bytes.strip_prefix(b"\xFE\xFF") {
-        return encoding_rs::UTF_16BE.decode_without_bom_handling(rest).0.into_owned();
-    }
     decode(bytes).0
 }
 
-/// `text` in `cp`; `true` with it when a character had no place in the codepage (written as
-/// `?` then).
+/// `text` in `cp` (without a BOM); `true` with it when a character had no place in the
+/// codepage (written as `?` then).
 pub fn encode(text: &str, cp: Codepage) -> (Vec<u8>, bool) {
-    if cp == Codepage::Utf8 {
-        return (text.as_bytes().to_vec(), false);
+    match cp {
+        Codepage::Utf8 => return (text.as_bytes().to_vec(), false),
+        Codepage::Utf16Le => return (text.encode_utf16().flat_map(u16::to_le_bytes).collect(), false),
+        Codepage::Utf16Be => return (text.encode_utf16().flat_map(u16::to_be_bytes).collect(), false),
+        _ => {}
     }
     let (bytes, _, lossy) = cp.encoding().encode(text);
     if !lossy {
@@ -154,9 +183,10 @@ pub fn parse_f32(s: &str) -> f32 {
     parse_f64(s) as f32
 }
 
-/// The keyword of a line (`[name]` → `name`), if it is one.
+/// The keyword of a line (`[name]` → `name`), if it is one: at the start of the line (an
+/// indented one is a comment, as OMSI reads it), blanks after it allowed.
 pub fn keyword_of(line: &str) -> Option<&str> {
-    let t = line.trim();
+    let t = line.trim_end();
     t.strip_prefix('[').and_then(|r| r.strip_suffix(']')).filter(|k| !k.is_empty() && !k.contains(['[', ']']))
 }
 
@@ -167,7 +197,7 @@ pub struct CfgFile {
     pub path: PathBuf,
     pub lines: Vec<String>,
     pub codepage: Codepage,
-    /// It began with a UTF-8 BOM (written back with one).
+    /// It began with a BOM (written back with one; UTF-16 always has one).
     pub bom: bool,
 }
 
@@ -183,7 +213,8 @@ fn split_lines(text: &str) -> Vec<String> {
 impl CfgFile {
     pub fn from_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> CfgFile {
         let (text, codepage) = decode(bytes);
-        CfgFile { path: path.as_ref().to_path_buf(), lines: split_lines(&text), codepage, bom: bytes.starts_with(UTF8_BOM) }
+        let bom = !codepage.bom().is_empty() && bytes.starts_with(codepage.bom());
+        CfgFile { path: path.as_ref().to_path_buf(), lines: split_lines(&text), codepage, bom }
     }
 
     /// A text already decoded (written back as Windows-1252, OMSI's own).
@@ -206,7 +237,7 @@ impl CfgFile {
 
     /// The file's bytes again, in its codepage.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = if self.bom { UTF8_BOM.to_vec() } else { Vec::new() };
+        let mut out = if self.bom || self.codepage.is_utf16() { self.codepage.bom().to_vec() } else { Vec::new() };
         out.extend(encode(&self.to_text(), self.codepage).0);
         out
     }
@@ -273,6 +304,39 @@ impl<'a> Reader<'a> {
 
     pub fn f64(&mut self) -> f64 {
         parse_f64(self.str())
+    }
+
+    /// The next line, unless it is a keyword (then "" and the reader stays: a keyword with
+    /// fewer values than it should have does not swallow the next one).
+    pub fn value(&mut self) -> &'a str {
+        match self.lines.get(self.pos) {
+            Some(l) if keyword_of(l).is_none() => {
+                self.pos += 1;
+                l
+            }
+            _ => "",
+        }
+    }
+
+    /// The next `n` lines as [`Reader::value`] reads them, stopping at a keyword (fewer then).
+    pub fn values(&mut self, n: usize) -> Vec<&'a str> {
+        let mut out = Vec::with_capacity(n);
+        while out.len() < n && self.lines.get(self.pos).is_some_and(|l| keyword_of(l).is_none()) {
+            out.push(self.lines[self.pos].as_str());
+            self.pos += 1;
+        }
+        out
+    }
+
+    /// The lines up to the first blank line or keyword (what a keyword with any number of
+    /// values has).
+    pub fn run(&mut self) -> Vec<&'a str> {
+        let mut out = Vec::new();
+        while let Some(l) = self.lines.get(self.pos).filter(|l| !l.trim().is_empty() && keyword_of(l).is_none()) {
+            out.push(l.as_str());
+            self.pos += 1;
+        }
+        out
     }
 
     /// The lines up to the keyword `end` (`[end]`), which is passed over.
@@ -345,5 +409,33 @@ mod tests {
         assert_eq!(f.value("name"), Some("Zoo"));
         assert_eq!(f.blocks("name").len(), 2);
         assert_eq!((parse_i32("-4.7x"), parse_f64("2,5e1"), parse_f64("x")), (-4, 25.0, 0.0));
+    }
+
+    #[test]
+    fn utf16_files_are_read_and_written_back() {
+        let mut bytes = b"\xFF\xFE".to_vec();
+        bytes.extend("[name]\r\nGrünau\r\n".encode_utf16().flat_map(u16::to_le_bytes));
+        let f = CfgFile::from_bytes("global.cfg", &bytes);
+        assert_eq!((f.codepage, f.bom), (Codepage::Utf16Le, true));
+        assert_eq!(f.value("name"), Some("Grünau"));
+        assert_eq!(f.to_bytes(), bytes);
+        assert_eq!(decode_text(&bytes), "[name]\r\nGrünau\r\n");
+        let be: Vec<u8> = b"\xFE\xFF".iter().copied().chain("ab".encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!(decode(&be), ("ab".to_string(), Codepage::Utf16Be));
+    }
+
+    #[test]
+    fn an_indented_keyword_is_a_comment_and_values_stop_at_keywords() {
+        assert_eq!(keyword_of("[name]\t\t"), Some("name"));
+        assert_eq!(keyword_of("\t[infosystem_trip]"), None);
+        let f = CfgFile::from_str("", "[station]\n1\n[station]\n2\nx\n\n[track]\na\nb\n\nc");
+        let mut r = f.reader();
+        r.next_keyword();
+        assert_eq!(r.values(3), ["1"]);
+        assert_eq!(r.next_keyword(), Some("station"));
+        assert_eq!((r.value(), r.run()), ("2", vec!["x"]));
+        assert_eq!(r.next_keyword(), Some("track"));
+        assert_eq!(r.run(), ["a", "b"]);
+        assert_eq!(r.value(), "");
     }
 }
