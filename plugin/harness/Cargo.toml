@@ -1,0 +1,15 @@
+[package]
+name = "hub-plugin-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Omsi-Hub's own test harness for its Lua plugin: the plugin run on mlua with a mock of the official openOMSI plugin API functions it uses, so `cargo test` checks it without openOMSI"
+
+[dependencies]
+mlua.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hub-game.workspace = true
