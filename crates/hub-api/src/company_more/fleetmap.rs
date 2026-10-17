@@ -1,7 +1,7 @@
 //! The fleet map (`crates/omsi-launcher-ui/src/company/map.rs`): the company's map with every
 //! line it runs drawn in its colour, and every bus of today's plan where it is at the clock. The
-//! map's roads and the trips' routes are read by the game program (`co_more_map`:
-//! `mapview::hub_fleet`, through the launcher service); the buses are placed here, block by block
+//! map's roads and the trips' routes are read by `content::roads` (`co_more_map`, [`roads`]);
+//! the buses are placed here, block by block
 //! of today's plan, by `company::fleetmap` (Luc: "a smooth display of all the buses the company
 //! has driving ... a small screen pops up and follows the bus"):
 //!
@@ -115,7 +115,6 @@ fn colour_of_line(c: &Company, line: &str) -> String {
 }
 
 /// The trips of the company's lines today (the routes the map is asked for).
-#[allow(dead_code)] // (the roads drawn: for when the app draws the map itself)
 fn trips_of(c: &Company, lines: &[core::LineInfo]) -> Vec<String> {
     let mut trips: Vec<String> = Vec::new();
     for cl in &c.lines {
@@ -131,16 +130,49 @@ fn trips_of(c: &Company, lines: &[core::LineInfo]) -> Vec<String> {
     trips
 }
 
-/// The fleet map's roads and its lines (`co_more_map`): the old game program drew them, with the
-/// routes of every trip of the company's lines today. **Not available**: the add-on has no game
-/// renderer (`company::NOT_AVAILABLE`); the buses' places on the map (`co_more_view` "map") are.
+/// The fleet map's roads and its lines (`co_more_map`): the company's map's roads
+/// (`content::roads`), and the route of every trip of the company's lines today with its stops'
+/// places - kept for the buses (`keep`), drawn once each in its line's colour. The session is held
+/// only to say what to read and to keep what was read: a big map takes a while.
 pub fn roads(_args: &Value, _p: &dyn Platform) -> Answer {
-    Err(super::super::NOT_AVAILABLE.to_string())
+    let job = super::super::with(|s| {
+        let c = s.company.as_ref()?;
+        Some((c.map.clone(), s.map_lines().map(|l| trips_of(c, l))))
+    });
+    let Some((map, trips)) = job else { return Err("No company is open".into()) };
+    let Some(trips) = trips else { return Ok(json!({ "reading": tr("Reading the timetable…") })) };
+    let vfs = crate::content::need_vfs()?;
+    let r = crate::content::roads::of(&vfs, &map)?;
+    let tt = crate::content::roads::timetable(&vfs, &map);
+    // (each trip's stops by their map object IDs, as the company's timetable has them)
+    let ids = super::super::with(|s| {
+        let mut ids: HashMap<String, Vec<i64>> = HashMap::new();
+        for t in s.map_lines().unwrap_or_default().iter().flat_map(|l| l.tours.iter()).flat_map(|t| t.trips.iter()) {
+            ids.entry(t.name.clone()).or_insert_with(|| t.stops.iter().map(|x| x.id).collect());
+        }
+        ids
+    });
+    let routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)> = trips
+        .iter()
+        .map(|name| {
+            let route = crate::content::roads::route(&r, &tt, name);
+            let at = crate::content::roads::stops(&r, &tt, ids.get(name).map(Vec::as_slice).unwrap_or_default());
+            (name.clone(), (route, at))
+        })
+        .collect();
+    let lines = super::super::with(|s| {
+        let (Some(c), Some(lines)) = (s.company.as_ref(), s.map_lines()) else { return Vec::new() };
+        // (the company changed meanwhile: what was read is for another map)
+        if !c.map.eq_ignore_ascii_case(&map) {
+            return Vec::new();
+        }
+        keep(s, c, lines, routes, None)
+    });
+    Ok(json!({ "roads": r.drawn, "lines": lines, "lo": [r.roads.lo[0], r.roads.lo[1]], "hi": [r.roads.hi[0], r.roads.hi[1]] }))
 }
 
 /// Keep the routes read for the buses (`map::build`); answers the lines as the map draws them:
 /// each trip's route once, in its line's colour.
-#[allow(dead_code)] // (the roads drawn: for when the app draws the map itself)
 fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>, origin: Option<[f64; 2]>) -> Vec<Value> {
     let mut drawn = Vec::new();
     let mut legend = Vec::new();

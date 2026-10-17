@@ -14,6 +14,9 @@ Each version of the Omsi-Hub add-on, newest first. The release on GitHub links h
   picture beside every page's title, the licence, a choice of language (English, Dutch, German,
   French, Russian, Ukrainian) and a folder of its own in the Start menu; on macOS a disk image
   with its own window to drag Omsi-Hub into Applications; on Linux the packages' description.
+- **The maps are drawn**: the route map of the drive's steps, the company's duty map and its fleet
+  map show the map's roads and the way each trip drives, read from the map's own tiles and spline
+  files. A junction's own lanes are not read yet: a route crosses it in a straight line.
 
 ## 0.1.0 (pre-release, for testing)
 

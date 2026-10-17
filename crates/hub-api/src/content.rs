@@ -12,8 +12,8 @@
 //! * `hub_ibis {bus, hof, line}` - what to type into the IBIS: the routes the depot file has
 //!   for the line;
 //! * `hub_situations {map}` - the situations to continue: none yet (`[]`);
-//! * `hub_route_map {map, date, trip}` - the map's frame and entry points (without a road
-//!   reader: no roads, no route);
+//! * `hub_route_map {map, date, trip}` - the map's roads, the trip's route (`a|b`: each trip's),
+//!   its frame and entry points (see [`roads`]);
 //! * `hub_map_picture {map}` (bytes) - the map folder's `picture.jpg`;
 //! * `hub_settings_patch {patch}` - settings changed (the look's keys go to `Settings.other`);
 //! * `hub_shifts`, `hub_duty_extras` - see [`shifts`];
@@ -29,6 +29,7 @@ pub mod busoptions;
 pub mod depots;
 pub mod facts;
 pub mod fonts;
+pub mod roads;
 pub mod shifts;
 pub mod weather;
 
@@ -57,7 +58,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         }
         "hub_ibis" => Ok(ibis(&need_vfs()?, &str_arg(args, "bus"), &str_arg(args, "hof"), &str_arg(args, "line"))),
         "hub_situations" => Ok(json!([])),
-        "hub_route_map" => Ok(route_map(&need_vfs()?, &arg::<String>(args, "map")?)),
+        "hub_route_map" => route_map(&need_vfs()?, &arg::<String>(args, "map")?, &str_arg(args, "trip")),
         "hub_settings_patch" => settings_patch(args.get("patch").unwrap_or(&Value::Null)),
         "hub_shifts" => shifts::shifts(args),
         "hub_duty_extras" => shifts::duty_extras(args),
@@ -385,32 +386,19 @@ pub fn ibis(vfs: &Vfs, bus: &str, hof: &str, line: &str) -> Value {
 
 // --- the map -------------------------------------------------------------------------------------
 
-/// A tile's edge, m.
-const TILE: f64 = 300.0;
-
-/// The map's frame and its entry points, as the route map draws them (`{ roads, route, lo, hi,
-/// entries }`, the map's metres, y north). Omsi-Hub reads no roads yet: `roads` and `route`
-/// are empty, the frame is the map's tiles and the entry points stand where `global.cfg` puts
-/// them.
-pub fn route_map(vfs: &Vfs, map: &str) -> Value {
-    let Some(path) = vfs.resolve(map).filter(|p| p.is_file()) else { return json!({ "roads": [], "route": [], "entries": [] }) };
-    let Ok(cfg) = hub_omsi::CfgFile::read(&path) else { return json!({ "roads": [], "route": [], "entries": [] }) };
+/// The map as the route map draws it (`{ roads, route, lo, hi, entries }`, the map's metres, y
+/// north): its roads and the trip's route ([`roads`]), its tiles' frame, and the entry points
+/// where `global.cfg` puts them.
+pub fn route_map(vfs: &Vfs, map: &str, trip: &str) -> Answer {
+    let path = vfs.resolve(map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
+    let cfg = hub_omsi::CfgFile::read(&path).map_err(|e| format!("{map}: {e}"))?;
     let g = hub_omsi::map::GlobalCfg::parse(&cfg);
-    let mut v = json!({ "roads": [], "route": [], "entries": entry_places(&cfg, &g.tiles) });
-    if !g.tiles.is_empty() {
-        let (x0, y0) = g.tiles.iter().fold((i32::MAX, i32::MAX), |(a, b), (x, y)| (a.min(*x), b.min(*y)));
-        let (x1, y1) = g.tiles.iter().fold((i32::MIN, i32::MIN), |(a, b), (x, y)| (a.max(*x), b.max(*y)));
-        v["lo"] = json!([x0 as f64 * TILE, y0 as f64 * TILE]);
-        v["hi"] = json!([(x1 + 1) as f64 * TILE, (y1 + 1) as f64 * TILE]);
-    }
-    v
+    // (`a|b`: the trips of a duty, each its route)
+    let trips: Vec<String> = trip.split('|').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
+    roads::page(vfs, map, &trips, json!({ "entries": entry_places(&cfg, &g.tiles, g.tile_edge()) }))
 }
 
-/// The entry points of a `global.cfg` with where each stands: `[{ index, name, at: [x, y] }]`.
-/// An entry has twelve values: its object, its id, a flag, its place on its tile (x, height,
-/// z: the tile's metres from its south-west corner), its turn (four values), its tile (a place
-/// in the `[map]` list) and its name.
-fn entry_places(cfg: &hub_omsi::CfgFile, tiles: &[(i32, i32)]) -> Vec<Value> {
+fn entry_places(cfg: &hub_omsi::CfgFile, tiles: &[(i32, i32)], edge: f64) -> Vec<Value> {
     let mut out = Vec::new();
     let mut r = cfg.reader();
     while let Some(k) = r.next_keyword() {
@@ -425,8 +413,8 @@ fn entry_places(cfg: &hub_omsi::CfgFile, tiles: &[(i32, i32)]) -> Vec<Value> {
             }
             let tile = usize::try_from(hub_omsi::text::parse_i32(v[10])).ok().and_then(|t| tiles.get(t));
             let Some((tx, ty)) = tile else { continue };
-            let x = *tx as f64 * TILE + hub_omsi::text::parse_f64(v[3]);
-            let y = *ty as f64 * TILE + hub_omsi::text::parse_f64(v[5]);
+            let x = *tx as f64 * edge + hub_omsi::text::parse_f64(v[3]);
+            let y = *ty as f64 * edge + hub_omsi::text::parse_f64(v[5]);
             out.push(json!({ "index": i, "name": v[11].trim(), "at": [x, y] }));
         }
     }
@@ -598,8 +586,9 @@ pub(crate) mod tests {
 
     #[test]
     fn the_route_map_has_the_map_s_frame_and_entry_points() {
-        let m = route_map(&fixture_vfs(), "maps/Testdorf/global.cfg");
-        assert_eq!(m["roads"], json!([]));
+        let m = route_map(&fixture_vfs(), "maps/Testdorf/global.cfg", "10_out").unwrap();
+        // (the test map has no tile files: no roads, no route)
+        assert_eq!((m["roads"].clone(), m["route"].clone()), (json!([]), json!([])));
         assert_eq!((m["lo"].clone(), m["hi"].clone()), (json!([0.0, 0.0]), json!([600.0, 300.0])));
         assert_eq!(m["entries"][0], json!({ "index": 0, "name": "Depot", "at": [10.0, 20.0] }));
         assert_eq!(m["entries"][1]["at"], json!([350.0, 60.0]));
@@ -637,8 +626,17 @@ pub(crate) mod tests {
         let facts = facts::facts_of(&v, &files);
         for m in &maps {
             let pic = map_picture(&v, &m.file).map(|b| b.len()).unwrap_or(0);
-            let rm = route_map(&v, &m.file);
-            println!("{}: hof {:?}, {} entries ({} placed), picture {} bytes, {}", m.file, m.hof, m.entry_points.len(), rm["entries"].as_array().map_or(0, Vec::len), pic, facts[&m.file]);
+            let rm = route_map(&v, &m.file, "").unwrap_or_default();
+            println!(
+                "{}: hof {:?}, {} entries ({} placed), {} roads, picture {} bytes, {}",
+                m.file,
+                m.hof,
+                m.entry_points.len(),
+                rm["entries"].as_array().map_or(0, Vec::len),
+                rm["roads"].as_array().map_or(0, Vec::len),
+                pic,
+                facts[&m.file]
+            );
         }
         let with_paints = buses.iter().filter(|b| !b.paints.is_empty()).count();
         println!("{} buses, {with_paints} with paints, {} airports", buses.len(), facts::metar_airports(&v).len());

@@ -73,6 +73,12 @@ pub struct GlobalCfg {
     pub entry_points: Vec<EntryPoint>,
     /// The tiles (`[map]` x, y), in the file's order: a track's tile index points here.
     pub tiles: Vec<(i32, i32)>,
+    /// Each tile's file (`[map]`'s third line, `tile_x_y.map`), beside `tiles`.
+    pub tile_files: Vec<String>,
+    /// The map's `[version]` (the layout of its files' blocks depends on it).
+    pub version: Option<i32>,
+    /// `[worldcoordinates]`: the tile grid is 1/300 degree, a tile's edge 371.9 m.
+    pub world_coordinates: bool,
     /// The map drives on the left (`[LHT]`).
     pub left_hand_traffic: bool,
     /// `[standarddepot]`: the AI depot group (`ailists.cfg`) whose depot file the player's bus
@@ -94,11 +100,15 @@ impl GlobalCfg {
                 "LHT" => g.left_hand_traffic = true,
                 "standarddepot" => g.standard_depot = Some(r.value().trim().to_string()).filter(|s| !s.is_empty()),
                 "map" => {
-                    let v = r.values(2);
-                    if v.len() == 2 {
-                        g.tiles.push((parse_i32(v[0]), parse_i32(v[1])));
+                    let v = r.values(3);
+                    if v.len() >= 2 {
+                        let (x, y) = (parse_i32(v[0]), parse_i32(v[1]));
+                        g.tiles.push((x, y));
+                        g.tile_files.push(v.get(2).map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).unwrap_or_else(|| format!("tile_{x}_{y}.map")));
                     }
                 }
+                "version" => g.version = Some(parse_i32(r.value())),
+                "worldcoordinates" => g.world_coordinates = true,
                 "entrypoints" => {
                     let n = parse_i32(r.value()).max(0) as usize;
                     for i in 0..n {
@@ -113,6 +123,15 @@ impl GlobalCfg {
             }
         }
         g
+    }
+
+    /// A tile's edge in metres (`[worldcoordinates]`: 371.9).
+    pub fn tile_edge(&self) -> f64 {
+        if self.world_coordinates {
+            371.9
+        } else {
+            300.0
+        }
     }
 
     /// The file, and the `timezone.txt` beside it.

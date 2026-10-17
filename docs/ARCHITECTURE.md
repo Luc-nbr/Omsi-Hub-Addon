@@ -48,7 +48,15 @@ hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
     `ServiceTrip` and `ServiceStop`.
 - `map`: `GlobalCfg`, `Calendar` (`Holidays.txt`: `is_holiday`, `in_holiday_range`),
   `ChronoDir`, `active_chrono_dirs`, `chrono_deactivated_lines`, `AiLists`/`AiGroup`/
-  `TypGroup`, `depot_hof_on`, `date_code`.
+  `TypGroup`, `depot_hof_on`, `date_code`; `GlobalCfg.tile_files`, `version`,
+  `world_coordinates` and `tile_edge()`.
+- `roads`: a map's roads from its tiles (`[spline]`, `[spline_h]`, `[object]`,
+  `[splineAttachement]`) and their `.sli` lanes (`[path]`), as openOMSI's `docs/FORMATS.md`
+  describes the files: `MapRoads::read`, `roads()` (each spline's street lanes as a line with its
+  width), `route(track)` (a `.ttr`'s lanes in their directions, a junction object bridged
+  straight), `object(tile, id)` (a stop's place) and `joins()` (how many splines meet their next
+  one: the check of the geometry on a real map, logged when the app reads a map; the ignored
+  `real_data` test asserts it on an installed OMSI 2).
 - `hof`: `Hof { name, service_trip, global_strings, string_count_*, termini, bus_stops,
   info_trips, info_busstop_lists }` with `Terminus`, `BusStop`, `InfoTrip` and `Comments`;
   `load`, `parse`, `read_name`, `to_text`, `has_line`, `depot_files`.
@@ -152,9 +160,9 @@ installed here):
 
 | Prefix | Module | Now |
 |---|---|---|
-| `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts) |
+| `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
-| `co_` | `company` | Ported (`co_more_*` too); bus photos, fleet-map roads, duty map: not available |
+| `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: not available |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
 | `ol_` | `online` | Ported |

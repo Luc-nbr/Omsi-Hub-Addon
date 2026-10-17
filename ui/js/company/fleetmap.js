@@ -1,6 +1,6 @@
 // The fleet map, as our game-drawn launcher's (`company/map.rs`): the company's map - its roads
-// as the game's city map draws them, read by the game program (`co_more_map`, as upstream's
-// `routemap.js` and the line editor read theirs) - with every line the company runs drawn in its
+// as the game's city map draws them, read from the map's tiles (`co_more_map`, as `routemap.js`
+// reads its own) - with every line the company runs drawn in its
 // colour, and every bus of today's plan where it is at the map's clock (placed by
 // `company::fleetmap` in Rust, asked for four times a second). The panel over the map's left
 // side has the clock (live, or running by itself ten or sixty times as fast) and the lines with
@@ -95,7 +95,7 @@ export function FleetMapPage() {
   return html`<div class="cm-page cm-fleetmap" ref=${ref}>${body}</div>`;
 }
 
-/** The map and the routes of today's trips (`co_more_map`), read by the game program once the
+/** The map and the routes of today's trips (`co_more_map`), read from the map's tiles once the
  * timetable is, kept by company map and day. */
 function useRoads(v) {
   const [map, setMap] = useState(null);

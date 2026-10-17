@@ -19,8 +19,8 @@
 //! commands) as they were. What they used of the old launcher is `crate::launcher` now (the
 //! maps, the driver, the game Omsi-Hub started); the company's link to the plugin is
 //! `plugin` (delivered by the plugin port); Play together answers as it does while it is off
-//! (`crate::together`). The bus photos, the fleet map's roads and the duty map were drawn by the
-//! old game: they answer [`NOT_AVAILABLE`].
+//! (`crate::together`). The bus photos were drawn by the old game: they answer
+//! [`NOT_AVAILABLE`]. The fleet map's and the duty map's roads are read by `content::roads`.
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 mod age;
@@ -1835,14 +1835,16 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
 }
 
 /// What a feature the old game drew for the launcher answers now: the add-on has no game
-/// renderer (`Platform::renderer` of the old launcher), so the bus photos, the fleet map's roads
-/// and the duty map are not there until the app draws them itself.
+/// renderer (`Platform::renderer` of the old launcher), so the bus photos are not there until the
+/// app draws them itself. (The maps' roads are read by `content::roads`.)
 pub const NOT_AVAILABLE: &str = "not available: the game drew this for the old launcher, and the add-on has no game renderer";
 
-/// The duty launcher's map (Omsi-Hub 6/6): the routes of every trip of the duty, read by the old
-/// game program (`mapview::hub_fleet`). **Not available** (see [`NOT_AVAILABLE`]).
-fn duty_map(_args: &Value, _p: &dyn Platform) -> Answer {
-    Err(NOT_AVAILABLE.to_string())
+/// The duty launcher's map (Omsi-Hub 6/6): the map's roads and the route of every trip of the
+/// duty (`{map, date, trips}`), as the route map draws them (`content::roads`).
+fn duty_map(args: &Value, _p: &dyn Platform) -> Answer {
+    let vfs = crate::content::need_vfs()?;
+    let trips: Vec<String> = args.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+    crate::content::roads::page(&vfs, &str_arg(args, "map"), &trips, json!({}))
 }
 
 /// A day of the company as the views write it with its time (`clock::text` of a feed line).
