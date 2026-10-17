@@ -1,53 +1,51 @@
-// Settings: the folders (chosen again through the setup), the plugin in openOMSI, the
-// language and the data folder. Updates come with the updater port.
+// Settings: Omsi-Hub's own tabs (`hub/settings-extra.js` lists their rows) in the wide sheet
+// under the bar. Every change is saved at once.
 
-import { html, useEffect, useState } from '../../vendor/preact-htm.js';
-import { call, openPath } from '../api.js';
-import { setLanguage, t, useLang } from '../i18n.js';
-import { set, useStore } from '../store.js';
-import { Button, Card, Note, Page } from '../ui.js';
+import { html, useState } from '../../vendor/preact-htm.js';
+import { useLang } from '../i18n.js';
+import { useStore } from '../store.js';
+import { saveSettings } from '../hub/drive.js';
+import { Button, Seg, Slider, Switch, tr } from '../hub/bits.js';
+import { LANGUAGE_NAMES, SETTINGS_TABS } from '../hub/settings-extra.js';
+import { Select } from '../ui.js';
 
-const LANGUAGE_NAMES = { en: 'English', nl: 'Nederlands', de: 'Deutsch', fr: 'Français', pl: 'Polski', ru: 'Русский', uk: 'Українська' };
+function Row({ row, s }) {
+  const value = s.settings?.[row.key];
+  if (row.when && !row.when(s.settings || {})) return null;
+  if (row.type === 'custom') return row.view();
+  if (row.type === 'toggle') return html`<div class="setting-row full"><${Switch} checked=${!!value} label=${row.label} onChange=${(on) => saveSettings({ [row.key]: on })} /></div>`;
+  if (row.type === 'slider') {
+    return html`<div class="setting-row full"><${Slider} label=${row.label} value=${value ?? row.def} min=${row.min} max=${row.max} step=${row.step} format=${row.format}
+      onChange=${(v) => saveSettings({ [row.key]: row.store ? row.store(v) : v })} /></div>`;
+  }
+  if (row.type === 'select') {
+    return html`<div class="setting-row"><span class="name">${tr(row.label)}</span><${Select} value=${value ?? row.options[0][0]} options=${row.options} onChange=${(v) => saveSettings({ [row.key]: v })} /></div>`;
+  }
+  if (row.type === 'language') {
+    const langs = s.boot?.languages || ['en'];
+    return html`<div class="setting-row"><span class="name">${tr(row.label)}</span><${Select} raw value=${s.lang} options=${langs.map((l) => [l, LANGUAGE_NAMES[l] || l])} onChange=${(l) => saveSettings({ language: l })} /></div>`;
+  }
+  if (row.type === 'button') {
+    return html`<div class="setting-row full"><div><${Button} icon=${row.icon} label=${row.label} onClick=${() => {
+      const patch = row.patch();
+      if (patch && Object.keys(patch).length) saveSettings(patch);
+    }} /></div></div>`;
+  }
+  return null;
+}
 
 export function Settings() {
   useLang();
-  const boot = useStore((s) => s.boot);
-  const lang = useStore((s) => s.lang);
-  const [addon, setAddon] = useState(null);
-  const [error, setError] = useState('');
-  const load = () => call('addon_state').then(setAddon, (e) => setError(String(e)));
-  useEffect(() => { load(); }, []);
-  if (!boot) return null;
-  const s = boot.settings;
-  const plugin = addon && addon.plugin;
-  const toggle = async (on) => {
-    setError('');
-    try { await call('addon_enable', { on }); } catch (e) { setError(String(e)); }
-    load();
-  };
-  return html`<${Page} title=${t('Settings')}>
-    <div class="grid">
-      <${Card} title=${t('Folders')}>
-        <dl class="facts">
-          <dt>openOMSI</dt><dd id="set-openomsi">${s.openomsi_folder || '-'}</dd>
-          <dt>OMSI 2</dt><dd>${s.omsi2_folder || '-'}</dd>
-          <dt>${t('Omsi-Hub data')}</dt><dd><a href="#" onClick=${(e) => { e.preventDefault(); openPath(boot.data_dir); }}>${boot.data_dir}</a></dd>
-        </dl>
-        <${Button} onClick=${() => set({ setup: true })}>${t('Choose the folders again')}</${Button}>
-      </${Card}>
-      <${Card} title=${t('The Omsi-Hub plugin in openOMSI')}>
-        <p class="dim">${t('State')}: <b id="set-plugin">${plugin ? plugin.state : '-'}</b> · ${t('Version')} ${addon && addon.plugin_version}</p>
-        <div class="row">
-          <${Button} primary onClick=${() => toggle(true)}>${t('Install and switch on')}</${Button}>
-          <${Button} onClick=${() => toggle(false)}>${t('Switch off')}</${Button}>
-        </div>
-        ${error && html`<${Note} tone="bad">${error}</${Note}>`}
-      </${Card}>
-      <${Card} title=${t('Language')}>
-        <select value=${lang} onChange=${(e) => setLanguage(e.target.value)}>
-          ${(boot.languages || ['en']).map((l) => html`<option value=${l}>${LANGUAGE_NAMES[l] || l}</option>`)}
-        </select>
-      </${Card}>
+  const s = useStore();
+  const [tab, setTab] = useState(SETTINGS_TABS[0].id);
+  const t = SETTINGS_TABS.find((x) => x.id === tab) || SETTINGS_TABS[0];
+  return html`<div class="hub-settings" id="settings">
+    <${Seg} value=${t.id} options=${SETTINGS_TABS.map((x) => [x.id, x.label])} onChange=${setTab} />
+    <div class="settings-grid">
+      ${t.cols.map((c) => html`<section class="settings-col">
+        ${c.title && html`<h3 class="hub-caps"><b>${tr(c.title)}</b></h3>`}
+        ${c.rows.map((row) => html`<${Row} row=${row} s=${s} />`)}
+      </section>`)}
     </div>
-  </${Page}>`;
+  </div>`;
 }

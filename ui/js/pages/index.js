@@ -1,17 +1,17 @@
-// The pages of the shell, in the order the navigation lists them. A port plugs in here: its
-// page module in ui/js/pages/ (or its own folder under ui/js/), one entry below.
+// The pages of the shell. A port plugs in here: its page module in ui/js/pages/ (or its own
+// folder under ui/js/), one entry below. The shell (`hub/hub.js`) draws the drive's start and
+// steps (`drive`), the bus company over the whole window (`company`) and the editors itself;
+// every other page goes into the wide sheet under the bar, with its icon, title and line.
 
-import { Home } from './home.js';
-import { Company } from './company.js';
-import { Editors } from './editors.js';
 import { Online } from './online.js';
 import { Settings } from './settings.js';
 
-/** `id` (the store's `page`), `label` (English: translated by the shell), `component`. */
+/** `id` (the store's `page`), `label` (English: translated by the shell), `icon` (a Material
+ * Symbol), `sub` (the line under the title), `component` (none: the shell's own). */
 export const PAGES = [
-  { id: 'home', label: 'Home', component: Home },
-  { id: 'company', label: 'Bus company', component: Company },
-  { id: 'editors', label: 'Editors', component: Editors },
-  { id: 'online', label: 'Online', component: Online },
-  { id: 'settings', label: 'Settings', component: Settings },
+  { id: 'drive', label: 'Home', icon: 'home' },
+  { id: 'company', label: 'Bus company', icon: 'garage' },
+  { id: 'editor', label: 'Editors', icon: 'construction' },
+  { id: 'online', label: 'Online', icon: 'public', sub: 'Friends, the leaderboard and cloud saves. Optional: everything works offline.', component: Online },
+  { id: 'settings', label: 'Settings', icon: 'settings', sub: 'Every change is saved at once.', component: Settings },
 ];
