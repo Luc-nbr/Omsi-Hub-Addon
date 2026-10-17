@@ -61,6 +61,50 @@ pub fn content_dir() -> Option<PathBuf> {
     Some(if hub_omsi::vfs::find_child(&dir, "Omsi.exe").is_some() { inside } else { dir }).filter(|p| p.is_dir())
 }
 
+/// `rel` inside `base`, found in any case and with either slash; where it is not there, the
+/// path it would have (`base` joined with `rel`). (The old `omsi_cfg::resolve_path`.)
+pub fn resolve_path(base: &Path, rel: &str) -> PathBuf {
+    hub_omsi::vfs::resolve_in(base, rel).unwrap_or_else(|| base.join(rel.replace('\\', "/")))
+}
+
+/// The names in the folder `dir` with whether each is a folder (None: no folder that reads).
+pub fn list_dir(dir: &Path) -> Option<Vec<(std::ffi::OsString, bool)>> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    Some(entries.flatten().map(|e| (e.file_name(), e.path().is_dir())).collect())
+}
+
+/// The paths of what is in the folder `dir` (empty: none, or no folder).
+pub fn read_dir_paths(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default()
+}
+
+/// The content folders, the content folder first, then the OMSI 2 folder (empty when the
+/// OMSI 2 folder is not set).
+pub fn bases() -> Vec<PathBuf> {
+    vfs().map(|v| v.bases().to_vec()).unwrap_or_default()
+}
+
+/// Every folder of `rel` (`Vehicles`) across the content folders, by its name (in any case,
+/// the first folder's spelling), with each content folder's copy of it: the content folder's
+/// first. Sorted by name.
+pub fn merged_folders(rel: &str) -> Vec<(String, Vec<PathBuf>)> {
+    let bases = bases();
+    let mut out: Vec<(String, Vec<PathBuf>)> = Vec::new();
+    for b in &bases {
+        let Some(dir) = hub_omsi::vfs::resolve_in(b, rel).filter(|d| d.is_dir()) else { continue };
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        for e in entries.flatten().filter(|e| e.path().is_dir()) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            match out.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                Some((_, copies)) => copies.push(e.path()),
+                None => out.push((name, vec![e.path()])),
+            }
+        }
+    }
+    out.sort_by_key(|(n, _)| n.to_lowercase());
+    out
+}
+
 /// The OMSI 2 content as openOMSI sees it: the content folder first, then the OMSI 2 folder.
 pub fn vfs() -> Option<hub_omsi::vfs::Vfs> {
     Some(hub_omsi::vfs::Vfs::new(root()?, content_dir()))
