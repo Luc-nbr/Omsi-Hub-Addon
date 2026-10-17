@@ -34,7 +34,7 @@ There are two halves.
     version itself.
   - On macOS, the `.app` bundle is replaced and the app restarts.
   - On Linux, the AppImage file the player started (`$APPIMAGE`) is replaced and the app
-    restarts. Only an AppImage updates itself: a copy installed from a `.deb` (or built by hand)
+    restarts. Only an AppImage updates itself: a copy installed from a `.deb` or `.rpm` (or built by hand)
     is offered the release's page instead.
 - Nothing is installed while a game runs.
 
@@ -49,7 +49,7 @@ release without a `latest.json`.
 | Windows x64 | `windows-x86_64` | `Omsi-Hub_<version>_x64-setup.exe` | the same |
 | macOS Apple silicon | `darwin-aarch64` | `Omsi-Hub_aarch64.app.tar.gz` | `Omsi-Hub_<version>_aarch64.dmg` |
 | macOS Intel | `darwin-x86_64` | `Omsi-Hub_x64.app.tar.gz` | `Omsi-Hub_<version>_x64.dmg` |
-| Linux x64 | `linux-x86_64` | `Omsi-Hub_<version>_amd64.AppImage` | the same, or `Omsi-Hub_<version>_amd64.deb` (not self-updating) |
+| Linux x64 | `linux-x86_64` | `Omsi-Hub_<version>_amd64.AppImage` | the same, or the `.deb` / `.rpm` (not self-updating) |
 | Linux ARM64 | `linux-aarch64` | `Omsi-Hub_<version>_aarch64.AppImage` | the same |
 
 The names are Tauri's bundler's, from `productName` (`Omsi-Hub`) and the version. The look
@@ -106,7 +106,7 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    Run it on `windows-latest`, `macos-latest` and `ubuntu-22.04`:
    - On macOS, use `--target aarch64-apple-darwin` and `--target x86_64-apple-darwin`, or
      `universal-apple-darwin`.
-   - On Linux, the bundle targets include `appimage` (and `deb` if wanted). The runner needs
+   - On Linux, the bundle targets are `appimage`, `deb` and `rpm` (`app/tauri.linux.conf.json`). The runner needs
      Tauri's packages first: `sudo apt-get install -y libwebkit2gtk-4.1-dev
      libayatana-appindicator3-dev librsvg2-dev patchelf`. Build on the oldest Ubuntu you
      support: an AppImage runs on the same or newer glibc only.
