@@ -47,6 +47,11 @@ export const CHECKS = [
     try { await call('tg_status'); } catch (e) { said = String(e); }
     check(said.startsWith('not ported yet'), said);
   }],
+  ['api: openOMSI\'s settings answer by group', async () => {
+    const v = await call('addon_game_settings');
+    const fields = (v.groups || []).flatMap((g) => g.fields || []);
+    check(fields.some((f) => f.key === 'msaa' && f.kind === 'choice'), `${fields.length} settings in ${v.path}`);
+  }],
   ['store: set and subscribe', async () => {
     let seen = null;
     const off = subscribe((s) => { seen = s.selftestValue; });

@@ -13,7 +13,11 @@
 //! * `addon_texts` - the plugin's texts written in the player's language (`texts.lua`);
 //! * `addon_assign {assignment, lang?}` - an assignment given to the plugin as it is;
 //! * `addon_reports` - the plugin's reports since the last time, booked first ([`book`]);
-//! * `addon_poll` - the bridge looked at once ([`crate::drive`]'s loop does it every 2 s).
+//! * `addon_poll` - the bridge looked at once ([`crate::drive`]'s loop does it every 2 s);
+//! * `addon_game_settings` - openOMSI's own settings Omsi-Hub changes
+//!   (`hub_game::gamesettings`), by group, with their values in `~/.openomsi/settings.cfg`;
+//!   `addon_game_setting {key, value}` - one of them set (`value` null or "": openOMSI's
+//!   default again), never while the game runs.
 //!
 //! **The drive's assignment** ([`assignment_for`], written by [`give`] before every start): the
 //! driver, the map, the line, tour and trip, the duty's parts (`legs`: a shift's tours, a relief
@@ -603,14 +607,81 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "addon_assign" => assign(arg::<Assignment>(args, "assignment")?, arg::<Option<String>>(args, "lang")?),
         "addon_reports" => to_json(book()),
         "addon_poll" => Ok(crate::drive::poll_once()),
+        "addon_game_settings" => Ok(game_settings(&hub_core::paths::home_dir(), game_running())),
+        "addon_game_setting" => {
+            if game_running() {
+                return Err("openOMSI is running: change its settings once it has ended".into());
+            }
+            let home = hub_core::paths::home_dir();
+            let value = arg::<Option<String>>(args, "value")?;
+            hub_game::gamesettings::set(&hub_game::gamesettings::path(&home), &arg::<String>(args, "key")?, value.as_deref())?;
+            Ok(game_settings(&home, false))
+        }
         _ => Err(format!("unknown command: {cmd}")),
     }
+}
+
+/// A game started from Omsi-Hub is running.
+fn game_running() -> bool {
+    crate::drive::state()["running"].as_bool().unwrap_or(false)
+}
+
+/// openOMSI's settings as the page shows them: by group, each with what it takes and its value
+/// in the file of the home folder `home` (null: not in it, openOMSI's default holds).
+pub fn game_settings(home: &Path, running: bool) -> Value {
+    use hub_game::gamesettings::{self as gs, Kind};
+    let path = gs::path(home);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let groups: Vec<Value> = gs::GROUPS
+        .iter()
+        .map(|g| {
+            let fields: Vec<Value> = gs::FIELDS
+                .iter()
+                .filter(|f| f.group == *g)
+                .map(|f| {
+                    let mut v = json!({ "key": f.key, "label": f.label, "value": gs::value(&text, f.key) });
+                    match f.kind {
+                        Kind::Switch => v["kind"] = json!("switch"),
+                        Kind::Choice(options) => {
+                            v["kind"] = json!("choice");
+                            v["options"] = json!(options);
+                        }
+                        Kind::Number { min, max, step, default } => {
+                            v["kind"] = json!("number");
+                            v["min"] = json!(min);
+                            v["max"] = json!(max);
+                            v["step"] = json!(step);
+                            v["default"] = json!(default);
+                        }
+                    }
+                    v
+                })
+                .collect();
+            json!({ "title": g, "fields": fields })
+        })
+        .collect();
+    json!({ "path": path.to_string_lossy(), "exists": path.is_file(), "running": running, "groups": groups })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use hub_core::company::crew;
+
+    #[test]
+    fn openomsi_s_settings_are_shown_by_group_with_the_file_s_values() {
+        let home = temp("game-settings");
+        let v = game_settings(&home, false);
+        assert_eq!(v["exists"], false);
+        let field = |v: &Value, key: &str| v["groups"].as_array().unwrap().iter().flat_map(|g| g["fields"].as_array().unwrap().clone()).find(|f| f["key"] == key).unwrap();
+        assert_eq!(field(&v, "msaa")["value"], Value::Null, "not in the file: openOMSI's default");
+        assert_eq!(field(&v, "msaa")["options"][2], json!(["4", "4×"]));
+        assert_eq!((field(&v, "ui_scale")["kind"].as_str(), field(&v, "ui_scale")["default"].as_f64()), (Some("number"), Some(1.0)));
+        hub_game::gamesettings::set(&hub_game::gamesettings::path(&home), "msaa", Some("8")).unwrap();
+        let v = game_settings(&home, true);
+        assert_eq!((field(&v, "msaa")["value"].as_str(), v["exists"].as_bool(), v["running"].as_bool()), (Some("8"), Some(true), Some(true)));
+        assert_eq!(v["groups"][0]["title"], "Graphics");
+    }
 
     fn temp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("omsihub-addon-{tag}-{}", std::process::id()));

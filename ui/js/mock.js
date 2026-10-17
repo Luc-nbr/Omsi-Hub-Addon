@@ -116,6 +116,22 @@ const DEPOT = {
 };
 const DEPOTS = [{ key: DEPOT.key, name: DEPOT.name, map: DEPOT.map, termini: DEPOT.termini.length }];
 
+const GAME_CFG = { msaa: '4', fullscreen: '1' };
+const GAME_FIELDS = [
+  ['Graphics', [['msaa', 'Anti-aliasing (MSAA)', 'choice', [['1', 'Off'], ['2', '2×'], ['4', '4×'], ['8', '8×']]], ['fullscreen', 'Full screen', 'switch'], ['shadows', 'Shadows', 'switch']]],
+  ['Screen and navigator', [['ui_scale', "Size of the game's menus", 'number', [0.5, 2, 0.05, 1]], ['navigator', 'Navigator', 'switch']]],
+  ['Language', [['language', "The game's language", 'choice', [['ENG', 'English'], ['DEU', 'Deutsch'], ['FRA', 'Français']]]]],
+  ['Driving and controls', [['drive_keys', 'Driving keys', 'choice', [['simple', 'Simple'], ['wasd', 'W A S D'], ['arrows', 'Arrow keys'], ['omsi', 'As in OMSI 2']]], ['wheel_range', "Steering wheel's turn (degrees)", 'number', [180, 1080, 10, 900]]]],
+  ['Passengers', [['boarding', 'Boarding', 'choice', [['auto', 'Automatic'], ['pay', 'Passengers pay at the driver'], ['walk', 'Passengers walk in']]]]],
+];
+const gameSettings = () => ({
+  path: '~/.openomsi/settings.cfg', exists: true, running: false,
+  groups: GAME_FIELDS.map(([title, fields]) => ({
+    title,
+    fields: fields.map(([key, label, kind, x]) => ({ key, label, kind, value: GAME_CFG[key] ?? null, ...(kind === 'choice' ? { options: x } : kind === 'number' ? { min: x[0], max: x[1], step: x[2], default: x[3] } : {}) })),
+  })),
+});
+
 const answers = {
   hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.7.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
@@ -164,6 +180,9 @@ const answers = {
   addon_texts: () => ({ language: settings.language || 'en' }),
   addon_reports: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
   addon_poll: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
+  // (openOMSI's settings.cfg, a few of each group, kept in this page only)
+  addon_game_settings: () => gameSettings(),
+  addon_game_setting: (a) => ((a.value == null || a.value === '' ? delete GAME_CFG[a.key] : (GAME_CFG[a.key] = String(a.value))), gameSettings()),
 
   // the drive
   hub_maps: () => MAPS,

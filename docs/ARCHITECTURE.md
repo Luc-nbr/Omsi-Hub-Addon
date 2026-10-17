@@ -173,6 +173,7 @@ installed here):
 - `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`).
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
+- `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).
 
 ## The data folder
 
