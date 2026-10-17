@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: fmt, clippy, tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # (rustup takes the toolchain rust-toolchain.toml pins, with rustfmt and clippy)
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        # (warnings allowed at first: the ports bring their code as it is)
+        run: cargo clippy --workspace --all-targets
+      - name: cargo test
+        run: cargo test --workspace
+
+  ui:
+    name: UI scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: node --check
+        shell: bash
+        run: |
+          set -e
+          find ui/js tools -name '*.js' -o -name '*.mjs' | while read -r f; do
+            node --check "$f"
+          done
+
+  tauri:
+    name: Tauri build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: tauri build (no bundle signing, no release)
+        working-directory: app
+        run: npx --yes @tauri-apps/cli@2 build --no-bundle
