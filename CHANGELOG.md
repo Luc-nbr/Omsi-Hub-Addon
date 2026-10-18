@@ -15,6 +15,9 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
+  "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
+  them, and where Windows still refuses it, says so and what can be done.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.

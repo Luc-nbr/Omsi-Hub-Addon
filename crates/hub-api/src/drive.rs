@@ -147,7 +147,10 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
         }
     };
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
-    let g = process::start(&checked.install.exe, &spec).map_err(|e| e.to_string())?;
+    let g = process::start(&checked.install.exe, &spec).map_err(|e| match e {
+        process::StartError::Blocked => crate::online::tr(process::BLOCKED),
+        e => e.to_string(),
+    })?;
     let pid = g.pid();
     hub_core::log_line(&format!("drive: openOMSI started (pid {pid}): {}", spec.args().unwrap_or_default().join(" ")));
     *game = Some(g);
