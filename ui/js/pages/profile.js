@@ -93,7 +93,7 @@ export function ProfilePage() {
             <${Button} kind="danger" icon="delete" title="Delete this driver" disabled=${!s.config?.profile} onClick=${() => setAsking(true)} />
           </div>
           <div class="row">
-            <div class="grow"><${Input} value=${name} placeholder="New driver's name" onInput=${setName} /></div>
+            <div class="grow"><${Input} value=${name} placeholder="New driver's name" onInput=${setName} onKeyDown=${(e) => e.key === 'Enter' && create()} /></div>
             <${Seg} value=${sex} options=${[['M', 'Male'], ['F', 'Female']]} onChange=${setSex} />
             <${Button} icon="add" label="Create" disabled=${!name.trim()} onClick=${create} />
           </div>

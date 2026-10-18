@@ -48,7 +48,8 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         return s;
     }
     // (the driver whose personnel file the game writes, as the old launcher started it)
-    s.driver = crate::drivers::launch_driver(d.profile.as_deref());
+    let driver = crate::drivers::launch_driver(d.profile.as_deref());
+    s.driver = driver.as_ref().map(|n| format!("Drivers/{n}.odr"));
     if let Some(sit) = some(&d.situation) {
         s.situation = Some(sit);
         return s;
@@ -100,7 +101,8 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
             l.strip_prefix("join").map(|r| Lan::Join(Some(r.trim_start_matches(':').trim()).filter(|r| !r.is_empty()).unwrap_or("auto").to_string()))
         }
     });
-    s.lan_name = some(&d.lan_name);
+    // (the name the others see: the driver's, as the old launcher gave it)
+    s.lan_name = some(&d.lan_name).or_else(|| s.lan.as_ref().and(driver));
     s.no_menu = s.map.is_some() && s.bus.is_some();
     s
 }
@@ -270,6 +272,17 @@ mod tests {
         assert!(launch_spec(&join, Path::new("r")).args().unwrap().windows(2).any(|w| w == ["--lan-join", "auto"]));
         let tut = Duty { tutorial: Some(2), ..duty() };
         assert_eq!(launch_spec(&tut, Path::new("r")).args().unwrap(), ["--root", "r", "--tutorial", "2"]);
+    }
+
+    #[test]
+    fn the_driver_drives_and_is_named_in_a_lan_game() {
+        let host = Duty { lan: Some("host".into()), profile: Some("Luc".into()), ..duty() };
+        let a = launch_spec(&host, Path::new("r")).args().unwrap();
+        let has = |f: &str, v: &str| a.windows(2).any(|w| w[0] == f && w[1] == v);
+        assert!(has("--driver", "Drivers/Luc.odr") && has("--lan-name", "Luc"), "{a:?}");
+        // (alone: the driver, no name for others)
+        let alone = launch_spec(&Duty { profile: Some("Luc".into()), ..duty() }, Path::new("r")).args().unwrap();
+        assert!(alone.windows(2).any(|w| w == ["--driver", "Drivers/Luc.odr"]) && !alone.iter().any(|x| x == "--lan-name"), "{alone:?}");
     }
 
     #[test]

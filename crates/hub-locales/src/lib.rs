@@ -73,6 +73,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("line-existing.yml", include_str!("../locales/line-existing.yml")),
     ("livery-layers.yml", include_str!("../locales/livery-layers.yml")),
     ("logo.yml", include_str!("../locales/logo.yml")),
+    ("multiplayer.yml", include_str!("../locales/multiplayer.yml")),
     ("online-oauth.yml", include_str!("../locales/online-oauth.yml")),
     ("online-signup.yml", include_str!("../locales/online-signup.yml")),
     ("online.yml", include_str!("../locales/online.yml")),

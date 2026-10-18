@@ -474,11 +474,12 @@ fn chosen() -> Option<String> {
     Settings::load().other.get("driver").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_string)
 }
 
-/// The personnel file the game is started with (`--driver`): the duty's driver, else the one
-/// chosen; none when no driver was ever chosen (the game's own then).
+/// The driver the game is started with (`--driver Drivers/<name>.odr`, the name the others
+/// see in a LAN game): the duty's driver, else the one chosen; none when no driver was ever
+/// chosen (the game's own then).
 pub fn launch_driver(duty_driver: Option<&str>) -> Option<String> {
     let name = duty_driver.map(str::trim).filter(|d| !d.is_empty()).map(str::to_string).or_else(chosen)?;
-    plain(&name).ok().map(|n| format!("Drivers/{n}.odr"))
+    plain(&name).ok().map(str::to_string)
 }
 
 #[cfg(test)]

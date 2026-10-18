@@ -66,6 +66,12 @@ never changes their files.
   its destinations, its timetable and its kind of service; saved into the map's timetable so
   you and the timetable's buses drive it. For the bus company: its map, its lines, the estimate
   and "Confirm and pay". A line of the map's own opens to change it.
+- **Multiplayer**, as in the old Omsi-Hub (on the start, "Multiplayer"): host your next duty
+  and give friends its session code (at home and over the internet), join a friend's session by
+  their code, or join a server that is always on - openOMSI's official one is listed first, and
+  you can add your own. The game opens and joins the session itself (openOMSI's `--lan-host` and
+  `--lan-join`), with the map, time and weather of the host; your driver's name is the one the
+  others see.
 - **Playing together**, as in the old Omsi-Hub: the boss shares the open company with a session
   code, friends join it in their own Omsi-Hub with the role the boss gives them and drive their
   duties in their own game. Over the LAN or a VPN, and over the internet through a Cloudflare

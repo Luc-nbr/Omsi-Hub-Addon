@@ -40,6 +40,7 @@ S.hub = { step: 'mode', palette: false };
 /** The pages in the sheet as our launcher names them: icon, title and the line under it
  * (`pages::about`); `pages/index.js` gives the rest. */
 export const ABOUT = {
+  multiplayer: ['groups', 'Multiplayer', 'Drive with friends by a code, or on servers that are always on.'],
   profile: ['badge', 'Service record', 'Everything the logbook kept, from the first duty to the last.'],
   settings: ['settings', 'Settings', 'Every change is saved at once; the game reads them when it starts.'],
   online: ['public', 'Online', 'Friends, the leaderboard and cloud saves. Optional: everything works offline.'],
