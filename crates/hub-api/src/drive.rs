@@ -48,7 +48,10 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         return s;
     }
     // (the driver whose personnel file the game writes, as the old launcher started it)
+    #[cfg(feature = "native")]
     let driver = crate::drivers::launch_driver(d.profile.as_deref());
+    #[cfg(not(feature = "native"))]
+    let driver: Option<String> = None;
     s.driver = driver.as_ref().map(|n| format!("Drivers/{n}.odr"));
     if let Some(sit) = some(&d.situation) {
         s.situation = Some(sit);

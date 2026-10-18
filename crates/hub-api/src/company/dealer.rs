@@ -147,7 +147,7 @@ pub fn listings(s: &mut Session) -> Option<Arc<Vec<Listing>>> {
     if s.dealer.listings_key != Some(key) && !s.dealer.busy {
         s.dealer.listings_key = Some(key);
         s.dealer.busy = true;
-        std::thread::spawn(move || {
+        crate::spawn(move || {
             let fam = families(&vehicles);
             // (each bus's cabin read on several threads: a few hundred bus files)
             let list: Vec<Listing> = super::par_map(&market, |b| {

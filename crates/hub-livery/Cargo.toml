@@ -15,7 +15,7 @@ sha2.workspace = true
 ab_glyph.workspace = true
 # shapes, outlines and SVG pictures rasterised
 resvg = { version = "0.45", default-features = false }
-hub-core.workspace = true
+hub-core = { workspace = true, features = ["native"] }
 omsi-cfg.workspace = true
 omsi-model.workspace = true
 omsi-sim.workspace = true

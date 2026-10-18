@@ -476,7 +476,7 @@ impl Session {
     pub fn vehicles(&mut self) -> Arc<Vec<core::VehicleInfo>> {
         if self.vehicles.is_none() && !self.vehicles_busy {
             self.vehicles_busy = true;
-            std::thread::spawn(|| {
+            crate::spawn(|| {
                 let list = core::list_vehicles().unwrap_or_default();
                 let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
                 s.vehicles = Some(Arc::new(list));
@@ -511,7 +511,7 @@ impl Session {
         }
         self.market_busy = true;
         self.market_for = Some(n);
-        std::thread::spawn(move || {
+        crate::spawn(move || {
             let list = market_of(&vehicles);
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
             s.market = Some(Arc::new(list));
@@ -656,7 +656,7 @@ fn work(s: &mut Session) {
     if s.today_asked.as_ref() != Some(&key) {
         s.today_asked = Some(key.clone());
         let revision = s.timetable;
-        std::thread::spawn(move || {
+        crate::spawn(move || {
             let (map, date) = key;
             let result = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
@@ -737,7 +737,7 @@ pub fn week_work(s: &mut Session) {
     }
     v.asked.extend(missing.iter().cloned());
     let revision = s.timetable;
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         for (map, date) in missing {
             let r = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
@@ -950,7 +950,7 @@ pub fn simulate(s: &mut Session, to: i64, quick: bool) {
     s.closing = true;
     s.clock.dirty = None;
     s.generation += 1;
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         let d = data();
         let mut c = c;
         let w = lines.map(|x| Disk::new(&d).knowing(&c.map.clone(), &c.date.clone(), x));
@@ -1150,7 +1150,7 @@ fn catch_up(s: &mut Session, c: Company, real: i64) {
     s.clock.dirty = None;
     s.generation += 1;
     let lines = s.map_lines().map(|l| l.to_vec());
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         let d = data();
         let mut c = c;
         let w = lines.map(|x| Disk::new(&d).knowing(&c.map.clone(), &c.date.clone(), x));
@@ -1602,13 +1602,19 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 /// showroom read a few hundred bus files, one after the other a good twenty seconds on a page
 /// that says the dealer is setting out the buses.
 pub(crate) fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
-    let chunk = items.len().div_ceil(n).max(1);
-    let f = &f;
-    std::thread::scope(|sc| {
-        let parts: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
-        parts.into_iter().flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
-    })
+    // (the website: one thread)
+    #[cfg(not(feature = "native"))]
+    return items.iter().map(f).collect();
+    #[cfg(feature = "native")]
+    {
+        let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+        let chunk = items.len().div_ceil(n).max(1);
+        let f = &f;
+        std::thread::scope(|sc| {
+            let parts: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
+            parts.into_iter().flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+        })
+    }
 }
 
 /// The market's buses (`market::market_of`, its bus files read on several threads).

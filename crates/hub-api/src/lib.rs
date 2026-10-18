@@ -23,28 +23,67 @@
 #![recursion_limit = "512"]
 
 pub mod addon;
+#[cfg(feature = "native")]
 pub mod cloud;
 pub mod company;
 pub mod content;
 pub mod depot;
 pub mod drive;
+#[cfg(feature = "native")]
 pub mod drivers;
 pub mod hub;
+#[cfg(feature = "native")]
 pub mod lak;
+#[cfg(feature = "native")]
 pub mod lan;
 pub mod launcher;
+#[cfg(feature = "native")]
 pub mod lineeditor;
+#[cfg(feature = "native")]
 pub mod online;
+#[cfg(feature = "native")]
 pub mod privacy;
 pub mod rosterflow;
 pub mod timetable;
 pub mod together;
+#[cfg(feature = "native")]
 pub mod update;
 
 use serde_json::Value;
 
 /// A command's answer.
 pub type Answer = Result<Value, String>;
+
+/// Work done beside the command (a list read, a day simulated): on its own thread on the desktop;
+/// on the website, where the browser gives one thread, after the command, once its locks are let
+/// go ([`run_later`]) - the page sees it on its next look, as it sees a thread's.
+pub fn spawn<F: FnOnce() + Send + 'static>(f: F) {
+    #[cfg(feature = "native")]
+    std::thread::spawn(f);
+    #[cfg(not(feature = "native"))]
+    later().lock().unwrap_or_else(|e| e.into_inner()).push_back(Box::new(f));
+}
+
+#[cfg(not(feature = "native"))]
+type Later = std::sync::Mutex<std::collections::VecDeque<Box<dyn FnOnce() + Send>>>;
+
+#[cfg(not(feature = "native"))]
+fn later() -> &'static Later {
+    static LATER: std::sync::OnceLock<Later> = std::sync::OnceLock::new();
+    LATER.get_or_init(Default::default)
+}
+
+/// The website: the work [`spawn`] was given, done now (and what it gave in turn), in order.
+#[cfg(not(feature = "native"))]
+pub fn run_later() {
+    loop {
+        let next = later().lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+        match next {
+            Some(f) => f(),
+            None => break,
+        }
+    }
+}
 
 /// A way to tell the page something that outlives the command (a thread watching the game).
 pub type Emitter = std::sync::Arc<dyn Fn(&str, Value) + Send + Sync>;
@@ -85,19 +124,26 @@ pub fn to_json<T: serde::Serialize>(v: T) -> Answer {
 /// A command of the page.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
     match cmd {
+        #[cfg(feature = "native")]
         c if c.starts_with("hub_update") => update::call(c, args, p),
+        #[cfg(feature = "native")]
         c if c.starts_with("hub_lan") => lan::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
+        #[cfg(feature = "native")]
         c if c.starts_with("hub_profile") => drivers::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         c if c.starts_with("hub_") => hub::call(c, args, p),
         c if c.starts_with("addon_") => addon::call(c, args, p),
         c if c.starts_with("co_") => company::call(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call(c, args, p),
         c if c.starts_with("tg_") => together::call(c, args, p).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
+        #[cfg(feature = "native")]
         c if c.starts_with("ol_") => online::call(c, args, p),
+        #[cfg(feature = "native")]
         c if c.starts_with("cs_") => cloud::call(c, args, p),
         c if c.starts_with("tt_") => timetable::call(c, args, p),
         c if c.starts_with("de_") => depot::call(c, args, p),
+        #[cfg(feature = "native")]
         c if c.starts_with("b3d_") => content::bus3d::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
+        #[cfg(feature = "native")]
         c if c.starts_with("lak_") => lak::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         _ => Err(format!("unknown command: {cmd}")),
     }
@@ -109,7 +155,9 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
         c if c.starts_with("hub_") => hub::call_bytes(c, args, p),
         c if c.starts_with("co_") => company::call_bytes(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call_bytes(c, args, p),
+        #[cfg(feature = "native")]
         c if c.starts_with("b3d_") => content::bus3d::call_bytes(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
+        #[cfg(feature = "native")]
         c if c.starts_with("lak_") => lak::call_bytes(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         _ => Err(format!("unknown command: {cmd}")),
     }

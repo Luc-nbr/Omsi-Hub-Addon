@@ -44,6 +44,14 @@ Omsi-Hub's own code from that fork (its `omsihub*` crates and the launcher's Oms
 3D view, the photos, the livery studio, `crates/hub-livery`) is Omsi-Hub's and under Omsi-Hub's
 licence.
 
+## The website's bus company: WASI in the browser
+
+`ui/vendor/browser_wasi_shim/` is `@bjorn3/browser_wasi_shim` 0.4.2 (its `dist/`), by bjorn3 and
+its contributors, under the MIT licence (`ui/vendor/browser_wasi_shim/LICENSE-MIT`; it is also
+offered under Apache-2.0). It answers WASI's calls of `crates/hub-web` in the browser.
+
+The cloud save's zstd on the website is `ruzstd` (crates.io), under the MIT licence.
+
 ## Fonts
 
 - **Hanken Grotesk** (`ui/fonts/`, `crates/hub-livery/fonts/`): SIL Open Font License 1.1,

@@ -2,14 +2,20 @@
 // `callBytes` as bytes, `bytesUrl` gives a URL of the app's bytes route for an <img>.
 //
 // In the app the calls go through Tauri (`window.__TAURI__`, the app's `withGlobalTauri`).
-// In a plain browser (opening ui/index.html for a look, or `?mock` in the app) they go to
-// the mock backend (`mock.js`), so the pages can be worked on without the app.
+// On the website (omsihub.com, the bus company from a cloud save) they go to hub-api in the
+// browser (`window.__OMSIHUB_WEB__`, `web/backend.js`). In a plain browser (opening
+// ui/index.html for a look, or `?mock` in the app) they go to the mock backend (`mock.js`), so
+// the pages can be worked on without the app.
 
 const tauri = window.__TAURI__;
 const params = new URLSearchParams(location.search);
+/** The website's backend (`web/backend.js`), when the pages run there. */
+const web = () => window.__OMSIHUB_WEB__ || null;
 
-/** Running in the app (else: the browser mock). */
+/** Running in the app (else: the website, or the browser mock). */
 export const inApp = !!(tauri && tauri.core) && !params.has('mock');
+/** Running on the website: the company from the cloud, no game, no files of this computer. */
+export const onWeb = !inApp && !!web();
 /** (the old launcher's names, for the ported pages: the app is never the phone's) */
 export const inTauri = inApp;
 export const onPhone = false;
@@ -46,6 +52,7 @@ async function mockBackend() {
 export async function call(cmd, args = {}) {
   if (OWN[cmd]) return OWN[cmd](args || {});
   if (inApp) return tauri.core.invoke('call', { cmd, args }).catch(failed);
+  if (web()) return web().call(cmd, args).catch(failed);
   const b = await mockBackend();
   return b.call(cmd, args).catch(failed);
 }
@@ -53,6 +60,7 @@ export async function call(cmd, args = {}) {
 /** A command that answers bytes: an ArrayBuffer. */
 export async function callBytes(cmd, args = {}) {
   if (inApp) return tauri.core.invoke('call_bytes', { cmd, args }).catch(failed);
+  if (web()) return web().callBytes(cmd, args).catch(failed);
   const b = await mockBackend();
   return b.callBytes(cmd, args).catch(failed);
 }
@@ -69,6 +77,7 @@ export function bytesUrl(cmd, args = {}) {
 /** Listen to an event Rust sends (`game-ended` …): `fn(payload)`. Returns the unlisten. */
 export async function on(event, fn) {
   if (inApp && tauri.event) return tauri.event.listen(event, (e) => fn(e.payload));
+  if (web()) return web().on(event, fn);
   const b = await mockBackend();
   return b.on(event, fn);
 }
@@ -76,12 +85,15 @@ export async function on(event, fn) {
 /** The system's folder picker: the path, or null. */
 export async function pickFolder(title = '') {
   if (inApp) return tauri.core.invoke('pick_folder', { title });
+  if (web()) return null;
   return window.prompt(title || 'Folder', '') || null;
 }
 
 /** The system's file picker: the path, or null. `filters`: [{name, extensions: ['cfg']}]. */
 export async function pickFile(title = '', filters = []) {
   if (inApp) return tauri.core.invoke('pick_file', { title, filters });
+  // (the website: no files of this computer to name)
+  if (web()) return null;
   return window.prompt(title || 'File', '') || null;
 }
 

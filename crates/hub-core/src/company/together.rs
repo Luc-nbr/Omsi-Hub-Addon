@@ -21,10 +21,12 @@
 //!   (measured, with that player's punctuality, passengers, fines and score).
 
 pub mod book;
+#[cfg(feature = "native")]
 pub mod client;
 pub mod code;
 pub mod host;
 pub mod roles;
+#[cfg(feature = "native")]
 pub mod server;
 #[cfg(test)]
 mod tests;

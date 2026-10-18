@@ -9,11 +9,19 @@
 //!
 //! The commands are `tg_…`; the texts come in the page's language (`lang`), as the company's.
 
+#[cfg(feature = "native")]
 mod host;
+#[cfg(feature = "native")]
 mod join;
+// (the website: nobody hosts, nobody joins)
+#[cfg(not(feature = "native"))]
+#[path = "together/off.rs"]
+mod host;
+#[cfg(not(feature = "native"))]
+use host::join;
 pub mod relay;
 /// RosterFlow in company multiplayer, over the loopback.
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod rf_tests;
 
 use crate::company::words::{self, tr, trf};
@@ -39,7 +47,11 @@ pub const KILLED: bool = false;
 
 /// "Play together" is open (Luc 2026-10-15: on for the company mode, with a kill switch).
 pub fn enabled() -> bool {
-    omsi_cfg::flags::OMSI_TOGETHER.is_set() || (!KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set())
+    #[cfg(feature = "native")]
+    return omsi_cfg::flags::OMSI_TOGETHER.is_set() || (!KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set());
+    // (the website: it needs the boss's computer)
+    #[cfg(not(feature = "native"))]
+    false
 }
 
 /// What the pages say while it is blocked.
@@ -126,15 +138,18 @@ pub fn roles_json() -> Value {
 }
 
 /// Permissions as the pages send them (their keys).
+#[cfg(feature = "native")]
 fn perms_arg(args: &Value) -> Vec<Perm> {
     args.get("perms").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().and_then(Perm::of)).collect()).unwrap_or_default()
 }
 
 /// A duty as a page sends it back.
+#[cfg(feature = "native")]
 fn duty_arg(args: &Value) -> Option<DutyRef> {
     serde_json::from_value(args.get("duty").cloned().unwrap_or(Value::Null)).ok()
 }
 
+#[cfg(feature = "native")]
 fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }

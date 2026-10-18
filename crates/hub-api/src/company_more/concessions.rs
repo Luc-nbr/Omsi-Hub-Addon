@@ -53,7 +53,7 @@ fn weeks(s: &Session) {
     m.tenders.weeks_for = Some(key.clone());
     m.tenders.reading = true;
     let map = c.map.clone();
-    let _ = std::thread::Builder::new().name("company weeks".into()).spawn(move || {
+    crate::spawn(move || {
         let days: Vec<Vec<core::LineInfo>> = (0..7).filter_map(|k| core::list_lines(&map, &dates::add(&monday, k)).ok()).collect();
         let mut out = HashMap::new();
         for l in days.first().map(|d| d.iter().map(|l| l.name.clone()).collect::<Vec<_>>()).unwrap_or_default() {

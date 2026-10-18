@@ -22,7 +22,11 @@ pub const APP_FOLDER: &str = "Omsi-Hub";
 /// The folder the data folder would be in, without the override.
 pub fn system_data_dir() -> PathBuf {
     // (Roaming AppData on Windows, Application Support on macOS, XDG_DATA_HOME on Linux)
-    dirs::data_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default()).join(APP_FOLDER)
+    #[cfg(feature = "native")]
+    return dirs::data_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default()).join(APP_FOLDER);
+    // (the website: the folder the page lays out in the browser, the cloud save's files in it)
+    #[cfg(not(feature = "native"))]
+    PathBuf::from("/data")
 }
 
 /// Omsi-Hub's data folder, made when it is first asked for.
@@ -38,7 +42,10 @@ pub fn data_dir() -> PathBuf {
 
 /// The user's home folder (where openOMSI keeps `~/.openomsi`).
 pub fn home_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_default()
+    #[cfg(feature = "native")]
+    return dirs::home_dir().unwrap_or_default();
+    #[cfg(not(feature = "native"))]
+    PathBuf::from("/home")
 }
 
 /// The OMSI 2 folder from the settings, when it is set and there.
