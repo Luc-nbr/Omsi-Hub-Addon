@@ -80,7 +80,7 @@ export async function selftest(check, errors, step) {
     const before = errors.length;
     const { welcomeStep } = await import('../hub/welcome.js');
     const seen = [];
-    for (const id of ['language', 'animations', 'account', 'driver', 'ready']) {
+    for (const id of ['language', 'animations', 'signs', 'account', 'driver', 'ready']) {
       welcomeStep(id);
       await sleep(450);
       globalThis.hubProbe?.(`the welcome, ${id}`);

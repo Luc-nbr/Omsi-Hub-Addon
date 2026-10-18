@@ -334,7 +334,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const look = dark();
   // (the accent and the page's font, read when the look changed: not every frame)
   const kept = useRef({});
-  if (kept.current.look !== look) kept.current = { look, accent: css('--hub-accent') || '#f58620', font: null };
+  if (kept.current.look !== look) kept.current = { look, accent: css('--hub-accent') || '#2a75f7', font: null };
   // (the whole of today's routes in view, right of the panel; the map when there are none)
   const fit = () => {
     let lo = map.lo;
@@ -413,7 +413,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     }
     // the company's lines, each trip's route once in its line's colour on a dark casing
     g.lineCap = 'round';
-    g.strokeStyle = darker(css('--hub-accent') || '#f58620', 0.56);
+    g.strokeStyle = darker(css('--hub-accent') || '#2a75f7', 0.56);
     for (const l of map.lines || []) {
       poly(l.p);
       g.lineWidth = 8;

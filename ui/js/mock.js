@@ -236,7 +236,11 @@ const answers = {
     rows: [{ key: 'Grundorf.hof', name: 'Grundorf.hof', file: 'Grundorf.hof', map: 'Grundorf', maps: true, destinations: 3, known: 3, fit: { kind: 'maps' } }],
     used: { row: 0 }, own: [], own_in_use: null, refusal: null, source: null, source_name: '', source_destinations: 0, recommended: 0,
   }),
-  hub_route_map: () => ({ roads: [{ p: [0, 0, 400, 0, 400, 300, 900, 300], w: 8, main: true }, { p: [400, 0, 400, -200], w: 6 }], route: [[0, 0, 400, 0, 400, 300, 900, 300]] }),
+  hub_route_map: () => ({
+    roads: [{ p: [0, 0, 400, 0, 400, 300, 900, 300], w: 8, main: true }, { p: [400, 0, 400, -200], w: 6 }], route: [[0, 0, 400, 0, 400, 300, 900, 300]],
+    stops: [{ k: 0, at: [0, 0] }, { k: 1, at: [400, 150] }, { k: 2, at: [900, 300] }], entries: [{ index: 0, name: 'Depot', at: [400, -200] }],
+    lo: [0, -200], hi: [900, 300], colors: ['#06102a', '#24345a', '#2d4170', '#f58620'],
+  }),
   hub_drive: (a) => {
     setTimeout(() => backend.emit('game-ended', { code: 0, seconds: 4 }), 4000);
     return { started: true, args: ['--map', a.duty.map] };

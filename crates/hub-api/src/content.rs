@@ -309,7 +309,7 @@ pub fn buses_in(vfs: &Vfs) -> Vec<VehicleInfo> {
             let rel = format!("{rel_dir}/{name}");
             let Some(path) = vfs.resolve(&rel) else { continue };
             let Ok(bus) = hub_omsi::vehicle::Bus::load(&path) else { continue };
-            if bus.ai_only || bus.is_rear_section() {
+            if bus.is_traffic() || bus.is_rear_section() {
                 continue;
             }
             let installed = vfs.bases().len() > 1 && path.starts_with(&vfs.bases()[0]);

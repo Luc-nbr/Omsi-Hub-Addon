@@ -68,9 +68,10 @@ input[type=search]::-webkit-search-cancel-button { filter: grayscale(1); }
 .hub .splash.resting p { max-width: 460px; color: var(--hub-text-dim); }
 
 /* the route map (hub/routemap.js) */
-.routemap { position: relative; width: 100%; overflow: hidden; }
-.routemap svg { display: block; }
-.routemap.empty { display: grid; place-items: center; }
+.routemap { position: relative; width: 100%; overflow: hidden; touch-action: none; cursor: grab; }
+.routemap canvas { width: 100%; height: 100%; display: block; }
+.routemap .state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; pointer-events: none; }
+.routemap .legend { position: absolute; left: 10px; bottom: 8px; font-size: 11.5px; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
 
 /* a part that comes later (hub/later.js) */
 .hub-later { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 48px 24px; color: var(--hub-text-soft); }

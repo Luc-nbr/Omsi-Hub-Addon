@@ -240,6 +240,18 @@ impl Bus {
         self.couple_front.is_some() || self.coupling_front
     }
 
+    /// A car rather than a bus (a drivable car of a traffic pack, a taxi): no passenger cabin
+    /// for passengers to board, or shorter than a bus (its bounding box under 6 m long; the
+    /// shortest minibuses are about 7). Omsi-Hub does not offer it to drive a duty with.
+    pub fn is_car(&self) -> bool {
+        !self.rail && (self.passenger_cabin.is_none() || self.bounding_box.is_some_and(|b| b[1] > 0.0 && b[1] < 6.0))
+    }
+
+    /// Made for the AI traffic or a car: not a bus to drive a duty with.
+    pub fn is_traffic(&self) -> bool {
+        self.ai_only || self.is_car()
+    }
+
     /// Its name as OMSI's bus list shows it: the manufacturer and the type.
     pub fn name(&self) -> String {
         format!("{} {}", self.manufacturer.trim(), self.type_name.trim()).trim().to_string()
@@ -375,6 +387,12 @@ mod tests {
         assert_eq!(b.bounding_box, Some([2.5, 11.4, 2.9, 0.0, 0.9, 1.6]));
         assert_eq!(b.couple_back, Some(("trail.bus".to_string(), false)));
         assert_eq!(b.registration_automatic, Some(("TD-V ".to_string(), String::new())));
+        assert!(!b.is_car() && !b.is_traffic());
+        // (a drivable car: four metres long, no passenger cabin)
+        let car = Bus::parse(&CfgFile::from_str("w123.bus", "[friendlyname]\r\nMB\r\nW123 230E\r\nWhite\r\n[model]\r\nmodel\\model.cfg\r\n[boundingbox]\r\n1.8\r\n4.7\r\n1.4\r\n0\r\n0\r\n0.7\r\n"));
+        assert!(car.is_car() && car.is_traffic() && !car.ai_only);
+        let short = Bus::parse(&CfgFile::from_str("taxi.bus", "[passengercabin]\r\nmodel\\cabin.cfg\r\n[boundingbox]\r\n1.8\r\n4.9\r\n1.5\r\n0\r\n0\r\n0.7\r\n"));
+        assert!(short.is_car());
         let trail = Bus::parse(&CfgFile::from_str("trail.bus", "[coupling_front]\r\n0\r\n4.1\r\n0.3\r\n[ai_veh_type]\r\n0\r\n[type]\r\n2\r\n"));
         assert!(trail.is_rear_section() && trail.ai_only && trail.rail && !trail.has_friendly_name);
     }

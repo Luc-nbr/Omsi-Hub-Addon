@@ -205,7 +205,7 @@ export function LineMap() {
       const ok = dirs[cur]?.legs[i]?.ok;
       legs.push([s, ok ? colour : DANGER, 1, ok ? 5 : 3]);
     });
-    g.strokeStyle = darker(css('--hub-accent') || '#f58620', 0.56);
+    g.strokeStyle = darker(css('--hub-accent') || '#2a75f7', 0.56);
     for (const [s, , , w] of legs) {
       poly(s);
       g.lineWidth = w + 4;

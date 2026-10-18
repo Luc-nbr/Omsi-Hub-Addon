@@ -638,7 +638,7 @@ pub(crate) mod tests {
             for f in files.iter().filter(|f| f.extension().is_some_and(|x| x.eq_ignore_ascii_case("bus"))) {
                 let Ok(bf) = crate::vehicles::BusFile::load(f) else { continue };
                 let v = &bf.bus;
-                if v.ai_only {
+                if v.is_traffic() {
                     continue;
                 }
                 let name = format!("{} {}", v.manufacturer.trim(), v.type_name.trim());

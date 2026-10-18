@@ -175,3 +175,10 @@
    step's sign-in (the online panel's form) in the sheet */
 .hub-wfolders { display: flex; flex-direction: column; gap: 18px; }
 .hub-waccount { max-width: 760px; }
+
+/* the bus stop signs: four tiles, each its sign above its name */
+.hub-wsigns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.hub-wsign { flex-direction: column; align-items: center; gap: 12px; padding: 22px 12px 18px; position: relative; }
+.hub-wsignpic { display: block; width: 64px; height: 64px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35)); }
+.hub-wsignpic canvas { display: block; }
+.hub-wsign > svg { position: absolute; top: 10px; right: 10px; }

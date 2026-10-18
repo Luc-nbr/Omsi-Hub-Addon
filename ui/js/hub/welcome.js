@@ -2,6 +2,8 @@
 // launcher's `welcome.rs`): what a player sees the first time Omsi-Hub opens, in place of the
 // start. In Luc's order: the language - every one Omsi-Hub speaks, as tiles with their flags,
 // spoken at once; the animations, on or off, with a little scene that shows what "on" means;
+// the bus stop signs the maps mark the stops with (German, British, French or Dutch: the old
+// app's `stop_style`);
 // the game's folders the first time (the openOMSI the add-on drives, the original OMSI 2), or
 // when they are not right; the account - signed in, or on locally without sync; the driver - the
 // account's, or one of this computer's (a new one, or one already there) with their personnel
@@ -26,6 +28,7 @@ import { LOGO_SVG } from './logo.js';
 import { Flag } from './bar.js';
 import { LANGUAGE_NAMES } from './settings-extra.js';
 import { useOnline, SignedOut, Profile } from '../online/online.js';
+import { STOP_SIGNS, StopSign, stopSign } from './stopsigns.js';
 
 let cssLoaded = false;
 function loadCss() {
@@ -41,6 +44,7 @@ function loadCss() {
 const LABELS = {
   language: ['Language', 'language'],
   animations: ['Animations', 'bolt'],
+  signs: ['Stop signs', 'location_on'],
   folder: ['Game folders', 'folder_open'],
   account: ['Account', 'account_circle'],
   driver: ['Your driver', 'person'],
@@ -48,7 +52,7 @@ const LABELS = {
 };
 
 /** The steps in their order: the folders' only when they have to be pointed to. */
-export const stepsOf = (folder) => ['language', 'animations', ...(folder ? ['folder'] : []), 'account', 'driver', 'ready'];
+export const stepsOf = (folder) => ['language', 'animations', 'signs', ...(folder ? ['folder'] : []), 'account', 'driver', 'ready'];
 
 const W = () => S.hubWelcome;
 const put = (patch) => S.hubWelcome && set({ hubWelcome: { ...S.hubWelcome, ...patch } });
@@ -156,6 +160,8 @@ function heading(step, signedIn) {
   switch (step) {
     case 'animations':
       return [tr('Animations on or off?'), tr('Screens that slide in, tiles that rise under the mouse, a bus between the menus. Some like it lively, others calm.')];
+    case 'signs':
+      return [tr('Which bus stop signs?'), tr('The maps mark every stop with a bus stop sign. Choose the ones you know; you can change them any time in the settings.')];
     case 'folder':
       return [tr('Where are openOMSI and OMSI 2?'), tr('Omsi-Hub starts the openOMSI you have installed, on the maps and buses of the original OMSI 2. Point once to both folders.')];
     case 'account':
@@ -188,7 +194,7 @@ function Sheet() {
   const w = s.hubWelcome;
   const step = w.step;
   const [title, sub] = heading(step, signedIn(v));
-  const Body = { language: Languages, animations: Animations, folder: Folders, account: Account, driver: Driver, ready: Ready }[step];
+  const Body = { language: Languages, animations: Animations, signs: Signs, folder: Folders, account: Account, driver: Driver, ready: Ready }[step];
   const move = w.side === 0 ? 'rise' : w.side > 0 ? 'right' : 'left';
   return html`<section class="hub-wsheet">
     <div class=${'hub-wmove ' + move} key=${w.seq}>
@@ -214,7 +220,7 @@ function Foot({ step, v }) {
   const w = useStore().hubWelcome;
   const steps = stepsOf(w.folder);
   let way = null;
-  if (step === 'language' || step === 'animations') way = html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${next} />`;
+  if (step === 'language' || step === 'animations' || step === 'signs') way = html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${next} />`;
   else if (step === 'folder') way = html`<${FoldersWay} />`;
   else if (step === 'account') way = signedIn(v) ? html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${next} />` : v?.mode === 'in' ? null : html`<${Btn} icon="chevron_right" label="Continue locally without sync" onClick=${playLocally} />`;
   else if (step === 'driver') way = html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${driverNext} />`;
@@ -384,6 +390,22 @@ function Animations() {
       <span class="t"><span class=${'hub-radio' + (on === v ? ' on' : '')}></span><b>${tr(title)}</b></span>
       <span class="line">${tr(line)}</span>
     </button>`)}
+  </div>`;
+}
+
+// --- the stop signs -------------------------------------------------------------------------
+
+/** The bus stop signs as tiles, each with its sign; a click chooses it at once (German until
+ * another is chosen). */
+function Signs() {
+  useStore();
+  const cur = stopSign();
+  return html`<div class="hub-wsigns">
+    ${STOP_SIGNS.map(([id, name]) => {
+      const on = id === cur;
+      return html`<button type="button" class=${'hub-wtile hub-wsign' + (on ? ' on' : '')} data-sign=${id} onClick=${() => !on && saveSettings({ stop_style: id })}>
+        <span class="hub-wsignpic"><${StopSign} style=${id} size=${64} /></span><b>${tr(name)}</b>${on && html`<${Icon} name="check" size=${17} />`}</button>`;
+    })}
   </div>`;
 }
 
@@ -676,7 +698,7 @@ export function Welcome() {
       if (e.key !== 'Enter') return;
       if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
       const st = W()?.step;
-      if (st === 'language' || st === 'animations') next();
+      if (st === 'language' || st === 'animations' || st === 'signs') next();
       else if (st === 'ready') finish('start');
     };
     addEventListener('keydown', key);

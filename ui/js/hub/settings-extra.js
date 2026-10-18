@@ -11,6 +11,7 @@
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { PRESETS, hexOf } from './theme.js';
+import { STOP_SIGNS } from './stopsigns.js';
 import { UpdateRow } from '../update.js';
 import { showPrivacy } from '../privacy.js';
 import { AddonPanel } from './addon.js';
@@ -33,6 +34,8 @@ export const SETTINGS_TABS = [
           { type: 'toggle', key: 'animations', label: 'Animations' },
           { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
           { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
+          // (the stops on the maps as the bus stop signs of a country: `stopsigns.js`)
+          { type: 'select', key: 'stop_style', label: 'Bus stop signs', options: STOP_SIGNS },
           // (the bus company's pages round a sidebar, or found with the command palette: `company/shell.js`)
           { type: 'select', key: 'company_layout', label: 'Company layout', options: [['sidebar', 'Sidebar'], ['palette', 'Command palette']] },
           { type: 'button', label: 'Start the tour', icon: 'route', patch: () => (import('./hub.js').then((h) => (h.go('drive', 'mode'), import('./tour.js').then((m) => setTimeout(() => m.startTour(), 300)))), {}) },

@@ -24,7 +24,7 @@ export const CHOICE_DEFAULTS = {
 
 /** The look's and the pages' settings, until the player changes them. */
 export const SETTINGS_DEFAULTS = {
-  dark_mode: true, accent: '#f58620', animations: true, launcher_scale: 1,
+  dark_mode: true, accent: '#2a75f7', animations: true, stop_style: 'de', launcher_scale: 1,
   company_layout: 'sidebar', units: 'metric', bus_lead: 10, update_auto: false,
 };
 
