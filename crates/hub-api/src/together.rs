@@ -1,34 +1,48 @@
-//! Playing together (the old `omsihub/together*`): **later**. It needs a relay of our own, or
-//! LAN only (INVENTORY §2). Its commands start with `tg_`; each answers
-//! [`crate::not_ported`].
+//! "Play together" in the bus company, the launcher's side (Beta 58, built out in Beta 61; the
+//! company's side is `crate::launcher::company::together`): the boss shares his open company
+//! (`host`: the company server, its code, who is online with his role and permissions and what
+//! each drives, the duties asked for, the activity - the company's "Multiplayer" page), and
+//! friends join it with the code (`join`: the boss's company in a menu of its own - their role,
+//! their duties with Drive, the open duties to ask for, their figures, the players, the news -
+//! and, as their role allows, the company's own pages relayed to the boss's launcher: `relay`).
+//! Nobody opens a world: each drives his duties in his own game, at his own pace.
 //!
-//! What the company's and RosterFlow's pages ask of it is here already, as it is while "Play
-//! together" is off (the old launcher's kill switch): [`enabled`] says no, nobody is online, no
-//! duty goes to a player. The company's own side of it (`hub_core::company::together`: the
-//! players, their roles, the duties they claimed) is ported and kept in the saves.
+//! The commands are `tg_…`; the texts come in the page's language (`lang`), as the company's.
 
-use crate::company::words::{tr, trf};
-use crate::company::Session;
-use crate::{not_ported, Answer, Platform};
-use hub_core::company::duty_launch::DutyRef;
-use hub_core::company::plan::DayPlan;
-use hub_core::company::Company;
+mod host;
+mod join;
+pub mod relay;
+/// RosterFlow in company multiplayer, over the loopback.
+#[cfg(test)]
+mod rf_tests;
+
+use crate::company::words::{self, tr, trf};
+use crate::launcher::company::duty_launch::DutyRef;
+use crate::launcher::company::together::wire::Notice;
+use crate::launcher::company::together::{Perm, Role};
+use crate::{Answer, Platform};
 use serde_json::{json, Value};
 
-/// A `tg_` command.
-pub fn call(cmd: &str, _args: &Value, _p: &dyn Platform) -> Answer {
-    Err(not_ported(cmd))
+pub use host::{closing_company, give_to_guest, online_guests, quit, rail_badge, tile_line};
+
+/// The code of the company session hosted now (None: none, or "Play together" switched off).
+pub fn session_code() -> Option<String> {
+    host::session_code().filter(|_| enabled())
 }
 
-/// The colour of a player's duties on the planning's pages.
+/// The colour a player of "Play together" has on the rosters.
 pub const GUEST_COLOUR: &str = "#e58fd8";
 
-/// "Play together" is on: not yet - the way in for friends needs a relay of Omsi-Hub's own.
+/// The kill switch (Beta 61): "Play together" is on for the bus company unless this is set, or
+/// the launcher runs with `OMSI_TOGETHER_OFF`. `OMSI_TOGETHER` forces it on (for testing).
+pub const KILLED: bool = false;
+
+/// "Play together" is open (Luc 2026-10-15: on for the company mode, with a kill switch).
 pub fn enabled() -> bool {
-    false
+    omsi_cfg::flags::OMSI_TOGETHER.is_set() || (!KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set())
 }
 
-/// What the gate says while it is closed (English: a key of the translations).
+/// What the pages say while it is blocked.
 pub const BLOCKED: &str = "Multiplayer - coming soon (beta)";
 
 /// The gate's answer to a command: whether it is open, and what is said while it is not.
@@ -36,170 +50,169 @@ pub fn gate() -> Value {
     json!({ "on": enabled(), "label": tr(BLOCKED) })
 }
 
-/// The AI driving a duty a player left.
+/// A command of "Play together", or None when `cmd` is not one.
+pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
+    words::set_language(args.get("lang").and_then(Value::as_str).unwrap_or(""));
+    if cmd == "tg_gate" {
+        return Some(Ok(gate()));
+    }
+    // (blocked: nothing runs - no server, no joining - and the badge is off)
+    if !enabled() {
+        return Some(Ok(json!({ "off": true, "on": false, "tip": tr(BLOCKED) })));
+    }
+    if cmd.starts_with("tg_host") {
+        host::remember_language();
+        return host::call(cmd, args);
+    }
+    join::call(cmd, args, p)
+}
+
+/// A notice as the page says it.
+pub fn notice_text(n: &Notice) -> String {
+    let args: Vec<(String, String)> = n.args.iter().map(|(k, v)| (k.clone(), if k == "name" || k == "text" || k == "tour" { v.clone() } else { tr(v) })).collect();
+    let refs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    trf(&n.text, &refs)
+}
+
+/// A notice's time of day (the computer's).
+fn clock_of(at: u64) -> String {
+    let local = at as i64 + crate::launcher::utc_offset();
+    let m = local.rem_euclid(86400) / 60;
+    format!("{:02}:{:02}", m / 60, m % 60)
+}
+
+/// A notice for the page: its time and its words.
+pub fn notice_json(n: &Notice) -> Value {
+    json!({ "n": n.n, "at": clock_of(n.at), "text": notice_text(n) })
+}
+
+/// Who drives a duty of a player who left it: "AI (Jan left)" (Beta 63).
 pub fn ai_label(name: &str) -> String {
     trf("AI (%{name} left)", &[("name", name)])
 }
 
 /// A player of "Play together" as the company's pages name him on his duties: his name, or "AI
 /// (his name left)" while the AI drives a duty he left (`book::guest_left`).
-pub fn guest_label(c: &Company, g: u32) -> String {
-    let name = hub_core::company::together::guest_name(c, g);
-    if hub_core::company::together::book::guest_left(c, g) {
+pub fn guest_label(c: &crate::launcher::company::Company, g: u32) -> String {
+    let name = crate::launcher::company::together::guest_name(c, g);
+    if crate::launcher::company::together::book::guest_left(c, g) {
         ai_label(&name)
     } else {
         name
     }
 }
 
-/// The players online in the company's session, with the duty each drives: none (no session).
-pub fn online_guests(_c: &Company) -> Vec<(u32, String, Option<DutyRef>)> {
-    Vec::new()
+/// A duty in short: "Line 5 · Tour 2 · Duty 1".
+pub fn duty_words(number: &str, r: &DutyRef) -> String {
+    format!("{} {}  ·  {} {}  ·  {} {}", tr("Line"), number, tr("Tour"), r.tour, tr("Duty"), r.duty + 1)
 }
 
-/// The Multiplayer page's badge in the strip, and its tip: the company is not shared.
-pub fn rail_badge(_c: &Company) -> (Value, String) {
-    (Value::Null, format!("{}\n{}", tr("Multiplayer"), tr("Not shared: start sharing to let friends join")))
+/// A role as the pages show it: its key, name, icon and what it is for.
+pub fn role_json(r: Role) -> Value {
+    json!({ "key": r.key(), "label": tr(r.label()), "icon": r.icon(), "about": tr(r.about()) })
 }
 
-/// The Multiplayer tile on the start screen.
-pub fn tile_line(c: &Company) -> (String, &'static str) {
-    if c.together.guests.is_empty() {
-        (tr("Not shared"), "soft")
-    } else {
-        (trf("Not shared · %{n} players", &[("n", &c.together.guests.len().to_string())]), "soft")
-    }
+/// A permission as the pages show it.
+pub fn perm_json(p: Perm) -> Value {
+    json!({ "key": p.key(), "label": tr(p.label()), "icon": p.icon() })
 }
 
-/// A duty given to a player of the session: there is no session.
-pub fn give_to_guest(_s: &mut Session, _p: &DayPlan, _ti: usize, _k: usize, _guest: u32) -> Value {
-    json!({})
+/// Every role and permission, for the pages' editors.
+pub fn roles_json() -> Value {
+    json!({
+        "roles": Role::ALL.iter().map(|r| { let mut v = role_json(*r); v["perms"] = json!(r.preset().iter().map(|p| p.key()).collect::<Vec<_>>()); v }).collect::<Vec<_>>(),
+        "perms": Perm::ALL.iter().map(|p| perm_json(*p)).collect::<Vec<_>>(),
+    })
 }
 
-/// The company `s` has open closes (or another opens, `to`): a session of it would end here.
-pub fn closing_company(_s: &mut Session, _to: Option<&str>) {}
+/// Permissions as the pages send them (their keys).
+fn perms_arg(args: &Value) -> Vec<Perm> {
+    args.get("perms").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().and_then(Perm::of)).collect()).unwrap_or_default()
+}
 
-/// The company's pages for a player whose role allows them: what each needs (the old
-/// `together/relay.rs`, the parts the company's pages use).
-pub mod relay {
-    use crate::company::{CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, SANDBOX_TAB, WORKSHOP_TAB};
-    use hub_core::company::together::Perm;
-    use serde_json::{json, Value};
+/// A duty as a page sends it back.
+fn duty_arg(args: &Value) -> Option<DutyRef> {
+    serde_json::from_value(args.get("duty").cloned().unwrap_or(Value::Null)).ok()
+}
 
-    /// Why a relayed command is refused (English: keys of the translations).
-    pub const FROM_AFAR: &str = "Only the boss can do this, on his own launcher.";
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
 
-    /// What a command needs of a player.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum Need {
-        /// Any player of the company.
-        Member,
-        /// One of these permissions.
-        Any(&'static [Perm]),
-        /// Never from afar.
-        Never,
-    }
+#[cfg(test)]
+mod tests {
+    use crate::launcher::company::together::{book, client, code, host, roles};
 
-    use Need::{Any, Member, Never};
-
-    const FINANCES: Need = Any(&[Perm::Finances]);
-    const SPEND: Need = Any(&[Perm::Spend]);
-    const STAFF: Need = Any(&[Perm::Staff]);
-    const LINES: Need = Any(&[Perm::Lines]);
-    const PLANS: Need = Any(&[Perm::Plans]);
-    const SERVICE: Need = Any(&[Perm::Service]);
-    const SETTINGS: Need = Any(&[Perm::Settings]);
-    /// The fleet's page: who buys, plans or runs the day's service.
-    const FLEET: Need = Any(&[Perm::Spend, Perm::Plans, Perm::Service]);
-    /// RosterFlow and the planning seen: who plans, runs the lines or the day's service, or
-    /// gives and approves the players' duties.
-    pub const RF_VIEW: Need = Any(&[Perm::Plans, Perm::Lines, Perm::Service, Perm::Assign, Perm::Approve]);
-
-    impl Need {
-        /// Whether `perms` meet it.
-        pub fn met(self, perms: &[Perm]) -> bool {
-            match self {
-                Member => true,
-                Any(ps) => ps.iter().any(|p| perms.contains(p)),
-                Never => false,
-            }
-        }
-    }
-
-    /// What a page of the company needs.
-    pub fn tab_need(tab: usize) -> Need {
-        match tab {
-            // Overview, Finances, Reputation: the money
-            0 | 4 | REPUTATION_TAB => FINANCES,
-            1 => FLEET,
-            2 => STAFF,
-            3 => LINES,
-            // (the planning - RosterFlow with its add-on on - seen read-only without PLANS)
-            5 => RF_VIEW,
-            14 => PLANS,
-            // the boss's own career
-            6 => Never,
-            DEPOT_TAB | CONCESSIONS_TAB | RESEARCH_TAB | WORKSHOP_TAB | CONTRACTS_TAB => SPEND,
-            MAP_TAB => Member,
-            INBOX_TAB | SANDBOX_TAB => SETTINGS,
-            OPS_TAB => SERVICE,
-            _ => Never,
-        }
-    }
-
-    /// The company's shell (`company::shell`) as a player with `perms` sees it: the pages he may
-    /// see, the money only when he may see it, no clock to run and nothing of the boss's own.
-    pub fn shell_for(mut sh: Value, perms: &[Perm]) -> Value {
-        let may = |tab: usize| tab_need(tab).met(perms);
-        if let Some(rail) = sh.get_mut("rail").and_then(Value::as_array_mut) {
-            for g in rail.iter_mut() {
-                if let Some(items) = g.as_array_mut() {
-                    items.retain(|it| it.get("tab").and_then(Value::as_u64).is_some_and(|t| may(t as usize)));
+    /// Every text of "Play together" - the company's side, the launcher's and the page's
+    /// (`together.js`, `multiplayer.js`) - in the six languages.
+    #[test]
+    fn every_together_text_is_translated() {
+        let mut texts: Vec<String> =
+            book::texts().into_iter().chain(host::texts()).chain(roles::texts()).chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED]).map(String::from).collect();
+        let js = include_str!("../../../ui/js/company/together.js");
+        let mp = include_str!("../../../ui/js/company/multiplayer.js");
+        // (this file without its tests)
+        let own = include_str!("together.rs").split("#[cfg(test)]").next().unwrap_or("");
+        let relay = include_str!("together/relay.rs").split("#[cfg(test)]").next().unwrap_or("");
+        let sources =
+            [(own, "tr(\"", '"'), (include_str!("together/host.rs"), "tr(\"", '"'), (include_str!("together/join.rs"), "tr(\"", '"'), (relay, "tr(\"", '"'), (js, "tr('", '\''), (mp, "tr('", '\'')];
+        for (src, lead, end) in sources {
+            for lead in [lead.to_string(), lead.replacen("tr(", "trf(", 1)] {
+                let mut rest = src;
+                while let Some(k) = rest.find(lead.as_str()) {
+                    let after = &rest[k + lead.len()..];
+                    rest = after;
+                    let mut t = String::new();
+                    let mut chars = after.chars();
+                    while let Some(c) = chars.next() {
+                        match c {
+                            '\\' => t.extend(chars.next()),
+                            c if c == end => break,
+                            c => t.push(c),
+                        }
+                    }
+                    if t.chars().filter(|c| c.is_alphabetic()).count() >= 2 {
+                        texts.push(t);
+                    }
                 }
             }
-            rail.retain(|g| g.as_array().is_some_and(|a| !a.is_empty()));
         }
-        if let Some(pages) = sh.get_mut("pages").and_then(Value::as_array_mut) {
-            pages.retain(|t| t.as_u64().is_some_and(|t| may(t as usize)));
-        }
-        if let Some(status) = sh.get_mut("status").and_then(Value::as_array_mut) {
-            for it in status.iter_mut() {
-                let tab = it.get("tab").and_then(Value::as_u64);
-                if tab.is_some_and(|t| !may(t as usize)) {
-                    it["tab"] = Value::Null;
+        assert!(texts.len() > 100, "only {} texts found", texts.len());
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::launcher::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
                 }
             }
-            if !Need::met(FINANCES, perms) {
-                status.retain(|it| it.get("icon").and_then(Value::as_str) != Some("payments"));
-            }
         }
-        if let Some(k) = sh.get_mut("clock") {
-            k["speed"] = json!(0.0);
-            k["tip"] = Value::Null;
-        }
-        for key in ["reports", "away", "launch", "asking"] {
-            sh[key] = json!(false);
-        }
-        sh["casual_pages"] = Value::Null;
-        sh["bell"] = json!(0);
-        sh["together"] = json!({ "on": false });
-        sh["remote"] = json!({ "perms": perms.iter().map(|p| p.key()).collect::<Vec<_>>() });
-        sh
+        assert!(missing.is_empty(), "{} missing (crates/omsihub-locales/locales/company-together.yml):\n{}", missing.len(), missing.join("\n"));
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+    struct NoPlatform;
+    impl crate::Platform for NoPlatform {}
 
-        #[test]
-        fn a_player_sees_the_pages_his_role_allows() {
-            assert!(RF_VIEW.met(&[Perm::Plans]) && !RF_VIEW.met(&[Perm::Drive]));
-            assert!(!tab_need(6).met(&[Perm::Plans, Perm::Finances]), "the boss's career is his own");
-            let sh = json!({ "pages": [0, 1, 5, 6], "rail": [[{ "tab": 0 }, { "tab": 5 }], [{ "tab": 6 }]], "status": [], "clock": { "speed": 2.0 } });
-            let out = shell_for(sh, &[Perm::Plans]);
-            assert_eq!(out["pages"], json!([1, 5]));
-            assert_eq!(out["rail"], json!([[{ "tab": 5 }]]));
-            assert_eq!(out["clock"]["speed"], json!(0.0));
+    /// On for the company mode, unless the kill switch is set; switched off, every command is
+    /// refused - no server starts, nobody joins - and the gate says so.
+    #[test]
+    fn playing_together_is_on_unless_switched_off() {
+        let p = NoPlatform;
+        let gate = super::call("tg_gate", &serde_json::json!({}), &p).unwrap().unwrap();
+        assert_eq!(gate["on"], super::enabled());
+        if !super::KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set() {
+            assert!(super::enabled(), "on without a switch");
         }
+        if super::enabled() {
+            return;
+        }
+        let p = NoPlatform;
+        let gate = super::call("tg_gate", &serde_json::json!({}), &p).unwrap().unwrap();
+        assert_eq!(gate["on"], false);
+        for cmd in ["tg_host_start", "tg_host_badge", "tg_join", "tg_view"] {
+            let v = super::call(cmd, &serde_json::json!({ "code": "ABC" }), &p).unwrap().unwrap();
+            assert_eq!(v["off"], true, "{cmd}");
+        }
+        assert!(super::host::hosting_none(), "no session was started");
     }
 }

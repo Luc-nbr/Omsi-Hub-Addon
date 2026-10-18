@@ -46,6 +46,7 @@ hub-livery = { path = "crates/hub-livery" }
 # the game reads it. Pinned to one commit of the fork.
 omsi-cfg = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-model = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-net = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-o3d = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-sim = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-texture = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }

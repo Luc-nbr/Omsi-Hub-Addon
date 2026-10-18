@@ -333,6 +333,12 @@ pub fn duty_link() -> Option<(PathBuf, Assigned)> {
     (!a.plugin_dir.is_empty() && dir.is_dir()).then_some((dir, a))
 }
 
+/// The plugin's folder in the player's openOMSI, where it is installed (Play together's drives
+/// read its files).
+pub fn game_plugin_dir() -> Option<PathBuf> {
+    plugins_dir().ok().map(|d| install::plugin_dir(&d))
+}
+
 /// Notices for the driver in the game, as cards (`data/notices.json`): where the plugin is on.
 pub fn notify_game(notices: Vec<bridge::Notice>) {
     if notices.is_empty() {

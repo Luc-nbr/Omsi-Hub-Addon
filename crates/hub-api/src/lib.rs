@@ -19,6 +19,9 @@
 //! A command no module knows answers `unknown command`; one whose module is not ported yet
 //! answers [`not_ported`]. Arguments are one JSON object; [`arg`] reads one of them.
 
+// (Play together's page words are one `json!` too deep for the default)
+#![recursion_limit = "512"]
+
 pub mod addon;
 pub mod cloud;
 pub mod company;
@@ -85,7 +88,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         c if c.starts_with("addon_") => addon::call(c, args, p),
         c if c.starts_with("co_") => company::call(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call(c, args, p),
-        c if c.starts_with("tg_") => together::call(c, args, p),
+        c if c.starts_with("tg_") => together::call(c, args, p).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         c if c.starts_with("ol_") => online::call(c, args, p),
         c if c.starts_with("cs_") => cloud::call(c, args, p),
         c if c.starts_with("tt_") => timetable::call(c, args, p),
@@ -116,7 +119,8 @@ mod tests {
     #[test]
     fn commands_go_by_their_prefix() {
         assert_eq!(call("nope", &json!({}), &Quiet), Err("unknown command: nope".into()));
-        assert_eq!(call("tg_host", &json!({}), &Quiet), Err(not_ported("tg_host")));
+        // (Play together answers: its gate open, a command it does not know refused)
+        assert!(call("tg_gate", &json!({}), &Quiet).is_ok_and(|v| v.get("on").is_some()));
         // (the ported modules say so of a command they do not know)
         for cmd in ["co_nope", "rf_nope", "tt_nope", "de_nope"] {
             assert_eq!(call(cmd, &json!({}), &Quiet), Err(format!("unknown command: {cmd}")), "{cmd}");

@@ -36,6 +36,8 @@ hashbrown.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
 log.workspace = true
+# (Play together: the company server's key and the addresses friends join by, `together`)
+omsi-net.workspace = true
 hub-livery.workspace = true
 glam.workspace = true
 sha2.workspace = true

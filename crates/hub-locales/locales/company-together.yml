@@ -828,3 +828,17 @@ _version: 2
   pl: "Firma szefa jest właśnie zajęta swoim dniem: spróbuj za chwilę."
   ru: "Компания босса сейчас занята своим днём: попробуйте чуть позже."
   uk: "Компанія боса зараз зайнята своїм днем: спробуйте трохи згодом."
+"Multiplayer":
+  nl: "Multiplayer"
+  de: "Mehrspieler"
+  fr: "Multijoueur"
+  ru: "Мультиплеер"
+  uk: "Мультиплеєр"
+  pl: "Gra wieloosobowa"
+"Session code":
+  nl: "Sessiecode"
+  de: "Sitzungscode"
+  fr: "Code de session"
+  ru: "Код сессии"
+  uk: "Код сесії"
+  pl: "Kod sesji"

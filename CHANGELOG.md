@@ -60,6 +60,10 @@ never changes their files.
   its destinations, its timetable and its kind of service; saved into the map's timetable so
   you and the timetable's buses drive it. For the bus company: its map, its lines, the estimate
   and "Confirm and pay". A line of the map's own opens to change it.
+- **Playing together**, as in the old Omsi-Hub: the boss shares the open company with a session
+  code, friends join it in their own Omsi-Hub with the role the boss gives them and drive their
+  duties in their own game. Over the LAN or a VPN, and over the internet through a Cloudflare
+  tunnel whose address goes over openOMSI's own relay (no port forwarding needed).
 - **The game's buses and traffic on the fleet map**: while you drive on the company's map, your
   bus and every bus of the company's tours the game drives are where the game has them, with the
   game's delay; the game's cars, trams and bicycles, the buses of the lines the company does not
@@ -69,7 +73,6 @@ never changes their files.
 
 ### Not in it yet
 
-- **Playing together** (it needs a relay server): its page says so.
 - **What needs a newer openOMSI plugin API** than the official releases have: the bus's own display
   font, the IBIS typed in for you, closed stops struck through on the navigator, and the duty board
   docked in the navigator. The launcher shows which ones your openOMSI supports.

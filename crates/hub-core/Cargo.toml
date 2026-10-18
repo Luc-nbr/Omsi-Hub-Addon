@@ -8,6 +8,10 @@ description = "Omsi-Hub's domain: the bus company, RosterFlow, careers; its own 
 
 [dependencies]
 hub-omsi.workspace = true
+# (Play together's company server: openOMSI's LAN layer for its key, its addresses, the
+# Cloudflare tunnel and openOMSI's relay - from Luc's fork, THIRD_PARTY_NOTICES.md)
+omsi-net.workspace = true
+omsi-cfg.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

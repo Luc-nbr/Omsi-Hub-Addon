@@ -1,10 +1,8 @@
 //! The boss's launcher's company server: plain HTTP on a TCP port of its own, on every address
-//! of the machine (the LAN's, a VPN's).
-//!
-//! **Not in the add-on yet:** the way in from the internet. The old Omsi-Hub put a Cloudflare
-//! quick tunnel in front of the server and posted its address on openOMSI's relay; Omsi-Hub
-//! needs a relay of its own for that ([`Server::open_tunnel`] leaves the tunnel off). Until
-//! then friends play over the LAN or a VPN.
+//! of the machine (the LAN's, a VPN's), and - where `cloudflared` is or can be fetched, as the
+//! game's own gateway does it (`omsi_net::tunnel`) - a free Cloudflare quick tunnel in front of
+//! it, whose address is posted under the session on the game's relay (`omsi_net::bridge`), so
+//! that a friend across the internet needs no port forwarding and no VPN.
 //!
 //! `POST /together` with a `wire::Request` is answered by the handler the launcher gives (JSON
 //! in, JSON out); `GET /together` says the server is there. One short connection a message, a
@@ -14,7 +12,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The port the server tries first (the next free one after it, else any).
 pub const DEFAULT_PORT: u16 = 27045;
@@ -23,6 +21,8 @@ const MAX_BODY: usize = 1 << 20;
 const MAX_HEAD: usize = 16 << 10;
 /// At most this many connections at once.
 const MAX_OPEN: usize = 48;
+/// The tunnel's process id file (`~/.openomsi/<name>`: its own, not the game's).
+const TUNNEL_PID: &str = "together-cloudflared.pid";
 
 /// What answers a request's body (JSON) with the answer's (JSON).
 pub type Handler = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -30,7 +30,7 @@ pub type Handler = Arc<dyn Fn(&str) -> String + Send + Sync>;
 /// Where the tunnel stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TunnelState {
-    /// Not asked for, or not available (Omsi-Hub has no relay of its own yet).
+    /// Not asked for (`OMSI_NO_TUNNEL`), or not yet started.
     Off,
     /// cloudflared is fetched or starting.
     Starting,
@@ -45,6 +45,8 @@ pub struct Server {
     port: u16,
     stop: Arc<AtomicBool>,
     tunnel: Arc<Mutex<TunnelState>>,
+    /// The tunnel's process (held while it runs).
+    process: Arc<Mutex<Option<omsi_net::tunnel::Tunnel>>>,
 }
 
 impl Drop for Server {
@@ -52,6 +54,9 @@ impl Drop for Server {
         self.stop.store(true, Ordering::Relaxed);
         // (the accept loop wakes to see it)
         let _ = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], self.port)), Duration::from_millis(300));
+        if let Ok(mut p) = self.process.lock() {
+            p.take();
+        }
     }
 }
 
@@ -100,7 +105,7 @@ impl Server {
                 }
             }
         })?;
-        Ok(Server { port, stop, tunnel: Arc::new(Mutex::new(TunnelState::Off)) })
+        Ok(Server { port, stop, tunnel: Arc::new(Mutex::new(TunnelState::Off)), process: Arc::new(Mutex::new(None)) })
     }
 
     pub fn port(&self) -> u16 {
@@ -111,13 +116,56 @@ impl Server {
         self.tunnel.lock().map(|t| t.clone()).unwrap_or(TunnelState::Failed)
     }
 
-    /// Open the way in from the internet. **Not available yet:** it needs a relay of
-    /// Omsi-Hub's own (the old one was openOMSI's), so the tunnel stays off and friends join
-    /// over the LAN or a VPN.
-    pub fn open_tunnel(&self) {
-        if let Ok(mut t) = self.tunnel.lock() {
-            *t = TunnelState::Off;
+    /// Open the way in from the internet: a quick tunnel to the port (cloudflared fetched first
+    /// when it is not installed), its address posted under the session of `key` - again every
+    /// half hour, and a new tunnel when Cloudflare drops it. In the background.
+    pub fn open_tunnel(&self, key: Arc<omsi_net::hostkey::HostKey>) {
+        if omsi_cfg::flags::OMSI_NO_TUNNEL.is_set() || omsi_cfg::flags::OMSI_NO_BRIDGE.is_set() {
+            return;
         }
+        let (state, process, stop, port) = (self.tunnel.clone(), self.process.clone(), self.stop.clone(), self.port);
+        let set = move |s: TunnelState| {
+            if let Ok(mut t) = state.lock() {
+                *t = s;
+            }
+        };
+        set(TunnelState::Starting);
+        let _ = std::thread::Builder::new().name("company tunnel".into()).spawn(move || {
+            let Some(bin) = omsi_net::tunnel::ensure_cloudflared() else {
+                set(TunnelState::Failed);
+                return;
+            };
+            let mut posted: Option<(String, Instant)> = None;
+            let mut checked = Instant::now() - Duration::from_secs(60);
+            while !stop.load(Ordering::Relaxed) {
+                // (started, or started again when it ended)
+                if checked.elapsed() > Duration::from_secs(15) {
+                    checked = Instant::now();
+                    let mut p = process.lock().unwrap_or_else(|e| e.into_inner());
+                    let dead = p.as_mut().is_none_or(|t| !t.alive());
+                    if dead {
+                        *p = omsi_net::tunnel::Tunnel::start_with(&bin, port, TUNNEL_PID);
+                        posted = None;
+                        if p.is_none() {
+                            set(TunnelState::Failed);
+                        }
+                    }
+                }
+                let url = process.lock().ok().and_then(|p| p.as_ref().and_then(|t| t.url.lock().ok().and_then(|u| u.clone())));
+                if let Some(u) = url {
+                    let due = posted.as_ref().is_none_or(|(p, t)| *p != u || t.elapsed() > Duration::from_secs(1800));
+                    if due {
+                        omsi_net::bridge::post_tunnel(&key, &u);
+                        posted = Some((u.clone(), Instant::now()));
+                        set(TunnelState::Ready(u));
+                    }
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            if let Ok(mut p) = process.lock() {
+                p.take();
+            }
+        });
     }
 }
 

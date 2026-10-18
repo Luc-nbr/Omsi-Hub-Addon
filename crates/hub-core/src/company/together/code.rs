@@ -1,6 +1,7 @@
 //! The company's session code (`HUB-XXXX-XXXX-…`), the game's session code's sibling: where the
-//! boss's launcher is (its port and up to three addresses, a gaming VPN's first), the session
-//! (the fingerprint of its key: a relay would post the boss's tunnel under it), the secret
+//! boss's launcher is (its port and up to three addresses, a gaming VPN's first, as
+//! `omsi_net::code_ipv4s` gives them), the session (the fingerprint of its key: the tunnel's
+//! address is posted under it on the game's relay, `omsi_net::bridge::post_tunnel`), the secret
 //! a friend's launcher shows with every message, and which company it is (a short tag of its
 //! id). In the game codes' alphabet, without look-alike characters, in groups of four.
 //!
@@ -122,7 +123,7 @@ impl CompanyCode {
         let t = text.trim().to_ascii_uppercase();
         match Self::read(&t) {
             // (the game's code pasted instead: said so)
-            Err(_) if !t.starts_with("HUB") && t.starts_with("OMSI") => Err(GAME_CODE),
+            Err(_) if !t.starts_with("HUB") && (t.starts_with("OMSI") || omsi_net::looks_like_code(&t)) => Err(GAME_CODE),
             r => r,
         }
     }
@@ -213,8 +214,8 @@ mod tests {
         assert_eq!(CompanyCode::decode(&text[..text.len() - 6]), Err(NOT_A_CODE));
         assert_eq!(CompanyCode::decode("hello"), Err(NOT_A_CODE));
         // the game's code instead
-        let game = "OMSI-7KQ2-XW4P-9DLM";
-        assert_eq!(CompanyCode::decode(game), Err(GAME_CODE));
+        let game = omsi_net::SessionCode::single(7, Ipv4Addr::new(192, 168, 1, 20), 27015, 0x1234_5678_9ABC).encode();
+        assert_eq!(CompanyCode::decode(&game), Err(GAME_CODE));
         // another version
         let mut other = code(1);
         other.version = VERSION + 1;
