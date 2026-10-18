@@ -133,7 +133,7 @@ const gameSettings = () => ({
 });
 
 const answers = {
-  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.7.0', bridge: 1 }),
+  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.8.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
   hub_texts: () => ({}),
   // (`?migrate` offers the old saves once, as `hub_setup_state` does when ~/.openomsi has some)
