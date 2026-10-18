@@ -42,10 +42,9 @@ export const CHECKS = [
     const v = await call('hub_version');
     check(v.min_openomsi === '0.2.22', 'min_openomsi ' + v.min_openomsi);
   }],
-  ['api: an unported command says so', async () => {
-    let said = '';
-    try { await call('tg_status'); } catch (e) { said = String(e); }
-    check(said.startsWith('not ported yet'), said);
+  ['api: Play together\'s gate answers', async () => {
+    const v = await call('tg_gate', {});
+    check(typeof v?.on === 'boolean', JSON.stringify(v));
   }],
   ['api: openOMSI\'s settings answer by group', async () => {
     const v = await call('addon_game_settings');

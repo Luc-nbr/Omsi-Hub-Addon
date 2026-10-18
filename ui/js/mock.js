@@ -263,6 +263,7 @@ const answers = {
     { source: { kind: 'own', path: 'depots/grundorf-eigen.hof' }, text: 'A copy of mine: %{name}', args: { name: DEPOT.name } },
   ],
   de_make: () => ({ entries: DEPOTS, view: DEPOT }),
+  tg_gate: () => ({ on: true, label: '' }),
 
   ...companyAnswers,
   ...rosterflowAnswers,
