@@ -58,12 +58,21 @@ enum Place {
     Memory(Arc<Vec<u8>>),
 }
 
-/// A bus read lately: for its looks.
+/// A bus read lately: for its looks, while the files its looks depend on are as they were when
+/// it was read (`stamps`: a livery the studio saved since is a new `.cti` beside the others).
 struct Read {
     bus: String,
     read: Arc<BusRead>,
     head: Arc<Head>,
     manifest: Arc<Manifest>,
+    stamps: Vec<(PathBuf, u64, u64)>,
+}
+
+impl Read {
+    fn new(bus: &str, read: Arc<BusRead>, head: Arc<Head>, manifest: Arc<Manifest>) -> Read {
+        let stamps = stamps_of(&look::look_sources(&read));
+        Read { bus: bus.to_lowercase(), read, head, manifest, stamps }
+    }
 }
 
 #[derive(Default)]
@@ -233,7 +242,7 @@ pub fn pack_of(root: &Path, bus: &str) -> Result<(Arc<Manifest>, bool), String> 
         manifest.counts.textures,
         manifest.bytes as f64 / 1e6
     ));
-    reg().last = Some(Read { bus: bus.to_lowercase(), read: built.read, head: Arc::new(built.head), manifest: manifest.clone() });
+    reg().last = Some(Read::new(bus, built.read, Arc::new(built.head), manifest.clone()));
     Ok((manifest, false))
 }
 
@@ -282,7 +291,9 @@ pub fn pack_bytes(id: &str, range: Option<(u64, u64)>) -> Result<Vec<u8>, String
 fn read_for_look(root: &Path, bus: &str, manifest: &Manifest) -> Result<(Arc<BusRead>, Arc<Head>), String> {
     {
         let r = reg();
-        if let Some(l) = r.last.as_ref().filter(|l| l.bus == bus.to_lowercase() && l.manifest.pack == manifest.pack) {
+        // (Luc's livery of the studio drawn as the white bus: the read from before its save
+        // knew no paint of its name - read again once the bus's looks' files changed)
+        if let Some(l) = r.last.as_ref().filter(|l| l.bus == bus.to_lowercase() && l.manifest.pack == manifest.pack && fresh(&l.stamps)) {
             return Ok((l.read.clone(), l.head.clone()));
         }
     }
@@ -290,7 +301,7 @@ fn read_for_look(root: &Path, bus: &str, manifest: &Manifest) -> Result<(Arc<Bus
     let (head, _) = pack::read_pack(&bytes)?;
     let read = Arc::new(pack::read_bus(root, bus).map_err(|e| format!("{e:#}"))?);
     let head = Arc::new(head);
-    reg().last = Some(Read { bus: bus.to_lowercase(), read: read.clone(), head: head.clone(), manifest: Arc::new(manifest.clone()) });
+    reg().last = Some(Read::new(bus, read.clone(), head.clone(), Arc::new(manifest.clone())));
     Ok((read, head))
 }
 
@@ -298,7 +309,8 @@ fn read_for_look(root: &Path, bus: &str, manifest: &Manifest) -> Result<(Arc<Bus
 pub fn look_of(root: &Path, bus: &str, manifest: &Manifest, paint: Option<&str>, options: &[(String, f32)]) -> Result<Look, String> {
     let mut opts: Vec<(String, f32)> = options.to_vec();
     opts.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-    let key = tex::id_of(&format!("look-1|{}|{:?}", paint.unwrap_or("").trim().to_lowercase(), opts));
+    // (look-2: the looks kept by a read from before a livery's save are worked out again)
+    let key = tex::id_of(&format!("look-2|{}|{:?}", paint.unwrap_or("").trim().to_lowercase(), opts));
     let file = dir().join("l").join(format!("{}-{key}.json", manifest.pack));
     if let Some(kept) = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<KeptLook>(&b).ok()) {
         if fresh(&kept.stamps) && kept.look.visible.len() == manifest.counts.entries {
