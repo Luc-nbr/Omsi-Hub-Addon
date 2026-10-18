@@ -12,7 +12,7 @@
 // "bell"). The sidebar's state and the pages pinned at its top are the launcher's settings
 // (`company_sidebar`, `company_pins`).
 
-import { S, set } from '../store.js';
+import { S } from '../store.js';
 import { saveSettings } from '../hub/drive.js';
 import { dark } from '../hub/theme.js';
 import { flipLook } from '../hub/bar.js';
@@ -22,6 +22,7 @@ import { TOGETHER_TAB } from './together.js';
 import { togetherOn, blockedLabel } from './gate.js';
 import { MOD, keys } from '../hub/bits.js';
 import { follow } from './agenda.js';
+import { openOnline } from '../hub/online.js';
 
 /** What the screen around the shell does for it (`company.js`): back to the start, the tour. */
 export const shellHooks = { back: () => {}, tour: () => {} };
@@ -174,9 +175,9 @@ function otherCompany() {
   cmd('co_act', { act: 'play', speed: 0 }).finally(() => setCo({ chooser: 'companies' }));
 }
 
-/** The online panel: the account and friends (`online.js`, as its own button opens it). */
+/** The online panel, on its Account tab (the settings, signed in or not). */
 function openAccount() {
-  set({ hub: { ...S.hub, online: S.hub?.online ? null : 'auto' } });
+  openOnline('account');
 }
 
 // --- the recent places -----------------------------------------------------------------------
@@ -516,7 +517,7 @@ function Avatar() {
   const item = (icon, label, f, more = {}) => html`<button type="button" class="co-pop-item" disabled=${more.disabled} title=${more.title || label} onClick=${pick(f)}><${Icon} name=${icon} size=${17} /><span class="grow cut">${label}</span>${more.kbd && html`<kbd>${more.kbd}</kbd>`}</button>`;
   const tg = togetherOn();
   return html`<span class="co-top-avatar" ref=${ref}>
-    <button type="button" class=${'co-top-me' + (open ? ' on' : '') + (S.hub?.online ? ' online' : '')} title=${tr('Account')} onClick=${() => setOpen(!open)}><${Icon} name="account_circle" size=${22} /></button>
+    <button type="button" class=${'co-top-me' + (open ? ' on' : '') + (S.onlinePanel ? ' online' : '')} title=${tr('Account')} onClick=${() => setOpen(!open)}><${Icon} name="account_circle" size=${22} /></button>
     ${open && html`<div class="co-pop co-pop-right">
       ${!remote && item('account_circle', tr('Account'), openAccount)}
       ${!remote && item('wifi_tethering', tr('Multiplayer'), openTogether, { disabled: !tg, title: tg ? tr('Multiplayer') : blockedLabel() })}
