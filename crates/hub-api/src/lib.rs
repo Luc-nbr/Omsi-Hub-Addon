@@ -28,6 +28,7 @@ pub mod drive;
 pub mod hub;
 pub mod lak;
 pub mod launcher;
+pub mod lineeditor;
 pub mod online;
 pub mod privacy;
 pub mod rosterflow;

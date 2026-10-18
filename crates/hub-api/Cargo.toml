@@ -26,6 +26,16 @@ omsi-o3d.workspace = true
 omsi-sim.workspace = true
 omsi-texture.workspace = true
 omsi-vehicle.workspace = true
+# (the line editor: the map's lanes and stops read from its tiles, `lineeditor/navmap.rs`)
+omsi-geometry.workspace = true
+omsi-map.workspace = true
+omsi-scenery.workspace = true
+omsi-timetable.workspace = true
+omsi-world.workspace = true
+hashbrown.workspace = true
+parking_lot.workspace = true
+rayon.workspace = true
+log.workspace = true
 hub-livery.workspace = true
 glam.workspace = true
 sha2.workspace = true

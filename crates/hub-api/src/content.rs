@@ -45,9 +45,6 @@ use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
-/// What the line editor answers until Omsi-Hub reads the map's lanes itself.
-pub const NO_LINE_EDITOR: &str = "The line editor is not available yet";
-
 /// A `hub_` command of the drive's steps.
 pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
     match cmd {
@@ -80,7 +77,8 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "hub_more_font_set" => fonts::set(args),
         "hub_more_font_add" => fonts::add(args),
         "hub_display_preview" => Ok(fonts::display_preview(&str_arg(args, "bus"), &str_arg(args, "text"))),
-        "hub_le" => Err(NO_LINE_EDITOR.to_string()),
+        // (the line editor, the old app's headless one: every change a request, the view answered)
+        "hub_le" => Ok(crate::lineeditor::headless::serve(args)),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }
@@ -608,8 +606,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_line_editor_says_it_is_not_there_yet() {
-        assert_eq!(call("hub_le", &json!({ "op": "open" }), &crate::Quiet), Err(NO_LINE_EDITOR.to_string()));
+    fn the_line_editor_answers_its_view_and_unknown_commands_are_refused() {
+        assert!(call("hub_le", &json!({ "op": "view" }), &crate::Quiet).is_ok_and(|v| v.is_object()));
         assert_eq!(call("hub_situations", &json!({ "map": "maps/x/global.cfg" }), &crate::Quiet), Ok(json!([])));
         assert_eq!(call("hub_nope", &json!({}), &crate::Quiet), Err("unknown command: hub_nope".into()));
         assert_eq!(call_bytes("hub_nope", &json!({}), &crate::Quiet), Err("unknown command: hub_nope".into()));
