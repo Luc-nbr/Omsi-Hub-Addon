@@ -731,10 +731,10 @@ fn data() -> PathBuf {
     hub_core::data_dir()
 }
 
-/// The driver's name the companies are kept under (`profile` in the settings; empty: every
-/// company is the driver's).
+/// The driver's name the companies are kept under (`driver` in the settings, as the drive and
+/// the company's chooser read it; none chosen: every company is the driver's).
 fn profile() -> String {
-    hub_core::settings::Settings::load().other.get("profile").and_then(Value::as_str).unwrap_or("").to_string()
+    hub_core::settings::Settings::load().other.get("driver").and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 /// How often a changed cloud company goes up, and the cloud is listed again.
@@ -824,7 +824,8 @@ fn name_of(id: &str) -> String {
 fn worker() {
     loop {
         // (signed in with the privacy statement agreed to: before, the cloud is not asked)
-        let signed = online::with(|c| c.signed_in() && !c.privacy_needed());
+        // (another driver than the account's plays locally: `drivers::plays_online`)
+        let signed = online::with(|c| c.signed_in() && !c.privacy_needed()) && crate::drivers::plays_online();
         if signed {
             let stale = { now().saturating_sub(state().listed_at) >= LIST_EVERY };
             if stale {
@@ -1120,6 +1121,10 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
     let slot = args.get("slot").and_then(Value::as_u64).map(|n| n.min(255) as u8);
     // (an id is a file's name in the companies' folder: nothing that reaches outside it)
     let ok_id = !id.is_empty() && !id.contains(['/', '\\', '.']) && files::path_of(&data(), &id).exists();
+    // (the cloud saves are the account's driver's: another driver keeps theirs here)
+    if matches!(cmd, "cs_resolve" | "cs_put" | "cs_sync" | "cs_download" | "cs_remove") && !crate::drivers::plays_online() {
+        return Ok(error(Error::Code("not_signed_in")));
+    }
     Ok(match cmd {
         "cs_state" => view(),
         "cs_companies" => companies(),

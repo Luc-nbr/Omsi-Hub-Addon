@@ -62,26 +62,31 @@ export const CHECKS = [
     check(t('%{a} of %{b}', { a: 1, b: 2 }) === '1 of 2', t('%{a} of %{b}', { a: 1, b: 2 }));
   }],
   ['setup: the fixture folders are checked and kept', async () => {
-    // (the app passes fixtures/ with OMSIHUB_SELFTEST_FIXTURES: the setup filled in as a
-    // player would, then the shell)
+    // (the app passes fixtures/ with OMSIHUB_SELFTEST_FIXTURES: the welcome's folders filled in
+    // as a player would, then the welcome skipped and the shell)
     const fx = window.__OMSIHUB_FIXTURES__;
     if (!fx || !get().setup) return;
-    await until(() => document.querySelector('#setup-openomsi'));
+    await until(() => get().hubWelcome?.open);
+    set({ hubWelcome: { ...get().hubWelcome, step: 'folder' } });
+    await until(() => document.querySelector('#welcome-openomsi'));
     const type = (sel, value) => {
       const el = document.querySelector(sel);
       el.value = value;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    const said = () => (document.querySelector('#setup-openomsi-check') || {}).textContent || '';
-    type('#setup-openomsi', fx.old);
+    const said = () => (document.querySelector('#welcome-openomsi-check') || {}).textContent || '';
+    type('#welcome-openomsi', fx.old);
     await until(() => /0\.2\.22/.test(said()));
-    check(document.querySelector('#setup-save').disabled, 'saved with an old openOMSI');
-    type('#setup-openomsi', fx.openomsi);
-    type('#setup-omsi2', fx.omsi2);
-    await until(() => !document.querySelector('#setup-save').disabled);
+    check(!document.querySelector('#welcome-folders-save'), 'kept with an old openOMSI');
+    type('#welcome-openomsi', fx.openomsi);
+    type('#welcome-omsi2', fx.omsi2);
+    await until(() => document.querySelector('#welcome-folders-save'));
     check(/0\.2\.30/.test(said()), 'the version: ' + said());
-    document.querySelector('#setup-save').click();
-    await until(() => document.querySelector('.hub-bar'), 5000);
+    document.querySelector('#welcome-folders-save').click();
+    // (kept: the app boots on them, the welcome goes on at the account; skipped from there)
+    await until(() => !get().setup && get().hubWelcome?.step === 'account', 8000);
+    document.querySelector('.hub-wskip').click();
+    await until(() => !get().hubWelcome && document.querySelector('.hub-bar'), 5000);
     set({ page: 'settings' });
     // (the folders are on the second tab: openOMSI and OMSI 2)
     await until(() => document.querySelectorAll('#settings .hub-seg button').length > 1);
@@ -124,8 +129,8 @@ export const CHECKS = [
   }],
   ['shell: every page draws', async () => {
     if (get().setup) {
-      // (the folders are not chosen: the setup is what is shown)
-      await until(() => document.querySelector('#setup-openomsi'));
+      // (the folders are not chosen: the welcome is what is shown)
+      await until(() => document.querySelector('.hub-welcome'));
       return;
     }
     for (const p of PAGES) {

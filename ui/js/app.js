@@ -1,15 +1,16 @@
-// The app's start: the boot (`hub_boot`), the first-run setup when the folders are not chosen
-// yet, else Omsi-Hub's shell (`hub/hub.js`: the glass bar, the drive's start and steps, the bus
+// The app's start: the boot (`hub_boot`), the welcome when the folders are not chosen yet (its
+// first run: `hub/welcome.js`, which keeps them and boots the app), else Omsi-Hub's shell (`hub/hub.js`: the glass bar, the drive's start and steps, the bus
 // company, the editors, the pages of ./pages/index.js) with the messages in the corner.
 
 import { html, render, useEffect, useState } from '../vendor/preact-htm.js';
 import { call } from './api.js';
 import { setLanguage } from './i18n.js';
 import { PAGES } from './pages/index.js';
-import { MigrateOffer, Setup } from './setup.js';
+import { MigrateOffer } from './setup.js';
 import { set, useStore } from './store.js';
 import { startDrive, watchGame } from './hub/drive.js';
 import { HubShell } from './hub/hub.js';
+import { Welcome, welcomeFirstRun } from './hub/welcome.js';
 import { Icon } from './hub/bits.js';
 
 /** The selftest's run (the app opens the page with `?selftest`). */
@@ -43,11 +44,17 @@ function Migrate() {
   return html`<div class="hub-migrate"><${MigrateOffer} state=${state} onDone=${() => call('hub_setup_state').then(setState)} /></div>`;
 }
 
+/** The first run: the welcome over the start's ground, the folders among its steps. */
+function FirstRun() {
+  useEffect(() => welcomeFirstRun(() => boot()), []);
+  return html`<div class="hub-stage" style="--hub-scale:1"><${Welcome} /><${Toasts} /></div>`;
+}
+
 function App() {
   const b = useStore((s) => s.boot);
   const setup = useStore((s) => s.setup);
   if (!b) return html`<div class="splash"><img src="img/mark.svg" alt="" /></div>`;
-  if (setup) return html`<${Setup} onDone=${() => boot()} />`;
+  if (setup) return html`<${FirstRun} />`;
   return html`<${HubShell} pages=${SHELL_PAGES} Toasts=${Toasts} /><${Migrate} />`;
 }
 

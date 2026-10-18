@@ -15,8 +15,15 @@
 //! too), which also keeps when a driver was deleted: the sessions from before are not theirs
 //! any more when a new driver of the same name is made.
 //!
+//! The account (Omsi-Hub online, `online.rs`) belongs to one driver: the first sign-in on this
+//! computer makes or chooses the driver of the account's display name and keeps it as the
+//! account's (`account_driver` in the settings). The account's features - the friends and the
+//! online state, the leaderboard, the cloud saves - are that driver's; every other driver on this
+//! computer plays locally, without them ([`plays_online`]). Signed out, the link goes.
+//!
 //! Commands: `hub_profiles`, `hub_profile`, `hub_profile_create`, `hub_profile_delete`,
-//! `hub_profile_select`.
+//! `hub_profile_select`, `hub_profile_personnel` (the personnel number and code a driver signs
+//! on with, `make`: made now when there are none).
 
 use crate::{arg, to_json, Answer};
 use hub_core::settings::Settings;
@@ -29,13 +36,21 @@ use std::path::{Path, PathBuf};
 /// A command of the drivers, or None when `cmd` is not one.
 pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
-        "hub_profiles" => Ok(json!({ "names": list(), "current": chosen().unwrap_or_default() })),
+        "hub_profiles" => Ok(json!({ "names": list(), "current": chosen().unwrap_or_default(), "account": account_driver() })),
         "hub_profile" => arg::<String>(args, "name").and_then(|n| profile(&n)).and_then(to_json),
         "hub_profile_create" => arg::<String>(args, "name").and_then(|n| create(&n, &arg::<Option<String>>(args, "sex")?.unwrap_or_default())).and_then(to_json),
         "hub_profile_delete" => arg::<String>(args, "name").and_then(|n| delete(&n)).map(|_| json!(true)),
         "hub_profile_select" => arg::<String>(args, "name").and_then(|n| select(&n)),
+        "hub_profile_personnel" => personnel(args),
         _ => return None,
     })
+}
+
+/// A driver's personnel number and code (`make`: made now when there are none; else None).
+fn personnel(args: &Value) -> Answer {
+    let name: String = arg(args, "name")?;
+    let make = arg::<Option<bool>>(args, "make")?.unwrap_or(false);
+    Ok(json!(crate::addon::personnel_of(&name, make).map(|p| json!({ "number": p.number, "code": p.code }))))
 }
 
 /// One run of the game as openOMSI writes it when the game ends (`omsi-career`'s
@@ -429,6 +444,10 @@ pub fn create(name: &str, sex: &str) -> Result<Profile, String> {
 /// original installation or known only from openOMSI's sessions is hidden instead.
 pub fn delete(name: &str) -> Result<(), String> {
     let name = plain(name)?;
+    // (the account's driver is the account's while it is signed in)
+    if account_driver().is_some_and(|a| a.eq_ignore_ascii_case(name)) {
+        return Err(crate::online::tr("This driver has your account: sign out first."));
+    }
     if let Some(file) = write_path(name).filter(|f| f.exists()) {
         std::fs::remove_file(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     }
@@ -467,6 +486,58 @@ pub fn select(name: &str) -> Answer {
     s.other.insert("driver".into(), Value::String(name.to_string()));
     s.save().map_err(|e| e.to_string())?;
     Ok(json!({ "profile": name }))
+}
+
+// --- the account's driver ----------------------------------------------------------------------
+
+/// The settings' key of the driver the account belongs to.
+const ACCOUNT_KEY: &str = "account_driver";
+
+/// The driver the account on this computer belongs to, when one is signed in.
+pub fn account_driver() -> Option<String> {
+    Settings::load().other.get(ACCOUNT_KEY).and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_string)
+}
+
+/// The account's features are the driver's who drives now: the account's own driver (or any
+/// driver while no account is linked).
+pub fn plays_online() -> bool {
+    online_for(account_driver().as_deref(), chosen().as_deref())
+}
+
+/// Whether the driver `chosen` has the account's features, the account being `account`'s.
+fn online_for(account: Option<&str>, chosen: Option<&str>) -> bool {
+    match (account, chosen) {
+        (Some(a), Some(d)) => d.trim().eq_ignore_ascii_case(a.trim()),
+        _ => true,
+    }
+}
+
+/// Signed in with the display name `name`: the first time, the driver of that name is the
+/// account's - made (a personnel file of OMSI's in the content folder) when there is none, and
+/// chosen. Answers whether the link was made now.
+pub fn link_account(name: &str) -> bool {
+    let Ok(name) = plain(name) else { return false };
+    if account_driver().is_some() {
+        return false;
+    }
+    let known = list().iter().any(|n| n.eq_ignore_ascii_case(name));
+    if !known && create(name, "").is_err() {
+        // (no content folder yet: the name is the driver's all the same, its file made later)
+        let _ = select(name);
+    }
+    let real = list().into_iter().find(|n| n.eq_ignore_ascii_case(name)).unwrap_or_else(|| name.to_string());
+    let mut s = Settings::load();
+    s.other.insert(ACCOUNT_KEY.into(), Value::String(real.clone()));
+    s.other.insert("driver".into(), Value::String(real));
+    s.save().is_ok()
+}
+
+/// Signed out (or the account deleted): no driver is the account's any more.
+pub fn unlink_account() {
+    let mut s = Settings::load();
+    if s.other.remove(ACCOUNT_KEY).is_some() {
+        let _ = s.save();
+    }
 }
 
 /// The driver chosen in the settings (`driver`), when one is.
@@ -549,6 +620,14 @@ mod tests {
         let text = r#"{"time":1760000000,"driver":"Luc","driver_file":"C:/x/Drivers/Luc.odr","map":"maps/Grundorf/global.cfg","bus":"Vehicles/MAN_SD200/SD202.bus","line":"5","tour":null,"seconds":1800.5,"metres":9000.0,"stops":12,"early":0,"late":1,"tickets":6,"cash":9.6,"crashes":0,"hurt":0,"jolts":2,"boarded":20,"served":18,"driving":96.0,"comfort":88.0,"ticketing":100.0}"#;
         let s: Session = serde_json::from_str(text).unwrap();
         assert_eq!((s.driver.as_str(), s.line.as_deref(), s.tickets, s.jolts), ("Luc", Some("5"), 6, 2));
+    }
+
+    #[test]
+    fn the_account_is_its_drivers_alone() {
+        assert!(online_for(None, Some("Anna")));
+        assert!(online_for(Some("Luc"), Some("luc")));
+        assert!(online_for(Some("Luc"), None));
+        assert!(!online_for(Some("Luc"), Some("Anna")));
     }
 
     #[test]

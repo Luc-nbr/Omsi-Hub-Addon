@@ -238,7 +238,7 @@ export async function loadSituations() {
 export async function loadProfiles() {
   const got = await call('hub_profiles').catch(() => ({ names: [], current: '' }));
   const profiles = got.names || [];
-  set({ profiles, config: { ...S.config, profile: got.current || '' } });
+  set({ profiles, accountDriver: got.account || null, config: { ...S.config, profile: got.current || '' } });
   const name = S.config?.profile || profiles[0];
   set({ profile: name ? await call('hub_profile', { name }).catch(() => null) : null });
 }

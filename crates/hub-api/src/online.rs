@@ -303,6 +303,10 @@ fn refresh(beat: bool) -> Result<(), Error> {
             Ok(())
         }
         Ok(Some(((lasting, no_password), Ok((profile, friends, invites))))) => {
+            // (the account's driver: the display name's, the first time - `drivers::link_account`)
+            if let Some(p) = &profile {
+                crate::drivers::link_account(&p.display_name);
+            }
             v.signed_in = true;
             v.lasting = lasting;
             v.no_password = no_password;
@@ -349,6 +353,8 @@ fn worker() {
             let state = presence(v.away);
             first || (v.signed_in && (unix_now().saturating_sub(v.beat_at) >= 60 || v.told.as_ref() != Some(&state)))
         };
+        // (another driver than the account's drives: they play locally, nobody is told)
+        let due = due && (first || crate::drivers::plays_online());
         if due {
             let signed = with(|c| c.signed_in());
             if signed {
@@ -453,9 +459,11 @@ fn state() -> Value {
     start_worker();
     let hosting = session_code().is_some();
     let v = view();
-    let mode = if v.signed_in {
+    // (another driver than the account's plays locally: `account_of` says whose the account is)
+    let mine = crate::drivers::plays_online();
+    let mode = if v.signed_in && mine {
         "in"
-    } else if local() {
+    } else if local() || v.signed_in {
         "local"
     } else {
         "out"
@@ -477,6 +485,7 @@ fn state() -> Value {
     order.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase())));
     json!({
         "mode": mode,
+        "account_of": if v.signed_in && !mine { crate::drivers::account_driver() } else { None },
         "offline": v.offline,
         "lasting": v.lasting,
         "need_profile": v.need_profile,
@@ -707,6 +716,7 @@ fn sign_out() -> Value {
         c.sign_out();
     });
     signed_out(&mut view());
+    crate::drivers::unlink_account();
     done(&tr("Signed out. Omsi-Hub plays on locally."))
 }
 
@@ -714,6 +724,7 @@ fn delete(args: &Value) -> Value {
     match with(|c| c.delete_account(str_arg(args, "password"))) {
         Ok(()) => {
             signed_out(&mut view());
+            crate::drivers::unlink_account();
             // (its cloud saves went with it: the companies here are local saves now)
             crate::cloud::forget_account();
             done(&tr("Your account, your cloud saves and everything of it are deleted."))
@@ -740,6 +751,9 @@ fn leaderboard(args: &Value) -> Value {
 /// is kept). Signed out, waiting for the privacy statement or offline it is not sent. For the
 /// company, after a day.
 pub fn report_stats(s: &Stats) -> Result<&'static str, Error> {
+    if !crate::drivers::plays_online() {
+        return Err(Error::Code("not_signed_in"));
+    }
     with(|c| if c.signed_in() { c.report_stats(s) } else { Err(Error::Code("not_signed_in")) })
 }
 

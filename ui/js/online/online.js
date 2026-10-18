@@ -194,7 +194,9 @@ function GoogleSignIn({ onDone, onError, disabled }) {
  * code's step asks for the code only, and for the address only when no step before had it. The
  * mail may carry a link instead of a code (Supabase's own templates until ours are pasted in,
  * docs/ONLINE.md): its link opened, "I have opened the link" signs in with what was typed. */
-function SignedOut({ v }) {
+/** Signing in (`welcome`: in the welcome's account step, which has its own way on without an
+ * account). */
+export function SignedOut({ v, welcome }) {
   const [step, setStep] = useState('sign_in');
   const [f, setF] = useState({ email: '', password: '', code: '' });
   // (what the step before had: not asked again)
@@ -296,10 +298,10 @@ function SignedOut({ v }) {
       ${err && html`<p class="ol-err">${err}</p>`}
       ${info && !err && html`<p class="ol-ok">${info}</p>`}
     </div>
-    <div class="ol-local">
+    ${!welcome && html`<div class="ol-local">
       ${v?.mode === 'local' ? html`<span class="ol-text">${tr('You play without an account.')}</span>` : html`<${Btn} icon="close" label=${tr('Play without an account')} onClick=${local} />`}
       <span class="ol-fill"></span><${PrivacyLink} />
-    </div>
+    </div>`}
   </div>`;
 }
 
@@ -335,7 +337,7 @@ function Leaderboard({ v }) {
 
 /** Signed in: the display name, the friend code, the leaderboard, signing out, deleting the
  * account. */
-function Profile({ v }) {
+export function Profile({ v }) {
   const me = v.me || {};
   const [name, setName] = useState(me.name || '');
   const [err, setErr] = useState('');
@@ -473,6 +475,15 @@ function Friends({ v }) {
 
 /** The account and the friends, as tabs: over the page (the button's panel), or `inline` (the
  * Online page). */
+/** Another driver than the account's drives: they play locally (`drivers::plays_online`). */
+function OtherDriver({ v }) {
+  const driver = get().config?.profile || '';
+  return html`<div class="ol-account">
+    <${Note} icon="person" text=${tr("The account on this computer is %{name}'s. %{driver} plays locally, without friends, the leaderboard or cloud saves.", { name: v.account_of, driver })} />
+    <p class="ol-text">${tr('Choose %{name} under "Who is driving today?" to use the account.', { name: v.account_of })}</p>
+  </div>`;
+}
+
 export function Panel({ v, tab, inline }) {
   const [own, setOwn] = useState('auto');
   const signed = v?.mode === 'in' && !v.need_profile;
@@ -500,7 +511,7 @@ export function Panel({ v, tab, inline }) {
         ${!inline && html`<button type="button" class="ol-icon-btn" title=${tr('Close')} onClick=${closePanel}><${Icon} name="close" size=${17} /></button>`}
       </header>
       <nav class="ol-tabs">${tabs.map(([id, icon, label]) => html`<button type="button" id=${'ol-tab-' + id} class=${'ol-tab' + (now === id ? ' on' : '')} onClick=${() => pick(id)}><${Icon} name=${icon} size=${15} />${tr(label)}${id === 'friends' && v?.badge > 0 && html`<span class="ol-badge in">${v.badge}</span>`}</button>`)}</nav>
-      <div class="ol-body">${!v ? html`<p class="ol-text">…</p>` : now === 'friends' ? html`<${Friends} v=${v} />` : v.mode === 'in' ? html`<${Profile} v=${v} />` : html`<${SignedOut} v=${v} />`}</div>
+      <div class="ol-body">${!v ? html`<p class="ol-text">…</p>` : v.account_of ? html`<${OtherDriver} v=${v} />` : now === 'friends' ? html`<${Friends} v=${v} />` : v.mode === 'in' ? html`<${Profile} v=${v} />` : html`<${SignedOut} v=${v} />`}</div>
     </div>`;
   if (inline) return box;
   return html`<div class="ol-overlay" onMouseDown=${(e) => e.target === e.currentTarget && closePanel()}>${box}</div>`;

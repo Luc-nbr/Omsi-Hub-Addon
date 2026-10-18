@@ -214,7 +214,7 @@ pub fn leg_of(text: &str) -> Option<bridge::Leg> {
 pub fn assignment_for(d: &Duty, company: Option<&CompanyPart>, settings: &Settings, issued: u64) -> Assignment {
     let on = |k: &str, default: bool| settings.other.get(k).and_then(Value::as_bool).unwrap_or(default);
     let driver = d.profile.clone().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).unwrap_or_else(crate::launcher::driver);
-    let personnel = company.filter(|_| on("nav_signon", false)).and_then(|_| personnel_of(&driver));
+    let personnel = company.filter(|_| on("nav_signon", false)).and_then(|_| personnel_of(&driver, true));
     let legs: Vec<bridge::Leg> = d.legs.iter().filter_map(|l| leg_of(l)).collect();
     let first = legs.first();
     let free = d.free_line.as_deref().map(str::trim).filter(|r| !r.is_empty()).map(str::to_string);
@@ -254,9 +254,9 @@ pub fn assignment_for(d: &Duty, company: Option<&CompanyPart>, settings: &Settin
 
 /// The driver's personnel number and code for signing on (`personnel.json` of the data folder,
 /// `{ "drivers": { "<driver in lower case>": { "number", "code" } } }`): made and written down
-/// the first time, as the old launcher's welcome did. A file that is not one of these is left
-/// alone (no sign-on then).
-fn personnel_of(driver: &str) -> Option<bridge::Personnel> {
+/// the first time (`make`), as the old launcher's welcome did. A file that is not one of these
+/// is left alone (no sign-on then).
+pub fn personnel_of(driver: &str, make: bool) -> Option<bridge::Personnel> {
     let path = hub_core::data_dir().join("personnel.json");
     let key = Some(driver.trim().to_lowercase()).filter(|k| !k.is_empty()).unwrap_or_else(|| "driver".into());
     let text = std::fs::read_to_string(&path).ok();
@@ -268,6 +268,9 @@ fn personnel_of(driver: &str) -> Option<bridge::Personnel> {
     if let Some(e) = file.get(&key) {
         let (number, code) = (e.get("number")?.as_str()?, e.get("code")?.as_str()?);
         return (digits(number, 3..=10) && digits(code, 3..=8)).then(|| bridge::Personnel { number: number.into(), code: code.into() });
+    }
+    if !make {
+        return None;
     }
     // (a number of six digits and a code of four, the first of each 1-9)
     let mut seed = now() ^ (std::process::id() as u64) << 20 ^ key.bytes().fold(0u64, |h, b| h.rotate_left(5) ^ b as u64);

@@ -273,6 +273,7 @@ const answers = {
   hub_profiles: () => ({ names: DRIVERS.slice(), current: DRIVERS[0] || '' }),
   hub_profile: ({ name }) => driverRecord(name),
   hub_profile_select: ({ name }) => ({ profile: name }),
+  hub_profile_personnel: ({ make }) => (make ? { number: '416207', code: '3851' } : null),
   hub_profile_create: ({ name }) => {
     if (!DRIVERS.includes(name)) DRIVERS.push(name);
     return driverRecord(name);

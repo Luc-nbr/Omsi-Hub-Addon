@@ -118,6 +118,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("vehicle-age.yml", include_str!("../locales/vehicle-age.yml")),
     ("vertalingen.yml", include_str!("../locales/vertalingen.yml")),
     ("verwijderen.yml", include_str!("../locales/verwijderen.yml")),
+    ("welcome.yml", include_str!("../locales/welcome.yml")),
 ];
 
 /// A text of a table's line: a YAML double-quoted string (`"…"`, `\"` and `\\` and `\n` in it)

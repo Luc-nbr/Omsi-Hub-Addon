@@ -8,6 +8,15 @@ An account is optional. Without one, Omsi-Hub plays fully local and only the onl
 missing (friends, online state, invites). A player signs in with email and a password, or with a
 Google account. Nothing else (Luc, 2026-10-16: "we doen alleen google of email", website and app).
 
+**One account, one driver** (Luc, 2026-10-18). The account on a computer belongs to one driver:
+the first sign-in makes or chooses the driver of the account's display name and keeps it as the
+account's (`account_driver` in the settings, `hub-api` `drivers::link_account`). The account's
+features - the friends and the online state, the leaderboard, the cloud saves - are that driver's;
+every other driver on the computer plays locally (`drivers::plays_online`: no heartbeat, no stats,
+no cloud sync, `ol_state` says `mode: local` with `account_of`). Signing out or deleting the account
+undoes the link; the account's driver cannot be deleted while it is signed in. The welcome asks it
+on the first start: sign in, or "Continue locally without sync".
+
 ## Moving to Supabase
 
 The online side moves from Neon to Supabase. The **website runs on Supabase**, and so does the app's

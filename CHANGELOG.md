@@ -10,9 +10,13 @@ never changes their files.
 
 ### In it
 
-- **The first start** asks for your openOMSI folder and your OMSI 2 folder (it suggests the ones it
-  finds, on Steam too) and checks openOMSI's version. Before the first drive, Omsi-Hub puts its
+- **The welcome** on the first start, as in the old Omsi-Hub: the language, the animations, your
+  openOMSI folder and your OMSI 2 folder (it suggests the ones it finds, on Steam too, and checks
+  openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
+  and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **One account, one driver**: signed in, your driver is your account's (the display name's), with
+  the friends, the leaderboard and the cloud saves. Other drivers on the same computer play locally.
 - **Your old saves** from the Omsi-Hub that came with its own game are offered on the first start:
   shown first, then copied (your companies, careers and settings). The old folder is left as it was.
 - **The drivers on this computer**, as in the old Omsi-Hub: "Who is driving today?" is the drive's
