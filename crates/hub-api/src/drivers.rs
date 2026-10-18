@@ -488,6 +488,59 @@ pub fn select(name: &str) -> Answer {
     Ok(json!({ "profile": name }))
 }
 
+// --- the leaderboard -------------------------------------------------------------------------
+
+/// Trips of one drive follow each other closer than this (s): a longer gap begins another.
+const DRIVE_GAP: u64 = 30 * 60;
+
+/// The drives the plugin's trips make (`trips`, any order): the trips of one drive - one after
+/// the other, less than [`DRIVE_GAP`] apart, on the same map - added up as openOMSI's session of
+/// that drive would be. For a driver without openOMSI's sessions.
+fn drives_of(trips: &[TripRun]) -> Vec<Session> {
+    let mut trips: Vec<&TripRun> = trips.iter().collect();
+    trips.sort_by_key(|t| t.time);
+    let mut out: Vec<Session> = Vec::new();
+    let mut last: Option<(u64, String)> = None;
+    for t in trips {
+        let same = last.as_ref().is_some_and(|(at, map)| t.time.saturating_sub(*at) < DRIVE_GAP && *map == t.map);
+        if !same {
+            out.push(Session {
+                driver: t.driver.clone(),
+                map: t.map.clone(),
+                bus: t.bus.clone(),
+                line: Some(t.line.clone()).filter(|l| !l.is_empty()),
+                tour: Some(t.tour.clone()).filter(|x| !x.is_empty()),
+                ..Session::default()
+            });
+        }
+        let d = out.last_mut().expect("a drive");
+        d.time = t.time;
+        d.seconds += t.seconds;
+        d.metres += t.metres;
+        d.stops += t.stops;
+        d.early += t.early;
+        d.late += t.late;
+        d.crashes += t.crashes;
+        d.jolts += t.jolts;
+        last = Some((t.time, t.map.clone()));
+    }
+    out
+}
+
+/// What the leaderboard is told of the driver `name` (`report_stats`): the points and the level
+/// of the service record, the duties driven, the minutes and the kilometres - from openOMSI's
+/// sessions of the driver, else from the trips the plugin reported.
+pub fn board_stats(name: &str) -> Option<hub_online::Stats> {
+    let p = profile(name).ok()?;
+    let runs = if p.sessions.is_empty() { drives_of(&trips_of(&hub_core::data_dir(), name)) } else { sessions().into_iter().filter(|s| s.driver.eq_ignore_ascii_case(name)).collect() };
+    let xp: i64 = runs.iter().map(xp_of).sum();
+    let (level, _) = level_of(xp);
+    let seconds: f64 = runs.iter().map(|s| s.seconds).sum();
+    let km = if p.exists && p.km > 0.0 { p.km } else { runs.iter().filter(|s| believable_km(s)).map(|s| s.metres / 1000.0).sum() };
+    let small = |x: f64| x.max(0.0).min(u32::MAX as f64) as u32;
+    Some(hub_online::Stats { points: xp.max(0) as u64, level: level.max(1) as u32, duties: runs.len() as u32, minutes_driven: small(seconds / 60.0), km: small(km) })
+}
+
 // --- the account's driver ----------------------------------------------------------------------
 
 /// The settings' key of the driver the account belongs to.
@@ -620,6 +673,18 @@ mod tests {
         let text = r#"{"time":1760000000,"driver":"Luc","driver_file":"C:/x/Drivers/Luc.odr","map":"maps/Grundorf/global.cfg","bus":"Vehicles/MAN_SD200/SD202.bus","line":"5","tour":null,"seconds":1800.5,"metres":9000.0,"stops":12,"early":0,"late":1,"tickets":6,"cash":9.6,"crashes":0,"hurt":0,"jolts":2,"boarded":20,"served":18,"driving":96.0,"comfort":88.0,"ticketing":100.0}"#;
         let s: Session = serde_json::from_str(text).unwrap();
         assert_eq!((s.driver.as_str(), s.line.as_deref(), s.tickets, s.jolts), ("Luc", Some("5"), 6, 2));
+    }
+
+    #[test]
+    fn the_trips_make_drives() {
+        let trip = |time: u64, map: &str| TripRun { time, driver: "Luc".into(), map: map.into(), line: "5".into(), seconds: 600.0, metres: 4000.0, stops: 8, early: 1, ..TripRun::default() };
+        // (two trips of one drive, a third an hour later, a fourth on another map)
+        let drives = drives_of(&[trip(1000, "a"), trip(1700, "a"), trip(5300, "a"), trip(5400, "b")]);
+        assert_eq!(drives.len(), 3);
+        assert_eq!((drives[0].time, drives[0].seconds, drives[0].metres, drives[0].stops, drives[0].early), (1700, 1200.0, 8000.0, 16, 2));
+        assert_eq!(drives[0].line.as_deref(), Some("5"));
+        // (8 km, 14 stops on time, 20 minutes: 80 + 70 + 20)
+        assert_eq!(xp_of(&drives[0]), 170);
     }
 
     #[test]

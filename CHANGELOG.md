@@ -15,6 +15,8 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **The leaderboard gets your figures**: signed in, Omsi-Hub sends your driver's points, level,
+  duties, time driven and kilometres whenever they change (after every drive).
 - **One account, one driver**: signed in, your driver is your account's (the display name's), with
   the friends, the leaderboard and the cloud saves. Other drivers on the same computer play locally.
 - **Your old saves** from the Omsi-Hub that came with its own game are offered on the first start:

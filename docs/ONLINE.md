@@ -17,6 +17,14 @@ no cloud sync, `ol_state` says `mode: local` with `account_of`). Signing out or 
 undoes the link; the account's driver cannot be deleted while it is signed in. The welcome asks it
 on the first start: sign in, or "Continue locally without sync".
 
+**The leaderboard's figures** are sent by the app itself (`online.rs` `report_due`): at every
+heartbeat the account's driver's service record - points and level (the service record's
+experience), the duties, the minutes driven and the kilometres - is worked out
+(`drivers::board_stats`: openOMSI's sessions of the driver, else the trips the plugin reported,
+grouped into drives) and sent with `report_stats` when it changed since it was last sent. Nothing
+is sent for another driver, signed out, or before the privacy statement is agreed to; whether the
+player stands on the public board stays their own switch.
+
 ## Moving to Supabase
 
 The online side moves from Neon to Supabase. The **website runs on Supabase**, and so does the app's

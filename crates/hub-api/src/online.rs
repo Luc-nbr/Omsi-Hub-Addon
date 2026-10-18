@@ -15,7 +15,8 @@
 //! * `ol_profile {name}` - the display name chosen or changed;
 //! * `ol_leaderboard {on}` - standing on the public leaderboard, or not (off until chosen);
 //! * `ol_report_stats {points, level, duties, minutes, km}` - the service record for the
-//!   leaderboard (the company calls [`report_stats`] itself after a day);
+//!   leaderboard; the worker tells it itself, the account's driver's whenever it changed
+//!   (`report_due`, from `drivers::board_stats`);
 //! * `ol_delete {password}` - the account and everything of it deleted, its cloud saves first
 //!   (`cloud.rs` then makes every company here local);
 //! * `ol_add {code}`, `ol_respond {id, accept}`, `ol_remove {id}`, `ol_block {id}`;
@@ -137,6 +138,8 @@ struct View {
     told: Option<(&'static str, Option<String>)>,
     beat_at: u64,
     refreshed_at: u64,
+    /// The service record the leaderboard was last told (`report_due`).
+    reported: Option<Stats>,
 }
 
 static VIEW: LazyLock<Mutex<View>> = LazyLock::new(Default::default);
@@ -237,6 +240,7 @@ fn signed_out(v: &mut View) {
     v.friends.clear();
     v.invites.clear();
     v.told = None;
+    v.reported = None;
 }
 
 fn str_arg<'a>(args: &'a Value, name: &str) -> &'a str {
@@ -360,11 +364,35 @@ fn worker() {
             if signed {
                 // (a session the store kept is signed in, offline too)
                 view().signed_in = true;
-                let _ = refresh(true);
+                if refresh(true).is_ok() {
+                    report_due();
+                }
             }
             first = false;
         }
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+/// The account's driver's service record to the leaderboard (`drivers::board_stats`: the
+/// points, the level, the duties, the minutes and the kilometres), whenever it changed since it
+/// was last told - at the first beat, after a drive. Signed out, waiting for the privacy
+/// statement or without a display name nothing is told, nor for another driver than the
+/// account's; the server keeps one report in 30 seconds ("too_soon": told at the next beat).
+fn report_due() {
+    let ready = {
+        let v = view();
+        v.signed_in && !v.need_privacy && v.profile.is_some()
+    };
+    if !ready || !crate::drivers::plays_online() {
+        return;
+    }
+    let Some(stats) = crate::drivers::account_driver().and_then(|d| crate::drivers::board_stats(&d)) else { return };
+    if view().reported == Some(stats) {
+        return;
+    }
+    if let Ok("ok") = report_stats(&stats) {
+        view().reported = Some(stats);
     }
 }
 
