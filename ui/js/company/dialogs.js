@@ -77,7 +77,7 @@ const close = () => setCo({ dialog: null });
 // --- the company's settings -------------------------------------------------------------------
 
 /** The company's settings (`settings::dialog`): its mark, its game mode (and add-ons), how it
- * buys, its date and the real clock; deleting it. */
+ * buys, whether friends join without an invite, its date and the real clock; deleting it. */
 function SettingsDialog({ d }) {
   const v = useView('settings', { date: d.date || null });
   if (!v) return null;
@@ -94,7 +94,7 @@ function SettingsDialog({ d }) {
     <span class="rest"></span>
     <${Btn} kind=${v.move ? '' : 'primary'} label=${v.close} onClick=${close} />
     ${v.move && html`<${Btn} kind="primary" icon="calendar_month" label=${v.move} onClick=${moveTo} />`}`;
-  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0) + (v.country ? 96 : 0) + (v.currency ? 84 : 0);
+  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0) + (v.country ? 96 : 0) + (v.currency ? 84 : 0) + (v.friends ? 104 : 0);
   // (Beta 61: a career or a sandbox - turned into a sandbox once, after a confirmation)
   const cm = v.company_mode;
   const vh = v.vehicles;
@@ -134,6 +134,9 @@ function SettingsDialog({ d }) {
         <div class="pair"><${Seg} value=${vh.mode} options=${vh.modes} onChange=${vmode} style="width:560px;max-width:100%;height:40px" />
           <span class="co-note">${vh.count}</span></div>
         <div style="display:flex;align-items:center;gap:14px;margin:-6px 0 18px"><${Btn} icon="directions_bus" label=${vh.choose} onClick=${() => setCo({ dialog: { kind: 'vehicles' } })} /><p class="co-note" style="flex:1;min-width:0">${vh.say}</p></div>`}
+      ${v.friends && html`<div class="co-caps">${v.friends.caps}</div>
+        <${Switch} checked=${v.friends.on} label=${v.friends.label} onChange=${(on) => act('friends_join', { on })} style="min-height:36px" />
+        <p class="co-note" style="margin:4px 0 14px">${v.friends.say}</p>`}
       <div class="co-caps">${v.date_caps}</div>
       <div class="co-para" style="color:var(--hub-text);font-weight:500;line-height:24px;margin-bottom:10px">${v.now}</div>
       <${Switch} checked=${v.realtime.on} label=${v.realtime.label} onChange=${(on) => act('realtime', { on })} style="min-height:36px" />
