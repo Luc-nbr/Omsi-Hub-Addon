@@ -21,7 +21,7 @@
 //! `plugin` (delivered by the plugin port); Play together answers as it does while it is off
 //! (`crate::together`). The bus photos the old game drew are still shown (`photos`); new ones
 //! the page takes itself (`content::bus3d::photo`). The fleet map's and the duty map's roads are read by
-//! `content::roads`.
+//! `content::mapview`.
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 mod age;
@@ -1836,11 +1836,12 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
 }
 
 /// The duty launcher's map (Omsi-Hub 6/6): the map's roads and the route of every trip of the
-/// duty (`{map, date, trips}`), as the route map draws them (`content::roads`).
+/// duty (`{map, date, trips}`), as the route map draws them (`content::mapview::trips_page`).
 fn duty_map(args: &Value, _p: &dyn Platform) -> Answer {
-    let vfs = crate::content::need_vfs()?;
     let trips: Vec<String> = args.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
-    crate::content::roads::page(&vfs, &str_arg(args, "map"), &trips, json!({}))
+    let map = str_arg(args, "map");
+    let global = hub_core::paths::resolve_content(&map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
+    Ok(crate::content::mapview::trips_page(&map, &global, &str_arg(args, "date"), &trips))
 }
 
 /// A day of the company as the views write it with its time (`clock::text` of a feed line).

@@ -24,7 +24,6 @@ pub mod error;
 pub mod font;
 pub mod hof;
 pub mod map;
-pub mod roads;
 pub mod text;
 pub mod timetable;
 pub mod vehicle;

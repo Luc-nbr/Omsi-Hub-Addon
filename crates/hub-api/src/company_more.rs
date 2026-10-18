@@ -11,7 +11,7 @@
 //!   text translated and every amount written in the page's language;
 //! * `co_more_act`: what a click does (`act`), its refusal the popup that says why;
 //! * `co_more_map`: the fleet map's roads and the routes of the company's trips, read from the
-//!   map's tiles (`content::roads`).
+//!   map's tiles (`content::mapview`).
 //!
 //! What the pages keep between their views besides the session (the fleet map's clock, the
 //! lines' weeks the concessions read) lives in `More`, locked after the session.

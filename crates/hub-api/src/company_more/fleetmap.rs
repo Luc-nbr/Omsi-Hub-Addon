@@ -1,6 +1,6 @@
 //! The fleet map (`crates/omsi-launcher-ui/src/company/map.rs`): the company's map with every
 //! line it runs drawn in its colour, and every bus of today's plan where it is at the clock. The
-//! map's roads and the trips' routes are read by `content::roads` (`co_more_map`, [`roads`]);
+//! map's roads and the trips' routes are read by `content::mapview` (`co_more_map`, [`roads`]);
 //! the buses are placed here, block by block
 //! of today's plan, by `company::fleetmap` (Luc: "a smooth display of all the buses the company
 //! has driving ... a small screen pops up and follows the bus"):
@@ -109,9 +109,9 @@ pub struct MapState {
     picked: Option<String>,
     /// The trips' routes and their stops' places as the game program read them, by trip.
     routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>,
-    /// A tile's edge in the map's metres (the map's roads read): with the place the game gives
-    /// by its tile, where the game's coordinates lie on the map.
-    edge: Option<f64>,
+    /// Where the map's metres begin, in the game's world (the map's middle, as the map was
+    /// read: `content::mapview`).
+    origin: Option<[f64; 2]>,
     /// The company, map and day the routes were read for.
     built_for: Option<(String, String, usize)>,
     legend: Vec<(co::CompanyLine, String)>,
@@ -148,50 +148,59 @@ fn trips_of(c: &Company, lines: &[core::LineInfo]) -> Vec<String> {
     trips
 }
 
-/// The fleet map's roads and its lines (`co_more_map`): the company's map's roads
-/// (`content::roads`), and the route of every trip of the company's lines today with its stops'
-/// places - kept for the buses (`keep`), drawn once each in its line's colour. The session is held
-/// only to say what to read and to keep what was read: a big map takes a while.
+/// The fleet map's roads and its lines (`co_more_map`): the map as the game's city map has it
+/// with the routes of every trip of the company's lines today (`content::mapview::fleet_export`,
+/// what the old app's game program answered), kept for the buses. The session is not held
+/// while the map is read.
 pub fn roads(_args: &Value, _p: &dyn Platform) -> Answer {
-    let job = super::super::with(|s| {
-        let c = s.company.as_ref()?;
-        Some((c.map.clone(), s.map_lines().map(|l| trips_of(c, l))))
+    let ask = super::super::with(|s| {
+        let c = s.company.clone()?;
+        let lines = s.map_lines()?.to_vec();
+        Some((c.map.clone(), c.date.clone(), trips_of(&c, &lines)))
     });
-    let Some((map, trips)) = job else { return Err("No company is open".into()) };
-    let Some(trips) = trips else { return Ok(json!({ "reading": tr("Reading the timetable…") })) };
-    let vfs = crate::content::need_vfs()?;
-    let r = crate::content::roads::of(&vfs, &map)?;
-    let tt = crate::content::roads::timetable(&vfs, &map);
-    // (each trip's stops by their map object IDs, as the company's timetable has them)
-    let ids = super::super::with(|s| {
-        let mut ids: HashMap<String, Vec<i64>> = HashMap::new();
-        for t in s.map_lines().unwrap_or_default().iter().flat_map(|l| l.tours.iter()).flat_map(|t| t.trips.iter()) {
-            ids.entry(t.name.clone()).or_insert_with(|| t.stops.iter().map(|x| x.id).collect());
-        }
-        ids
-    });
-    let routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)> = trips
-        .iter()
-        .map(|name| {
-            let route = crate::content::roads::route(&r, &tt, name);
-            let at = crate::content::roads::stops(&r, &tt, ids.get(name).map(Vec::as_slice).unwrap_or_default());
-            (name.clone(), (route, at))
+    let Some((map, date, trips)) = ask else { return Ok(json!({ "reading": true })) };
+    let global = hub_core::paths::resolve_content(&map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
+    let mut v = crate::content::mapview::fleet_export(&map, &global, &date, &trips, 0.6);
+    let routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)> = v
+        .get("tracks")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|t| {
+                    let name = t.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                    let flat: Vec<f64> = t.get("p").and_then(Value::as_array).map(|p| p.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+                    let pts: Vec<fm::P> = flat.chunks_exact(2).map(|q| [q[0], q[1]]).collect();
+                    let stops: Vec<Option<fm::P>> = t
+                        .get("stops")
+                        .and_then(Value::as_array)
+                        .map(|s| s.iter().map(|x| x.as_array().filter(|q| q.len() == 2).map(|q| [q[0].as_f64().unwrap_or(0.0), q[1].as_f64().unwrap_or(0.0)])).collect())
+                        .unwrap_or_default();
+                    (name, (pts, stops))
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
+    let origin = v.get("origin").and_then(Value::as_array).filter(|o| o.len() == 2).map(|o| [o[0].as_f64().unwrap_or(0.0), o[1].as_f64().unwrap_or(0.0)]);
     let lines = super::super::with(|s| {
-        let (Some(c), Some(lines)) = (s.company.as_ref(), s.map_lines()) else { return Vec::new() };
-        // (the company changed meanwhile: what was read is for another map)
-        if !c.map.eq_ignore_ascii_case(&map) {
-            return Vec::new();
+        let c = s.company.clone()?;
+        if c.map != map || c.date != date {
+            return None;
         }
-        keep(s, c, lines, routes, Some(r.roads.edge))
+        let lines = s.map_lines()?.to_vec();
+        Some(keep(s, &c, &lines, routes, origin))
     });
-    Ok(json!({ "roads": r.drawn, "lines": lines, "lo": [r.roads.lo[0], r.roads.lo[1]], "hi": [r.roads.hi[0], r.roads.hi[1]] }))
+    if let Some(o) = v.as_object_mut() {
+        o.remove("tracks");
+    }
+    v["lines"] = json!(lines.unwrap_or_default());
+    v["map"] = json!(map);
+    v["date"] = json!(date);
+    Ok(v)
 }
 
 /// Keep the routes read for the buses (`map::build`); answers the lines as the map draws them:
 /// each trip's route once, in its line's colour.
-fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>, edge: Option<f64>) -> Vec<Value> {
+fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>, origin: Option<[f64; 2]>) -> Vec<Value> {
     let mut drawn = Vec::new();
     let mut legend = Vec::new();
     for cl in &c.lines {
@@ -211,7 +220,7 @@ fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<Stri
     }
     let mut m = more(s);
     m.map.routes = routes;
-    m.map.edge = edge;
+    m.map.origin = origin;
     m.map.legend = legend;
     m.map.blocks_for = None;
     m.map.built_for = Some((c.map.clone(), c.date.clone(), c.lines.len()));
@@ -393,7 +402,7 @@ fn live_delays(m: &mut MapState, c: &Company, in_game: bool) {
 /// map and the plugin writes it: None when it is old, of another map, or the map's roads are not
 /// read yet.
 fn game_road(m: &mut MapState, c: &Company, in_game: bool) {
-    let Some(edge) = m.edge.filter(|_| in_game) else {
+    let Some(origin) = m.origin.filter(|_| in_game) else {
         m.road = None;
         return;
     };
@@ -402,7 +411,7 @@ fn game_road(m: &mut MapState, c: &Company, in_game: bool) {
     }
     m.road_at = Some(Instant::now());
     let read = crate::addon::plugins_dir().ok().map(|d| hub_game::install::plugin_dir(&d)).and_then(|d| hub_game::bridge::read_traffic(&d));
-    m.road = read.and_then(|t| traffic_of(&t, &c.map, edge, real_secs()));
+    m.road = read.and_then(|t| traffic_of(&t, &c.map, origin, omsi_map::tile_size(), real_secs()));
 }
 
 /// The same map, however the game names it (its global.cfg, from the game's folder or not).
@@ -412,15 +421,15 @@ fn same_map(game: &str, company: &str) -> bool {
     g.is_empty() || g == c || g.ends_with(&format!("/{c}")) || c.ends_with(&format!("/{g}"))
 }
 
-/// What the plugin wrote (`t`), in the map's metres (its tiles `edge` metres), if it is fresh at
-/// `now` (Unix seconds) and of the company's map `map`. Where the game's coordinates lie: the
-/// place it gives by its tile too; without one, the map's own.
-fn traffic_of(t: &hub_game::bridge::Traffic, map: &str, edge: f64, now: f64) -> Option<GameRoad> {
+/// What the plugin wrote (`t`), in the map's metres from `origin` (its tiles `edge` metres), if
+/// it is fresh at `now` (Unix seconds) and of the company's map `map`. The game's coordinates are
+/// the map's world metres; where the place it gives by its tile says otherwise, that is believed.
+fn traffic_of(t: &hub_game::bridge::Traffic, map: &str, origin: [f64; 2], edge: f64, now: f64) -> Option<GameRoad> {
     if (now - t.at).abs() > TRAFFIC_FRESH || !same_map(&t.map, map) {
         return None;
     }
-    let origin = t.reference.map_or([0.0, 0.0], |r| [r.x - (r.tile_x as f64 * edge + r.local_x), r.y - (r.tile_y as f64 * edge + r.local_y)]);
-    let at = |x: f64, y: f64| [x - origin[0], y - origin[1]];
+    let off = t.reference.map_or([0.0, 0.0], |r| [r.x - (r.tile_x as f64 * edge + r.local_x), r.y - (r.tile_y as f64 * edge + r.local_y)]);
+    let at = |x: f64, y: f64| [x - off[0] - origin[0], y - off[1] - origin[1]];
     let h = |h: f64| h.rem_euclid(360.0);
     let player = t.player.as_ref().map(|p| Telemetry {
         at: at(p.x, p.y),
@@ -952,7 +961,7 @@ mod tests {
             players: vec![Mover { name: "Sam".into(), x: 1000.0, y: 100.0, ..Mover::default() }],
             ..Traffic::default()
         };
-        let r = traffic_of(&t, "maps/Grundorf/global.cfg", 300.0, 1004.0).expect("fresh, of the company's map");
+        let r = traffic_of(&t, "maps/Grundorf/global.cfg", [0.0, 0.0], 300.0, 1004.0).expect("fresh, of the company's map");
         let p = r.player.expect("the player's bus");
         assert_eq!((p.at, p.heading, p.delay, p.passengers), ([500.0, -300.0], 10.0, Some(95.0), Some(12.0)));
         assert_eq!((p.line.as_str(), p.tour.as_str()), ("5", "2"));
@@ -960,11 +969,11 @@ mod tests {
         let (b, number) = &r.buses[0];
         assert_eq!((b.at, b.delay, b.speed, number.as_str()), ([300.0, 300.0], Some(-30.0), 0.0, "4711"));
         assert_eq!(r.players, vec![("Sam".to_string(), [0.0, 0.0], 0.0)]);
-        assert!(traffic_of(&t, "maps/Grundorf/global.cfg", 300.0, 1100.0).is_none(), "an old file is not believed");
-        assert!(traffic_of(&t, "maps/Ruhrau/global.cfg", 300.0, 1004.0).is_none(), "another map");
+        assert!(traffic_of(&t, "maps/Grundorf/global.cfg", [0.0, 0.0], 300.0, 1100.0).is_none(), "an old file is not believed");
+        assert!(traffic_of(&t, "maps/Ruhrau/global.cfg", [0.0, 0.0], 300.0, 1004.0).is_none(), "another map");
         // (without a place by its tile: the game's coordinates are the map's)
         let plain = Traffic { reference: None, ..t };
-        assert_eq!(traffic_of(&plain, "maps/Grundorf/global.cfg", 300.0, 1000.0).unwrap().players[0].1, [1000.0, 100.0]);
+        assert_eq!(traffic_of(&plain, "maps/Grundorf/global.cfg", [0.0, 0.0], 300.0, 1000.0).unwrap().players[0].1, [1000.0, 100.0]);
         assert!(same_map("", "maps/X/global.cfg") && same_map("./maps/x/GLOBAL.cfg", "maps/X/global.cfg") && !same_map("maps/Y/global.cfg", "maps/X/global.cfg"));
     }
 

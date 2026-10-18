@@ -24,6 +24,8 @@ pub struct NavigationMap {
     /// Every placed object's position by id (bus stops beyond the loaded tiles).
     pub places: HashMap<i64, DVec3>,
     /// Street name signs: where, the object's heading and the name on it.
+    // (the navigator's street names: read as the game reads them, not drawn by the pages)
+    #[allow(dead_code)]
     pub signs: Vec<(DVec3, f64, String)>,
     /// Every bus stop of the map (an object whose `.sco` says `[busstop]`): placed, hung on
     /// another object (`[attachObj]`, at its parent) or put on a spline.

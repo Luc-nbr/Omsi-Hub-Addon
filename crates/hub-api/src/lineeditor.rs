@@ -159,7 +159,7 @@ pub struct LineEditorView {
 mod busclass;
 mod lineroute;
 mod maplines;
-mod navmap;
+pub(crate) mod navmap;
 mod ui;
 pub(crate) mod words;
 // the line editor of the desktop launcher's page, kept by the game program (the launcher

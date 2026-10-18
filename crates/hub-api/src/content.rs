@@ -13,7 +13,7 @@
 //!   for the line;
 //! * `hub_situations {map}` - the situations to continue: none yet (`[]`);
 //! * `hub_route_map {map, date, trip}` - the map's roads, the trip's route (`a|b`: each trip's),
-//!   its frame and entry points (see [`roads`]);
+//!   its frame and entry points, as the game's city map has them (see [`mapview`]);
 //! * `hub_map_picture {map}` (bytes) - the map folder's `picture.jpg`;
 //! * `hub_settings_patch {patch}` - settings changed (the look's keys go to `Settings.other`);
 //! * `hub_shifts`, `hub_duty_extras` - see [`shifts`];
@@ -32,7 +32,7 @@ pub mod busoptions;
 pub mod depots;
 pub mod facts;
 pub mod fonts;
-pub mod roads;
+pub mod mapview;
 pub mod shifts;
 pub mod weather;
 
@@ -58,7 +58,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         }
         "hub_ibis" => Ok(ibis(&need_vfs()?, &str_arg(args, "bus"), &str_arg(args, "hof"), &str_arg(args, "line"))),
         "hub_situations" => Ok(json!([])),
-        "hub_route_map" => route_map(&need_vfs()?, &arg::<String>(args, "map")?, &str_arg(args, "trip")),
+        "hub_route_map" => route_map(&arg::<String>(args, "map")?, &str_arg(args, "date"), &str_arg(args, "trip")),
         "hub_settings_patch" => settings_patch(args.get("patch").unwrap_or(&Value::Null)),
         "hub_shifts" => shifts::shifts(args),
         "hub_duty_extras" => shifts::duty_extras(args),
@@ -387,39 +387,14 @@ pub fn ibis(vfs: &Vfs, bus: &str, hof: &str, line: &str) -> Value {
 
 // --- the map -------------------------------------------------------------------------------------
 
-/// The map as the route map draws it (`{ roads, route, lo, hi, entries }`, the map's metres, y
-/// north): its roads and the trip's route ([`roads`]), its tiles' frame, and the entry points
-/// where `global.cfg` puts them.
-pub fn route_map(vfs: &Vfs, map: &str, trip: &str) -> Answer {
-    let path = vfs.resolve(map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
-    let cfg = hub_omsi::CfgFile::read(&path).map_err(|e| format!("{map}: {e}"))?;
-    let g = hub_omsi::map::GlobalCfg::parse(&cfg);
+/// The map as the route map draws it (`content::mapview::export`: `{ origin, lo, hi, roads,
+/// route, stops, entries, colors }`, metres from `origin`, y north): the roads the game's city map
+/// draws and the trip's route over its lanes; a duty's trips (`a|b`) each their route.
+pub fn route_map(map: &str, date: &str, trip: &str) -> Answer {
+    let global = hub_core::paths::resolve_content(map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
     // (`a|b`: the trips of a duty, each its route)
     let trips: Vec<String> = trip.split('|').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
-    roads::page(vfs, map, &trips, json!({ "entries": entry_places(&cfg, &g.tiles, g.tile_edge()) }))
-}
-
-fn entry_places(cfg: &hub_omsi::CfgFile, tiles: &[(i32, i32)], edge: f64) -> Vec<Value> {
-    let mut out = Vec::new();
-    let mut r = cfg.reader();
-    while let Some(k) = r.next_keyword() {
-        if k != "entrypoints" {
-            continue;
-        }
-        let n = hub_omsi::text::parse_i32(r.value()).max(0) as usize;
-        for i in 0..n {
-            let v = r.values(12);
-            if v.len() < 12 {
-                break;
-            }
-            let tile = usize::try_from(hub_omsi::text::parse_i32(v[10])).ok().and_then(|t| tiles.get(t));
-            let Some((tx, ty)) = tile else { continue };
-            let x = *tx as f64 * edge + hub_omsi::text::parse_f64(v[3]);
-            let y = *ty as f64 * edge + hub_omsi::text::parse_f64(v[5]);
-            out.push(json!({ "index": i, "name": v[11].trim(), "at": [x, y] }));
-        }
-    }
-    out
+    Ok(if trips.len() > 1 { mapview::trips_page(map, &global, date, &trips) } else { mapview::export(map, &global, date, trips.first().map(String::as_str).unwrap_or(""), 0.6) })
 }
 
 /// The picture of the map `map` (`maps/<folder>/global.cfg`): its folder's `picture.jpg`, in
@@ -586,11 +561,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_route_map_has_the_map_s_frame_and_entry_points() {
-        let m = route_map(&fixture_vfs(), "maps/Testdorf/global.cfg", "10_out").unwrap();
-        // (the test map has no tile files: no roads, no route)
+    fn the_route_map_has_the_map_s_entry_points() {
+        let global = fixture_vfs().resolve("maps/Testdorf/global.cfg").unwrap();
+        let m = mapview::export("maps/Testdorf/global.cfg", &global, "", "10_out", 0.6);
+        // (the test map has no tile files: no roads, no route; the entry points on their tiles)
         assert_eq!((m["roads"].clone(), m["route"].clone()), (json!([]), json!([])));
-        assert_eq!((m["lo"].clone(), m["hi"].clone()), (json!([0.0, 0.0]), json!([600.0, 300.0])));
         assert_eq!(m["entries"][0], json!({ "index": 0, "name": "Depot", "at": [10.0, 20.0] }));
         assert_eq!(m["entries"][1]["at"], json!([350.0, 60.0]));
     }
@@ -627,7 +602,7 @@ pub(crate) mod tests {
         let facts = facts::facts_of(&v, &files);
         for m in &maps {
             let pic = map_picture(&v, &m.file).map(|b| b.len()).unwrap_or(0);
-            let rm = route_map(&v, &m.file, "").unwrap_or_default();
+            let rm = v.resolve(&m.file).map(|g| mapview::export(&m.file, &g, "", "", 0.6)).unwrap_or_default();
             println!(
                 "{}: hof {:?}, {} entries ({} placed), {} roads, picture {} bytes, {}",
                 m.file,

@@ -38,9 +38,10 @@ never changes their files.
   picture beside every page's title, the licence, a choice of language (English, Dutch, German,
   French, Russian, Ukrainian) and a folder of its own in the Start menu; on macOS a disk image
   with its own window to drag Omsi-Hub into Applications; on Linux the packages' description.
-- **The maps are drawn**: the route map of the drive's steps, the company's duty map and its fleet
-  map show the map's roads and the way each trip drives, read from the map's own tiles and spline
-  files. A junction's own lanes are not read yet: a route crosses it in a straight line.
+- **The maps are drawn**, as the old Omsi-Hub drew them: the route map of the drive's steps, the
+  company's duty map and its fleet map show the roads the game's own city map draws, read from the
+  map's tiles (its splines' and its junctions' lanes), and the way each trip drives on its own
+  lanes, with its stops.
 - **Depot files read right**: a destination's strings were read a place off (a line OMSI's files
   do not have was taken for the stop it ends at), so its IBIS text was lost.
 - **The bus in 3D** on the bus step, as the old Omsi-Hub drew it: the page's own 3D view reads
