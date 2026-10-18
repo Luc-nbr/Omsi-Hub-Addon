@@ -29,7 +29,7 @@ never changes their files.
   shown first, then copied (your companies, careers and settings). The old folder is left as it was.
 - **The bus stop signs** on the maps - the drive's route map, the line editor and the company's
   fleet map -, as you choose them in the welcome or the settings: the German H (the default), the
-  British roundel, the French or the Dutch sign. The route map of the
+  British roundel, the French, the Dutch, the Polish, the Russian or the Ukrainian sign. The route map of the
   drive's steps is the old one again: its stops with their times, dragged to move, the wheel or
   the + and - to zoom.
 - **Blue** is Omsi-Hub's colour unless you choose another (Settings, Accent colour).
