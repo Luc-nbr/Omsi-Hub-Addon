@@ -40,7 +40,10 @@ pub(super) fn apply(s: &mut Session, op: &str, req: &Value) -> R {
 /// the day, the Drive page's map - and, for the bus company, its id and what to show.
 fn open(s: &mut Session, req: &Value) -> R {
     s.maps = req.get("maps").and_then(Value::as_array).map(|a| a.iter().filter_map(|m| Some((m.get(0)?.as_str()?.to_string(), m.get(1)?.as_str()?.to_string()))).collect()).unwrap_or_default();
-    s.root = PathBuf::from(s_of(req, "root"));
+    // (openOMSI's readers told where the content is, as for the bus's look: the map is looked
+    // for in them - the page sends no folder, the OMSI 2 folder is the game's)
+    let game = crate::content::bus3d::roots().ok();
+    s.root = Some(PathBuf::from(s_of(req, "root"))).filter(|r| !r.as_os_str().is_empty()).or(game).unwrap_or_default();
     s.date = s_of(req, "date");
     let v = &mut s.v;
     let company = s_of(req, "company");
