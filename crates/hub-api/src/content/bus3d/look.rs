@@ -119,7 +119,11 @@ pub fn look_of(read: &BusRead, head: &Head, manifest: &Manifest, paint: Option<&
     let mut look = Look { paint: scheme.and_then(|i| vt.paint_schemes.get(i)).map(|s| s.name.clone()), options: options.to_vec(), ..Default::default() };
     let types: Vec<Arc<VehicleType>> = read.all();
     for (i, e) in head.entries.iter().enumerate() {
-        let (props, xfs) = if e.part == 0 { (v.mesh_props.get(e.mesh), v.mesh_transforms.get(e.mesh)) } else { v.trailers.get(e.part - 1).map(|t| (t.mesh_props.get(e.mesh), t.mesh_transforms.get(e.mesh))).unwrap_or((None, None)) };
+        let (props, xfs) = if e.part == 0 {
+            (v.mesh_props.get(e.mesh), v.mesh_transforms.get(e.mesh))
+        } else {
+            v.trailers.get(e.part - 1).map(|t| (t.mesh_props.get(e.mesh), t.mesh_transforms.get(e.mesh))).unwrap_or((None, None))
+        };
         look.visible.push(if props.is_none_or(|p| p.visible) { '1' } else { '0' });
         if let Some(m) = xfs.map(|m| m.to_cols_array()) {
             if !identity(&m) {

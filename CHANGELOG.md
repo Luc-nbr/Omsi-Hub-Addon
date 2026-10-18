@@ -41,15 +41,17 @@ never changes their files.
 - **The maps are drawn**: the route map of the drive's steps, the company's duty map and its fleet
   map show the map's roads and the way each trip drives, read from the map's own tiles and spline
   files. A junction's own lanes are not read yet: a route crosses it in a straight line.
-- **The bus in 3D** on the bus step, for every bus openOMSI drives: openOMSI itself writes the bus
-  (`--export-glb`) in the livery and with the bus options chosen, and Omsi-Hub draws it - turned
-  with the mouse, zoomed with the wheel, turning by itself, with views from the front, the side
-  and the back. The first time a look takes a while; then it is kept. Needs an openOMSI that has
-  `--export-glb`.
-- **The buses' photos** on the fleet's, the dealer's and Casual's tiles and on the bus step: a bus
-  without one is photographed from the model openOMSI writes for the 3D view, one bus after the
-  other, while its tile is shown, and the photo is kept. The photos the old Omsi-Hub took are
-  still found.
+- **The bus in 3D** on the bus step, as the old Omsi-Hub drew it: the page's own 3D view reads
+  every bus as the game reads it (its meshes, its textures, the livery and the bus options chosen,
+  what its scripts show at rest), turned and zoomed with the mouse, with the views from the
+  front, the side, the back and the corner, and the driver's and a passenger's view.
+- **The buses' photos** on the fleet's, the dealer's and Casual's tiles and on the bus step, taken
+  by the same 3D view (transparent, from the front corner) and kept until the bus changes. The
+  photos the old Omsi-Hub took are still shown until then.
+- **The livery studio**, as in the old Omsi-Hub: paint a bus in layers on the bus itself -
+  colour areas, stripes, texts, pictures, own shapes and the brush, mirrored onto the other side -
+  and save it into the game as a livery of its own (openOMSI's content folder, never the OMSI 2
+  folder). The liveries begun before are opened from the same folder.
 - **The game's buses and traffic on the fleet map**: while you drive on the company's map, your
   bus and every bus of the company's tours the game drives are where the game has them, with the
   game's delay; the game's cars, trams and bicycles, the buses of the lines the company does not
@@ -59,8 +61,8 @@ never changes their files.
 
 ### Not in it yet
 
-- **Playing together** (it needs a relay server), **the line editor** (it needs the map's lanes)
-  and **the livery studio**: their pages say so.
+- **Playing together** (it needs a relay server) and **the line editor** (it needs the map's
+  lanes): their pages say so.
 - **What needs a newer openOMSI plugin API** than the official releases have: the bus's own display
   font, the IBIS typed in for you, closed stops struck through on the navigator, and the duty board
   docked in the navigator. The launcher shows which ones your openOMSI supports.

@@ -1917,7 +1917,6 @@ name = "hub-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "chrono",
  "glam",
  "hub-core",
@@ -1926,6 +1925,7 @@ dependencies = [
  "hub-locales",
  "hub-omsi",
  "hub-online",
+ "image",
  "omsi-cfg",
  "omsi-model",
  "omsi-o3d",

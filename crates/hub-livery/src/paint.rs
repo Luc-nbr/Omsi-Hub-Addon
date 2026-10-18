@@ -189,10 +189,15 @@ impl Canvas {
 /// The base's colours at its outside texels (for the zones): not the windows' nor the wheels'.
 pub fn outside_colours(bake: &Bake, base: &[u8]) -> Vec<[u8; 3]> {
     let row0 = (bake.y0 * bake.w) as usize;
-    bake.first.iter().enumerate().filter(|(_, s)| s.flags & OUTSIDE != 0 && s.flags & (KEEP | GLASS) == 0).map(|(i, _)| {
-        let o = (row0 + i) * 4;
-        [base[o], base[o + 1], base[o + 2]]
-    }).collect()
+    bake.first
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.flags & OUTSIDE != 0 && s.flags & (KEEP | GLASS) == 0)
+        .map(|(i, _)| {
+            let o = (row0 + i) * 4;
+            [base[o], base[o + 1], base[o + 2]]
+        })
+        .collect()
 }
 
 // --- the layers, ready to paint ----------------------------------------------------------------
@@ -280,13 +285,35 @@ impl Decal {
 pub enum Op {
     /// A fill: the paint group `group`, else the zones within `radius` of `lab` (all the paint
     /// at radius 1000).
-    Fill { lab: [f32; 3], radius: f32, group: Option<u8>, colour: Colour },
-    Stripe { h1: f32, h2: f32, angle: f32, wave: f32, sides: model::Sides, colour: Colour },
+    Fill {
+        lab: [f32; 3],
+        radius: f32,
+        group: Option<u8>,
+        colour: Colour,
+    },
+    Stripe {
+        h1: f32,
+        h2: f32,
+        angle: f32,
+        wave: f32,
+        sides: model::Sides,
+        colour: Colour,
+    },
     /// A mask with a colour (text, shape, own shape, an outline under them).
-    Mask { decal: Decal, mask: Arc<Raster>, colour: Colour },
-    Picture { decal: Decal, picture: Arc<Raster> },
+    Mask {
+        decal: Decal,
+        mask: Arc<Raster>,
+        colour: Colour,
+    },
+    Picture {
+        decal: Decal,
+        picture: Arc<Raster>,
+    },
     /// The brush's strokes, in order (the eraser's take away what the brush put before them).
-    Brush { strokes: Arc<Vec<BrushStroke>>, colour: Colour },
+    Brush {
+        strokes: Arc<Vec<BrushStroke>>,
+        colour: Colour,
+    },
 }
 
 /// A stroke ready to paint: its points and normals on the bus, its radius (metres), hardness,
@@ -437,7 +464,8 @@ pub fn prepare(layers: &[Layer], cx: &Context, cache: &mut RasterCache) -> Vec<P
         if !l.visible || l.opacity <= 0.0 {
             continue;
         }
-        let mut push_as = |op: Op, copy: bool| out.push(Prepared { op, layer: i, opacity: l.opacity.clamp(0.0, 1.0), detail: l.detail.clamp(0.0, 1.0), over_trim: l.over_trim, over_glass: l.over_glass, copy });
+        let mut push_as =
+            |op: Op, copy: bool| out.push(Prepared { op, layer: i, opacity: l.opacity.clamp(0.0, 1.0), detail: l.detail.clamp(0.0, 1.0), over_trim: l.over_trim, over_glass: l.over_glass, copy });
         let mut push = |op: Op| push_as(op, false);
         match &l.kind {
             Kind::Fill { centre, radius, group, colour, gradient } => push(Op::Fill { lab: *centre, radius: *radius, group: *group, colour: Colour::of(colour, gradient.as_ref()) }),
@@ -999,10 +1027,13 @@ mod tests {
         let text = Kind::Text { text: "Bus".into(), font: shapes::DEFAULT_FONT.into(), height_cm: 30.0, colour: "#fff".into(), outline: None, spacing: 0.0, gradient: None, place: place.clone() };
         let shape = Kind::Shape { shape: "pijl".into(), colour: "#fff".into(), outline: None, gradient: None, place: place.clone() };
         let ops = prepare(&[layer("T", text), layer("S", shape)], &cx(dims), &mut RasterCache::default());
-        let decals: Vec<&Decal> = ops.iter().filter_map(|o| match &o.op {
-            Op::Mask { decal, .. } => Some(decal),
-            _ => None,
-        }).collect();
+        let decals: Vec<&Decal> = ops
+            .iter()
+            .filter_map(|o| match &o.op {
+                Op::Mask { decal, .. } => Some(decal),
+                _ => None,
+            })
+            .collect();
         assert_eq!(decals.len(), 4, "each with its copy");
         let (t, tc, s, sc) = (decals[0], decals[1], decals[2], decals[3]);
         let (rear, front) = (2.0 - 0.4 * t.w, 2.0 + 0.4 * t.w);
@@ -1189,7 +1220,8 @@ mod tests {
         let (cv, dims, base) = yellow_bus(64, 32);
         // over the whole height
         let band = |over: bool| {
-            let mut l = layer("Band", Kind::Stripe { template: model::StripeTemplate::Skirt, h1: -1.0, h2: 5.0, angle: 0.0, wave: 0.0, sides: model::Sides::All, colour: "#ffffff".into(), gradient: None });
+            let mut l =
+                layer("Band", Kind::Stripe { template: model::StripeTemplate::Skirt, h1: -1.0, h2: 5.0, angle: 0.0, wave: 0.0, sides: model::Sides::All, colour: "#ffffff".into(), gradient: None });
             l.over_trim = over;
             l
         };
@@ -1205,7 +1237,8 @@ mod tests {
     fn the_brush_paints_along_its_stroke_and_the_eraser_takes_it_away() {
         let (cv, dims, base) = setup(128, 64);
         // a stroke along the right side, 1.0 m up, from y -2 to 2, 20 cm wide
-        let stroke = |erase: bool, y0: f32, y1: f32| model::Stroke { points: vec![[1.25, y0, 1.3], [1.25, y1, 1.3]], normals: vec![[1.0, 0.0, 0.0]; 2], radius_cm: 10.0, hardness: 1.0, opacity: 1.0, erase };
+        let stroke =
+            |erase: bool, y0: f32, y1: f32| model::Stroke { points: vec![[1.25, y0, 1.3], [1.25, y1, 1.3]], normals: vec![[1.0, 0.0, 0.0]; 2], radius_cm: 10.0, hardness: 1.0, opacity: 1.0, erase };
         let mut l = layer("Brush", Kind::Brush { colour: "#ff0000".into(), strokes: vec![stroke(false, -2.0, 2.0)] });
         l.detail = 0.0;
         let ops = prepare(std::slice::from_ref(&l), &Context { mirror: None, ..cx(dims) }, &mut RasterCache::default());

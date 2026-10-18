@@ -1,8 +1,12 @@
 # Architecture
 
-Omsi-Hub is its own desktop app. It contains no openOMSI code: it works with the openOMSI the
-player installed (0.2.22 or newer) through openOMSI's command line and its plugin API, and reads
-OMSI 2's files with its own readers. See `PLAN.md` for why, `INVENTORY.md` for what is ported.
+Omsi-Hub is its own desktop app. It works with the openOMSI the player installed (0.2.22 or newer)
+through openOMSI's command line and its plugin API, and reads OMSI 2's files with its own readers -
+except the bus as the game reads it (its meshes, textures, liveries and the look its scripts give
+it) for the 3D view, the photos and the livery studio: that is read with openOMSI's own readers
+and vehicle simulation, from Luc's fork of openOMSI (git dependencies pinned in `Cargo.toml`;
+openOMSI as it was before it became AGPL, under its MIT licence: `THIRD_PARTY_NOTICES.md`, Luc's
+decision of 2026-10-18). See `PLAN.md` for why, `INVENTORY.md` for what is ported.
 
 It runs on **Windows, macOS and Linux** from the first version. The platform specifics are
 collected under [Platforms](#platforms).
@@ -15,7 +19,9 @@ ui/             the page: Preact + htm (vendor/), our api.js, store.js, i18n.js,
 crates/
   hub-omsi      our OMSI 2 readers and writers (no openOMSI code)
   hub-core      the domain: the company, RosterFlow, careers; our timetable types; data folder
-  hub-api       the commands: call(cmd, args) routed by prefix
+  hub-api       the commands: call(cmd, args) routed by prefix; the 3D view's bus (content/bus3d,
+                b3d_*) and the livery studio (lak, lak_*) on openOMSI's readers (omsi-*)
+  hub-livery    the livery studio's core (the old omsihub-livery): projects, bake, paint, export
   hub-game      the player's openOMSI: found, checked, started; the plugin installed; the bridge
   hub-locales   the texts (ported as they were)
   hub-online    the account, friends, leaderboard, cloud saves (ported as they were)
@@ -179,7 +185,7 @@ installed here):
 - `install::{install, disable, status, plugin_dir}`.
 - `bridge::{Assignment, Leg, Hello, Report, write_assignment, read_hello, ReportReader, ReplyReader, from_log}`.
 - `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`); `export_glb` adds `--export-glb <file>`.
-- `process::export_glb(exe, spec, wait)`: the bus written as glTF by the player's openOMSI (the 3D bus on the bus step, `content::bus3d`: `hub_bus3d`, `hub_bus3d_glb`, the models kept in the data folder's `bus3d`; the page draws them with three.js, `ui/vendor/three.js`).
+- `process::export_glb(exe, spec, wait)`: the bus written as glTF by the player's openOMSI (not used by the pages: the 3D view reads the bus itself, `content::bus3d`).
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
 - `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).

@@ -30,8 +30,8 @@
 //! * **descrambled geometry never goes to disk** (see `scramble`).
 
 use super::scramble::{self, Scramble};
-use crate::launcher as core;
 use super::tex::{self, TexInfo, TexSource};
+use crate::launcher as core;
 use omsi_sim::vehicle::{override_slot, VehicleMesh};
 use omsi_sim::VehicleType;
 use serde::{Deserialize, Serialize};

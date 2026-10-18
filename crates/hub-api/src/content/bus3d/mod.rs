@@ -22,11 +22,8 @@ pub mod photo;
 pub mod scramble;
 pub mod tex;
 
-#[cfg(test)]
-mod tests;
-
-use crate::Answer;
 use crate::launcher as core;
+use crate::Answer;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -174,3 +171,6 @@ pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests;

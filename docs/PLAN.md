@@ -5,7 +5,9 @@ see "Where it stands"). Owner: Luc. This repository is the new home of Omsi-Hub.
 
 ## The goal
 
-Omsi-Hub becomes an **add-on app that contains no openOMSI code**. The player installs official
+Omsi-Hub becomes an **add-on app** beside the player's openOMSI. (It contained no openOMSI code until
+2026-10-18; since then the 3D view, the photos and the livery studio read a bus with openOMSI's
+readers from Luc's fork, MIT from before openOMSI became AGPL: `THIRD_PARTY_NOTICES.md`.) The player installs official
 openOMSI (0.2.0 or newer, ideally the latest) and an original OMSI 2. Omsi-Hub then works like this:
 
 - It is its own desktop app, with its own shell, UI, logic and file readers.
@@ -58,7 +60,10 @@ openOMSI (0.2.0 or newer, ideally the latest) and an original OMSI 2. Omsi-Hub t
 
 **Rule for porting.** Only code Omsi-Hub wrote is taken. Where it calls openOMSI code, the call goes
 to our own `hub-omsi` or `hub-game` instead, or the feature is redone without it. Nothing is copied
-from openOMSI.
+from openOMSI. One exception (Luc, 2026-10-18: "the same system as the old app"): the old app's
+Bus3D, photos and livery studio keep calling openOMSI's readers (`omsi-cfg`, `omsi-model`,
+`omsi-o3d`, `omsi-sim`, `omsi-texture`, `omsi-vehicle`), taken as git dependencies from Luc's fork,
+pinned to one commit - openOMSI as it was up to 2026-10-13, MIT.
 
 ## What changes for players
 

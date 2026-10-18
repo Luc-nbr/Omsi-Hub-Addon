@@ -19,8 +19,8 @@
 //! commands) as they were. What they used of the old launcher is `crate::launcher` now (the
 //! maps, the driver, the game Omsi-Hub started); the company's link to the plugin is
 //! `plugin` (delivered by the plugin port); Play together answers as it does while it is off
-//! (`crate::together`). The bus photos the old game drew are taken by the page now, from the
-//! model openOMSI writes (`photos`). The fleet map's and the duty map's roads are read by
+//! (`crate::together`). The bus photos the old game drew are still shown (`photos`); new ones
+//! the page takes itself (`content::bus3d::photo`). The fleet map's and the duty map's roads are read by
 //! `content::roads`.
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
@@ -1652,8 +1652,6 @@ fn route(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_hand_over" => with(|s| hand_over(s, args)),
         "co_tour" => Ok(tour::answer(args)),
         "co_duty_map" => duty_map(args, p),
-        // (a bus's photo the page took from the model openOMSI wrote: kept for `co_photo`)
-        "co_photo_save" => photos::save(&str_arg(args, "bus"), &str_arg(args, "livery"), &str_arg(args, "png")).map(|()| json!({ "ok": true })),
         // (a duty card saved as a picture: on this computer, never relayed)
         "co_dutycard_save" => Ok(dutycard::save_image(args)),
         // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's

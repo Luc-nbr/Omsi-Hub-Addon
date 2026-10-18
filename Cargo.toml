@@ -60,7 +60,6 @@ ring = "0.17"
 encoding_rs = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 dirs = "6"
-base64 = "0.22"
 glam = "0.30"
 log = "0.4"
 rayon = "1.10"

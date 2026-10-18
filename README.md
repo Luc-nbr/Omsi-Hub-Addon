@@ -26,8 +26,9 @@ company, a career that counts, and friends on the same roads.
 
 This repository is the home of the **Omsi-Hub add-on**: Omsi-Hub as its own app, with its own code.
 It builds on the [openOMSI](https://github.com/openOMSI-org/openOMSI/releases) you already have and
-talks to it through openOMSI's plugin API. It does not replace openOMSI, ships no game of its own and
-contains no openOMSI code.
+talks to it through openOMSI's plugin API. It does not replace openOMSI and ships no game of its own.
+The 3D view, the bus photos and the livery studio read a bus with openOMSI's readers from Luc's fork
+(openOMSI as it was before it became AGPL, under its MIT licence): see `THIRD_PARTY_NOTICES.md`.
 
 > [!NOTE]
 > The add-on is being built here. Until its first release, the download on

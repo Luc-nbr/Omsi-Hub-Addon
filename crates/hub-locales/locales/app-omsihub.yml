@@ -4269,8 +4269,11 @@ _version: 2
   uk: "Перо"
   pl: "Pióro"
 "Mirror":
+  nl: "Spiegelen"
   de: "Spiegeln"
   fr: "Miroir"
+  ru: "Зеркально"
+  uk: "Дзеркально"
   pl: "Lustro"
 "Decals on one side are copied onto the other":
   nl: "Wat op de ene kant staat, komt ook op de andere"

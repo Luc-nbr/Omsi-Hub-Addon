@@ -11,8 +11,8 @@
 
 use super::cache;
 use super::tex;
-use crate::Answer;
 use crate::launcher as core;
+use crate::Answer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;

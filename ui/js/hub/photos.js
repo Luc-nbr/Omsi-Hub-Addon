@@ -1,107 +1,131 @@
-// The buses' photos on the fleet's, the dealer's and Casual's tiles and on the bus step. A photo
-// kept is asked for once (`co_photo`); one not there yet is taken here, one after the other, from
-// the model the player's openOMSI writes for the 3D view (`hub_bus3d`, `bus3d.js`'s
-// `photograph`), and handed over to be kept (`co_photo_save`). A tile asks for its photo
-// (`wantPhoto`) while it is shown: one no longer shown leaves the queue.
+// The buses' photos on the tiles (the bus step's, the fleet's, the dealer's and Casual's).
+//
+// Omsi-Hub's Bus3D (the old app's photos): taken by the page's own renderer
+// (`bus3d/photo.js` - transparent, from the front corner, a soft shadow under the bus) and kept
+// by the launcher (`b3d_photo`, `~/.openomsi/cache/busphotos/p3-*.png`) until the bus's files
+// change. A bus without one shows the photo the game program took before, if there is one
+// (`co_photo`), or its initials, and gets the new photo as soon as it is taken - one bus at a
+// time, the tiles drawn last first, those no longer drawn left out. Where the page cannot draw
+// (no WebGL2) a bus keeps its initials (the add-on has no game program to photograph it). A bus
+// that cannot be drawn keeps its initials; it is tried again after a while.
 
-import { call, callBytes } from '../api.js';
-import { photograph } from './bus3d.js';
+import { S } from '../store.js';
+import { callBytes } from '../api.js';
+import { fetchBytes } from './bus3d/urls.js';
+import { takePhoto } from './bus3d/photo.js';
 
-const id = (file, paint) => `${file}|${paint || ''}`;
+// (the tiles' own photos are shown whole, not cropped: `bus3d.css`, loaded here too - the company's
+// pages show photos without a 3D view)
+if (!document.querySelector('link[data-b3d-css]')) {
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = 'css/hub/bus3d.css';
+  l.dataset.b3dCss = '1';
+  document.head.appendChild(l);
+}
 
-/** The photos asked for: id → the promise of its URL (null: none yet). */
-const have = new Map();
-/** Who waits for a photo being taken: id → the `onLater` callbacks. */
-const waiting = new Map();
-/** The photos to take, in turn: `{ k, file, paint, want }` (`want`: the tiles that want it). */
+/** `file|paint` -> { p: the URL's promise, ok, at, failed, later: listeners of the new photo }. */
+const photos = new Map();
+/** The photos waiting to be taken, the last asked for at the end, with how many tiles want each. */
 const queue = [];
-/** The photos taken or tried this time (a bus openOMSI cannot write is not tried again). */
-const tried = new Set();
-let working = false;
+const wanted = new Map();
+let busy = false;
+/** The page cannot draw: no photos are taken. */
+let noWebgl = false;
 
-const urlOf = (blob) => URL.createObjectURL(blob);
+const url = (bytes) => URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
 
-/** The photo of `file` in `paint`: the promise of its URL, null while there is none.
- * `onLater(url)` is called when one is taken later. */
-export function photo(file, paint, onLater) {
-  if (!file) return Promise.resolve(null);
-  const k = id(file, paint);
-  if (onLater) {
-    if (!waiting.has(k)) waiting.set(k, new Set());
-    waiting.get(k).add(onLater);
-  }
-  if (!have.has(k))
-    have.set(
-      k,
-      callBytes('co_photo', { bus: file, livery: paint || '' }).then(
-        (bytes) => urlOf(new Blob([bytes], { type: 'image/png' })),
-        () => null,
-      ),
-    );
-  return have.get(k);
+/** A photo taken by our renderer and kept for the bus as it is now. */
+function readNew(file, paint) {
+  return fetchBytes('b3d_photo', { bus: file, paint: paint || '' }).then(url);
 }
 
-/** Ask for the photo of `file` in `paint` to be taken when there is none. Answers the function
- * that says it is no longer wanted (a photo already being taken is still finished). */
-export function wantPhoto(file, paint) {
-  const k = id(file, paint);
-  if (!file || tried.has(k)) return () => {};
-  let job = queue.find((j) => j.k === k);
-  if (!job) queue.push((job = { k, file, paint: paint || '', want: 0 }));
-  job.want++;
-  work();
-  let left = false;
-  return () => {
-    if (left) return;
-    left = true;
-    job.want--;
-    const at = queue.indexOf(job);
-    if (job.want <= 0 && at >= 0) queue.splice(at, 1);
-  };
+/** The photo the game program took for the old launcher (migrated with its cache). */
+function readOld(file, paint) {
+  return callBytes('co_photo', { bus: file, livery: paint || '' }).then((b) => url(b));
 }
 
-/** The model's key once openOMSI has written it (asked again while it writes), null when it
- * cannot. */
-async function model(file, paint) {
-  for (;;) {
-    const r = await call('hub_bus3d', { bus: file, paint });
-    if (r.state === 'ready') return r.key;
-    if (r.state !== 'making') return null;
-    await new Promise((done) => setTimeout(done, 1500));
-  }
-}
-
-const base64 = (blob) =>
-  new Promise((done, fail) => {
-    const read = new FileReader();
-    read.onload = () => done(String(read.result).slice(String(read.result).indexOf(',') + 1));
-    read.onerror = () => fail(read.error);
-    read.readAsDataURL(blob);
-  });
-
-/** Take the photos in the queue, one at a time. */
+/** The next photo taken: the one a tile asked for last. */
 async function work() {
-  if (working) return;
-  working = true;
+  if (busy) return;
+  busy = true;
   try {
-    while (queue.length) {
-      const job = queue.shift();
-      tried.add(job.k);
+    for (;;) {
+      let k = queue.length - 1;
+      while (k >= 0 && !(wanted.get(queue[k].key) > 0)) k--;
+      if (k < 0) break;
+      const job = queue.splice(k, 1)[0];
       try {
-        if (await photo(job.file, job.paint)) continue;
-        const key = await model(job.file, job.paint);
-        if (!key) continue;
-        const blob = await photograph(key);
-        await call('co_photo_save', { bus: job.file, livery: job.paint, png: await base64(blob) });
-        const url = urlOf(blob);
-        have.set(job.k, Promise.resolve(url));
-        for (const f of waiting.get(job.k) || []) f(url);
-        waiting.delete(job.k);
-      } catch (e) {
-        console.warn(`photo of ${job.file} (${job.paint}) not taken:`, e);
+        if (S.boot?.selftest && S.boot.selftest !== 'full') throw new Error('no photos in the quick self-check');
+        // (the add-on has no game program to take them where the page cannot draw: the initials)
+        if (noWebgl) throw new Error('no WebGL2');
+        try {
+          job.done(url(await takePhoto(job.file, job.paint)));
+        } catch (x) {
+          if (x?.noWebgl) noWebgl = true;
+          throw x;
+        }
+      } catch {
+        job.done(null);
       }
     }
   } finally {
-    working = false;
+    busy = false;
   }
+}
+
+/**
+ * The photo of `file` in `paint`: its URL once there is one, else null. A bus whose photo
+ * is still to be taken resolves with the game's older photo (or null) at once, and `later`
+ * hears the new one when it is there.
+ */
+export function photo(file, paint, later) {
+  if (!file) return Promise.resolve(null);
+  const key = `${file}|${paint || ''}`;
+  const had = photos.get(key);
+  // (one that failed is tried again after a few minutes: the bus may have been changed)
+  if (had && (had.ok || !had.failed || Date.now() - had.at < 300000)) {
+    if (later && !had.ok) had.later.add(later);
+    return had.p;
+  }
+  const e = { at: Date.now(), ok: false, failed: false, later: new Set(later ? [later] : []) };
+  e.p = readNew(file, paint)
+    .then((u) => ((e.ok = true), u))
+    .catch(() => {
+      // to be taken: meanwhile the older photo, then the new one to whoever listens
+      const taken = new Promise((done) => {
+        queue.push({ key, file, paint, done });
+        work();
+      }).then((u) => {
+        e.ok = !!u;
+        e.failed = !u;
+        e.at = Date.now();
+        if (u) {
+          e.p = Promise.resolve(u);
+          for (const l of e.later) l(u);
+        }
+        e.later.clear();
+        return u;
+      });
+      return readOld(file, paint).catch(() => taken);
+    });
+  photos.set(key, e);
+  return e.p;
+}
+
+/** A tile that shows `file` in `paint` came (or went): the photos of tiles drawn are taken first,
+ * and those of tiles gone are not taken at all. Returns the way to say it went. */
+export function wantPhoto(file, paint) {
+  const key = `${file}|${paint || ''}`;
+  wanted.set(key, (wanted.get(key) || 0) + 1);
+  // (asked for again by a tile drawn now: it goes to the end of the line, taken first)
+  const k = queue.findIndex((j) => j.key === key);
+  if (k >= 0) queue.push(queue.splice(k, 1)[0]);
+  work();
+  return () => wanted.set(key, Math.max(0, (wanted.get(key) || 1) - 1));
+}
+
+/** Forget what is known of a bus's photos (its livery was saved anew): asked again. */
+export function forgetPhotos(file) {
+  for (const k of [...photos.keys()]) if (k.startsWith(`${file}|`)) photos.delete(k);
 }

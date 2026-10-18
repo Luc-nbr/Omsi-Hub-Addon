@@ -14,8 +14,8 @@
 import { html, useEffect, useRef, useState } from '../../../../vendor/preact-htm.js';
 import { S, set, useStore } from '../../../store.js';
 import { call } from '../../../api.js';
-import { choose } from '../../../data.js';
-import { Btn, Field, Icon, IconBtn, status, tr } from '../../editors/kit.js';
+import { choose } from '../../drive.js';
+import { Btn, Field, Icon, IconBtn, status, tr } from '../../../editors/kit.js';
 import { Bus3D } from '../viewer.js';
 import { Link } from '../link.js';
 import { forgetPhotos } from '../../photos.js';
@@ -27,7 +27,7 @@ import { Panel } from './panels.js';
 if (!document.querySelector('link[data-lak-css]')) {
   const l = document.createElement('link');
   l.rel = 'stylesheet';
-  l.href = 'omsihub/lak.css';
+  l.href = 'css/hub/lak.css';
   l.dataset.lakCss = '1';
   document.head.appendChild(l);
 }

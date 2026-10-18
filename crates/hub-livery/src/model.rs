@@ -106,7 +106,22 @@ pub struct Placed {
 
 impl Project {
     pub fn new(id: String, bus: String, start_paint: Option<String>, now: String) -> Project {
-        Project { version: 1, id, name: String::new(), bus, start: quick_start(), start_paint, layers: Vec::new(), options: Default::default(), mirror: Mirror::default(), created: now.clone(), saved: now, placed: None, quick: None, family: Vec::new() }
+        Project {
+            version: 1,
+            id,
+            name: String::new(),
+            bus,
+            start: quick_start(),
+            start_paint,
+            layers: Vec::new(),
+            options: Default::default(),
+            mirror: Mirror::default(),
+            created: now.clone(),
+            saved: now,
+            placed: None,
+            quick: None,
+            family: Vec::new(),
+        }
     }
 
     pub fn layer(&self, id: &str) -> Option<&Layer> {
@@ -407,7 +422,16 @@ pub enum StripeTemplate {
 }
 
 impl StripeTemplate {
-    pub const ALL: [StripeTemplate; 8] = [StripeTemplate::Skirt, StripeTemplate::WindowBand, StripeTemplate::RoofBand, StripeTemplate::Slanted, StripeTemplate::Wave, StripeTemplate::TwoTone, StripeTemplate::Front, StripeTemplate::Rear];
+    pub const ALL: [StripeTemplate; 8] = [
+        StripeTemplate::Skirt,
+        StripeTemplate::WindowBand,
+        StripeTemplate::RoofBand,
+        StripeTemplate::Slanted,
+        StripeTemplate::Wave,
+        StripeTemplate::TwoTone,
+        StripeTemplate::Front,
+        StripeTemplate::Rear,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             StripeTemplate::Skirt => "Skirt band",
@@ -524,14 +548,17 @@ impl Side {
         if a.z >= a.x && a.z >= a.y && n.z > 0.0 {
             Side::D
         } else if a.x >= a.y {
-            if n.x >= 0.0 { Side::R } else { Side::L }
+            if n.x >= 0.0 {
+                Side::R
+            } else {
+                Side::L
+            }
         } else if n.y >= 0.0 {
             Side::V
         } else {
             Side::A
         }
     }
-
 }
 
 /// Where a text, picture or shape stands on the bus.
@@ -809,7 +836,11 @@ pub fn stripe_side_weight(sides: Sides, n: Vec3) -> f32 {
 /// Snap a stripe's edge to the window line when it comes within 3 cm of it.
 pub fn snap_to_window(h: f32, dims: &BusDims) -> f32 {
     let w = dims.window_height();
-    if (h - w).abs() < 0.03 { w } else { h }
+    if (h - w).abs() < 0.03 {
+        w
+    } else {
+        h
+    }
 }
 
 // --- a new layer -----------------------------------------------------------------------------
@@ -1168,7 +1199,8 @@ pub fn name_error<'a>(name: &str, existing: impl IntoIterator<Item = &'a str>) -
 }
 
 const CP1252_80: [u16; 32] = [
-    0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017d, 0, 0, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e, 0x0178,
+    0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017d, 0, 0, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161,
+    0x203a, 0x0153, 0, 0x017e, 0x0178,
 ];
 
 /// The character's byte in Windows-1252, or None.
@@ -1200,7 +1232,11 @@ pub fn slug(name: &str) -> String {
     }
     let s: String = s.trim_matches('-').chars().take(32).collect();
     let s = s.trim_end_matches('-').to_string();
-    if s.is_empty() { "livery".into() } else { s }
+    if s.is_empty() {
+        "livery".into()
+    } else {
+        s
+    }
 }
 
 /// A letter without its accent (enough for the slug).
@@ -1271,13 +1307,8 @@ pub fn cti_text(name: &str, nnnn: u32, date: &str, items: &[(String, String)], s
         }
         Ok(s.to_string())
     };
-    let mut lines: Vec<String> = vec![
-        "*".repeat(64),
-        format!(" Own livery from openOMSI's livery studio, no. {nnnn:04}"),
-        format!(" Made {date}. Do not edit by hand."),
-        "*".repeat(64),
-        String::new(),
-    ];
+    let mut lines: Vec<String> =
+        vec!["*".repeat(64), format!(" Own livery from openOMSI's livery studio, no. {nnnn:04}"), format!(" Made {date}. Do not edit by hand."), "*".repeat(64), String::new()];
     for (slot, path) in items {
         let path = path.replace('/', "\\");
         if path.split('\\').any(|p| p == "..") || path.starts_with('\\') || path.get(1..2) == Some(":") {
@@ -1556,7 +1587,10 @@ mod tests {
 
     #[test]
     fn layers_are_duplicated_and_reordered() {
-        let mut ls = vec![layer("a", base_colour("#000000")), layer("b", Kind::Shape { shape: "ster".into(), colour: "#fff".into(), outline: None, gradient: None, place: Place::new(Side::R, Vec3::ZERO, 1.0) })];
+        let mut ls = vec![
+            layer("a", base_colour("#000000")),
+            layer("b", Kind::Shape { shape: "ster".into(), colour: "#fff".into(), outline: None, gradient: None, place: Place::new(Side::R, Vec3::ZERO, 1.0) }),
+        ];
         let id = duplicate(&mut ls, 1).unwrap();
         assert_eq!(ls.len(), 3);
         assert_eq!(ls[2].id, id);
@@ -1630,7 +1664,8 @@ mod tests {
 
     #[test]
     fn the_cti_is_written_as_omsi_reads_it() {
-        let t = cti_text("Lucstad", 7, "04-10-2026", &[("farbschema_tex1".into(), "LiveryStudio/0007_lucstad/SD80_01_3fa9c1d2.dds".into())], &[("vis_spiegel".into(), 1.0), ("x".into(), 0.5)]).unwrap();
+        let t =
+            cti_text("Lucstad", 7, "04-10-2026", &[("farbschema_tex1".into(), "LiveryStudio/0007_lucstad/SD80_01_3fa9c1d2.dds".into())], &[("vis_spiegel".into(), 1.0), ("x".into(), 0.5)]).unwrap();
         assert!(t.ends_with("\r\n") && t.starts_with("****"));
         let lines: Vec<&str> = t.split("\r\n").collect();
         let i = lines.iter().position(|l| *l == "[item]").unwrap();

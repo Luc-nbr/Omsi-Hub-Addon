@@ -1,8 +1,8 @@
 // The bus in 3D on the page (Omsi-Hub's Bus3D, the old app's `BusViewer.tsx`): drawn by the
 // page's own renderer (`link.js`, `engine.js`) from the bus the launcher read as the game reads
-// it (`b3d_open`), turned by the mouse at the frame rate of the screen - no picture streamed
-// from the game program any more (the old `preview.js`, kept for the pages of openOMSI's own and
-// as the fall-back without WebGL2).
+// it (`b3d_open`), turned by the mouse at the frame rate of the screen. Without WebGL2 the bus's
+// photo stands (the add-on has no game program to stream pictures from, as the old `preview.js`
+// did).
 //
 // Never an empty frame: until the 3D picture stands the bus's photo is there (or its spinner),
 // and the 3D picture takes over once it is sharp, after 1.5 s, or as soon as the mouse moves.
@@ -12,9 +12,8 @@
 import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { call } from '../../api.js';
 import { t } from '../../i18n.js';
-import { Icon } from '../../icons.js';
+import { Icon } from '../bits.js';
 import { Spinner } from '../../ui.js';
-import { BusPreview } from '../../preview.js';
 import { photo } from '../photos.js';
 import { Link } from './link.js';
 
@@ -24,7 +23,7 @@ const now = () => performance.timeOrigin + performance.now();
 if (!document.querySelector('link[data-b3d-css]')) {
   const l = document.createElement('link');
   l.rel = 'stylesheet';
-  l.href = 'omsihub/bus3d.css';
+  l.href = 'css/hub/bus3d.css';
   l.dataset.b3dCss = '1';
   document.head.appendChild(l);
 }
@@ -311,7 +310,10 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
     e.preventDefault();
   };
 
-  if (fallback) return html`<${BusPreview} class=${cls} look=${{ bus, paint: paint || '' }} />`;
+  if (fallback)
+    return html`<div class=${'viewer b3d-viewer ' + cls} data-state="failed">
+      ${pic ? html`<img class="b3d-photo" src=${pic} alt="" draggable="false" />` : html`<div class="state"><${Icon} name="bus" size=${28} /> ${t('No preview of this bus')}</div>`}
+    </div>`;
   const can = ['outside', ...(manifest?.passenger ? ['passenger'] : []), ...(manifest?.driver ? ['driver'] : [])];
   const show3d = shown && state !== 'failed' && (!pic || takeOver);
   return html`<div class=${'viewer b3d-viewer ' + cls} ref=${host} data-state=${state}>

@@ -5,7 +5,7 @@
 
 import { html, useState } from '../../../../vendor/preact-htm.js';
 import { call } from '../../../api.js';
-import { Btn, ColourPicker, Drop, Field, Icon, LiveField, Toggle, tr } from '../../editors/kit.js';
+import { Btn, ColourPicker, Drop, Field, Icon, LiveField, Toggle, tr } from '../../../editors/kit.js';
 import * as M from './model.js';
 import { change, choosePicture, endMaking, say, settle } from './studio.js';
 

@@ -110,7 +110,8 @@ fn fonts_dirs() -> Vec<std::path::PathBuf> {
         let windir = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
         return vec![windir.join("Fonts")];
     }
-    let mut v: Vec<std::path::PathBuf> = ["/System/Library/Fonts/Supplemental", "/Library/Fonts", "/usr/share/fonts/truetype/msttcorefonts", "/usr/share/fonts/TTF"].iter().map(std::path::PathBuf::from).collect();
+    let mut v: Vec<std::path::PathBuf> =
+        ["/System/Library/Fonts/Supplemental", "/Library/Fonts", "/usr/share/fonts/truetype/msttcorefonts", "/usr/share/fonts/TTF"].iter().map(std::path::PathBuf::from).collect();
     if let Some(home) = std::env::var_os("HOME") {
         v.push(std::path::PathBuf::from(home).join("Library/Fonts"));
     }
@@ -170,15 +171,13 @@ pub fn font(name: &str) -> Arc<FontSet> {
             })
             .unwrap_or_default(),
         n if n == DEFAULT_FONT => Vec::new(),
-        n => {
-            WINDOWS_FONTS
-                .iter()
-                .find(|(f, _)| *f == n)
-                .and_then(|(_, files)| files.iter().find_map(|f| font_file(f).and_then(|p| std::fs::read(p).ok())))
-                .and_then(|b| FontVec::try_from_vec(b).ok())
-                .into_iter()
-                .collect()
-        }
+        n => WINDOWS_FONTS
+            .iter()
+            .find(|(f, _)| *f == n)
+            .and_then(|(_, files)| files.iter().find_map(|f| font_file(f).and_then(|p| std::fs::read(p).ok())))
+            .and_then(|b| FontVec::try_from_vec(b).ok())
+            .into_iter()
+            .collect(),
     };
     // (Hanken Grotesk behind every font: a letter the font lacks still comes out)
     set.extend(hanken());
@@ -358,12 +357,7 @@ fn pieces(key: &str) -> Vec<Piece> {
         "cirkel" => vec![Piece { d: ring(50.0, 50.0, 45.0), evenodd: false, stroke: None }],
         "ster" => vec![fill("M50 5 L61 38 H95 L67 58 L78 92 L50 72 L22 92 L33 58 L5 38 H39 Z")],
         "golf" => vec![fill("M0 45 Q25 15 50 45 T100 45 V65 Q75 95 50 65 T0 65 Z")],
-        "rolstoel" => vec![
-            Piece { d: ring(42.0, 12.0, 8.0), evenodd: false, stroke: None },
-            line("M38 26 L40 54 H66 L76 80", 9.0),
-            line("M40 38 H62", 7.0),
-            line("M30 50 A26 26 0 1 0 70 76", 7.0),
-        ],
+        "rolstoel" => vec![Piece { d: ring(42.0, 12.0, 8.0), evenodd: false, stroke: None }, line("M38 26 L40 54 H66 L76 80", 9.0), line("M40 38 H62", 7.0), line("M30 50 A26 26 0 1 0 70 76", 7.0)],
         "kinderwagen" => vec![
             fill("M16 52 A34 34 0 0 1 50 18 V52 Z"),
             fill("M16 56 H84 Q82 78 50 78 Q18 78 16 56 Z"),
@@ -602,10 +596,18 @@ pub fn white_clear(img: &Raster) -> Raster {
         }
         gone[i] = true;
         let (x, y) = (i % w, i / w);
-        if x > 0 { stack.push(i - 1); }
-        if x + 1 < w { stack.push(i + 1); }
-        if y > 0 { stack.push(i - w); }
-        if y + 1 < h { stack.push(i + w); }
+        if x > 0 {
+            stack.push(i - 1);
+        }
+        if x + 1 < w {
+            stack.push(i + 1);
+        }
+        if y > 0 {
+            stack.push(i - w);
+        }
+        if y + 1 < h {
+            stack.push(i + w);
+        }
     }
     // the fringe: two pixels along what went
     let mut fringe = vec![false; w * h];

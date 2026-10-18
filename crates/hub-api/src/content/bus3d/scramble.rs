@@ -180,10 +180,12 @@ mod tests {
     use super::*;
 
     fn verts(n: usize) -> Vec<[f32; 8]> {
-        (0..n).map(|i| {
-            let f = i as f32;
-            [0.13 * f + 0.37, 1.71 - 0.07 * f, 5.03 + 0.11 * f, 0.6, -0.8, 0.0, 0.25 + 0.01 * f, 0.75]
-        }).collect()
+        (0..n)
+            .map(|i| {
+                let f = i as f32;
+                [0.13 * f + 0.37, 1.71 - 0.07 * f, 5.03 + 0.11 * f, 0.6, -0.8, 0.0, 0.25 + 0.01 * f, 0.75]
+            })
+            .collect()
     }
 
     #[test]
@@ -215,7 +217,15 @@ mod tests {
             let (at, n, s) = vertex_block(&file).unwrap();
             assert_eq!(n, 5);
             assert!(s.is_none(), "v{version} key {key:x} is open");
-            assert_eq!(at, match version { 1 => 6, 3 => 9, _ => 13 }, "the block starts where the format puts it");
+            assert_eq!(
+                at,
+                match version {
+                    1 => 6,
+                    3 => 9,
+                    _ => 13,
+                },
+                "the block starts where the format puts it"
+            );
             let read = omsi_o3d::parse_o3d(&file).unwrap();
             assert_eq!(read.triangles.len(), 1);
             assert_eq!(read.vertices[2].position.x, f32::from_le_bytes(file[at + 64..at + 68].try_into().unwrap()));

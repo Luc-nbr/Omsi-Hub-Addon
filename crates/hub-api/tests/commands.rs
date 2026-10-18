@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-const PREFIXES: &[&str] = &["hub_", "addon_", "co_", "rf_", "tg_", "ol_", "cs_", "tt_", "de_"];
+const PREFIXES: &[&str] = &["hub_", "addon_", "co_", "rf_", "tg_", "ol_", "cs_", "tt_", "de_", "b3d_", "lak_"];
 const NOT_PORTED: &[&str] = &["tg_"];
 /// The window's own commands, which `api.js` answers itself (`OWN`): never sent to hub-api.
 const WINDOW: &[&str] = &["pick_folder", "pick_file", "open_url", "open_path"];

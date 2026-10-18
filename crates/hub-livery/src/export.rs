@@ -212,7 +212,15 @@ pub struct Painting<'a> {
 /// size, a band of rows at a time - as the save writes it, and as the studio shows it once the
 /// paint rests: its picture, size and whether its base has alpha. `progress` hears how far it
 /// is (0..1); None when `stop` said so between two bands.
-pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: Option<&[PathBuf; 2]>, stop: &dyn Fn() -> bool, progress: &dyn Fn(f32)) -> Result<Option<(Vec<u8>, u32, u32, bool)>, String> {
+pub fn paint_full(
+    from: &Painting,
+    k: usize,
+    index: u8,
+    base: &Path,
+    template: Option<&[PathBuf; 2]>,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<Option<(Vec<u8>, u32, u32, bool)>, String> {
     let img = omsi_texture::decode_file(base).map_err(|e| format!("{}: {e}", base.display()))?;
     let (w, h) = paint_size(from.geom, index, img.width, img.height);
     let base = if (w, h) != (img.width, img.height) { omsi_texture::bc::resize(&img.rgba, img.width, img.height, w, h) } else { img.rgba };

@@ -138,17 +138,38 @@ impl Role {
         let words = name_words(file);
         let any = |f: &dyn Fn(&str) -> bool| words.iter().any(|w| f(w));
         // (whole words: `Rad_VR` is a wheel, `Lenkrad` and `Radio` are not)
-        if turns_as_wheel || any(&|w| matches!(w, "rad" | "raeder" | "räder" | "rader" | "wheel" | "wheels" | "reifen" | "tyre" | "tyres" | "tire" | "tires" | "felge" | "felgen" | "rim" | "rims" | "radkappe" | "hubcap")) {
+        if turns_as_wheel
+            || any(&|w| {
+                matches!(w, "rad" | "raeder" | "räder" | "rader" | "wheel" | "wheels" | "reifen" | "tyre" | "tyres" | "tire" | "tires" | "felge" | "felgen" | "rim" | "rims" | "radkappe" | "hubcap")
+            })
+        {
             Role::Wheel
         } else if any(&|w| w.contains("balg") || w.contains("bellow") || w.contains("gelenk") || w.starts_with("articul") || w.contains("drehteller") || w.contains("turntable")) {
             Role::Bellows
-        } else if any(&|w| w.contains("leuchte") || w.contains("scheinwerfer") || w.contains("blinker") || w.contains("lamp") || w.contains("light") || w.starts_with("licht") || w.ends_with("licht") || matches!(w, "indicator" | "indicators")) {
+        } else if any(&|w| {
+            w.contains("leuchte")
+                || w.contains("scheinwerfer")
+                || w.contains("blinker")
+                || w.contains("lamp")
+                || w.contains("light")
+                || w.starts_with("licht")
+                || w.ends_with("licht")
+                || matches!(w, "indicator" | "indicators")
+        }) {
             Role::Lamp
         } else if any(&|w| matches!(w, "lippe" | "lippen" | "rubber" | "rubbers" | "seal" | "seals") || w.contains("gummi") || w.contains("dichtung")) {
             Role::Rubber
         } else if any(&|w| w.contains("spiegel") || w.contains("mirror")) {
             Role::Mirror
-        } else if any(&|w| w.contains("wischer") || w.contains("wiper") || w.starts_with("kennz") || w.contains("nummernschild") || w.contains("plate") || w.starts_with("stern") || matches!(w, "logo" | "logos" | "badge" | "badges" | "emblem")) {
+        } else if any(&|w| {
+            w.contains("wischer")
+                || w.contains("wiper")
+                || w.starts_with("kennz")
+                || w.contains("nummernschild")
+                || w.contains("plate")
+                || w.starts_with("stern")
+                || matches!(w, "logo" | "logos" | "badge" | "badges" | "emblem")
+        }) {
             Role::Trim
         } else if any(&|w| matches!(w, "window" | "windows" | "windscreen" | "windshield") || w.ends_with("glas") || w.ends_with("glass") || w.ends_with("scheibe") || w.ends_with("scheiben")) {
             Role::Glass
@@ -392,7 +413,11 @@ impl Outside {
     /// either way (the O405's side windows point theirs into the bus, and a print on them
     /// faced away from every decal: nothing was painted there).
     pub fn out_of(&self, p: Vec3, n: Vec3) -> Vec3 {
-        if n.dot((p - self.middle) / self.half) < 0.0 { -n } else { n }
+        if n.dot((p - self.middle) / self.half) < 0.0 {
+            -n
+        } else {
+            n
+        }
     }
 
     fn map(tris: &[Tri], d: Vec3) -> DepthMap {
@@ -686,7 +711,11 @@ pub fn trim_like(lab: [f32; 3]) -> bool {
 /// The relative luminance Y (linear) of a CIELAB colour.
 pub fn luminance(lab: [f32; 3]) -> f32 {
     let f = (lab[0] + 16.0) / 116.0;
-    if f.powi(3) > 0.008856 { f.powi(3) } else { (f - 16.0 / 116.0) / 7.787 }
+    if f.powi(3) > 0.008856 {
+        f.powi(3)
+    } else {
+        (f - 16.0 / 116.0) / 7.787
+    }
 }
 
 /// k-means of `pts` into `k` (k-means++ seeds from `rnd`): the centres, each point's centre and
@@ -863,7 +892,11 @@ impl Zones {
         let (mut dp, mut dn) = (f32::INFINITY, f32::INFINITY);
         for (i, c) in self.centres.iter().enumerate() {
             let d = colour::delta_e(*c, lab);
-            if self.is_paint(i) { dp = dp.min(d) } else { dn = dn.min(d) }
+            if self.is_paint(i) {
+                dp = dp.min(d)
+            } else {
+                dn = dn.min(d)
+            }
         }
         if !dn.is_finite() || !dp.is_finite() {
             return if dp.is_finite() || self.centres.is_empty() { 1.0 } else { 0.0 };
@@ -895,7 +928,11 @@ impl Zones {
             return (group + other) * 0.5;
         }
         let near = d.iter().filter(|x| **x > 0.5).fold(f32::INFINITY, |a, b| a.min(*b));
-        if near.is_finite() { (near * 0.5).clamp(4.0, 40.0) } else { 1000.0 }
+        if near.is_finite() {
+            (near * 0.5).clamp(4.0, 40.0)
+        } else {
+            1000.0
+        }
     }
 
     /// How a texel of colour `c` (linear) is made of the zones (the recolour's unmixing): a mix
@@ -983,7 +1020,10 @@ pub mod tests {
         let (x0, x1, y0, y1, z0, z1) = (-1.25f32, 1.25, -6.0, 6.0, 0.3, 3.3);
         let quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, uv: [Vec2; 4], target: Option<u8>, glass: bool| -> [Tri; 2] {
             let n = (b - a).cross(c - a).normalize();
-            [Tri { p: [a, b, c], vn: [n; 3], uv: [uv[0], uv[1], uv[2]], n, target, glass, keep: false, trans: None }, Tri { p: [a, c, d], vn: [n; 3], uv: [uv[0], uv[2], uv[3]], n, target, glass, keep: false, trans: None }]
+            [
+                Tri { p: [a, b, c], vn: [n; 3], uv: [uv[0], uv[1], uv[2]], n, target, glass, keep: false, trans: None },
+                Tri { p: [a, c, d], vn: [n; 3], uv: [uv[0], uv[2], uv[3]], n, target, glass, keep: false, trans: None },
+            ]
         };
         let v = Vec3::new;
         let uvq = |u0: f32, u1: f32| [Vec2::new(u0, 1.0), Vec2::new(u1, 1.0), Vec2::new(u1, 0.0), Vec2::new(u0, 0.0)];

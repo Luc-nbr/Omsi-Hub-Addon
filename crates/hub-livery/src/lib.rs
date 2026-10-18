@@ -184,12 +184,7 @@ pub fn load_project(dir: &Path) -> Option<(Project, bool)> {
 
 /// The projects there are, newest first.
 pub fn projects() -> Vec<Project> {
-    let mut v: Vec<Project> = std::fs::read_dir(projects_dir())
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| load_project(&e.path()).map(|p| p.0))
-        .collect();
+    let mut v: Vec<Project> = std::fs::read_dir(projects_dir()).into_iter().flatten().flatten().filter_map(|e| load_project(&e.path()).map(|p| p.0)).collect();
     v.sort_by(|a, b| b.saved.cmp(&a.saved));
     v
 }
@@ -277,7 +272,11 @@ pub fn bus_meshes<'a>(parts: &[PartIn<'a>]) -> (Vec<PaintTexture>, Vec<(usize, u
                 .ctc_textures
                 .iter()
                 .map(|(_, f)| file_key(f))
-                .filter(|key| p.ty.model.meshes.iter().flat_map(|m| m.materials.iter()).any(|o| file_key(&o.texture) == *key && (o.transmap.as_deref().is_some_and(|t| t.trim().starts_with("\\S:")) || o.use_script_texture.is_some() || o.use_text_texture.is_some())))
+                .filter(|key| {
+                    p.ty.model.meshes.iter().flat_map(|m| m.materials.iter()).any(|o| {
+                        file_key(&o.texture) == *key && (o.transmap.as_deref().is_some_and(|t| t.trim().starts_with("\\S:")) || o.use_script_texture.is_some() || o.use_text_texture.is_some())
+                    })
+                })
                 .collect()
         })
         .collect();

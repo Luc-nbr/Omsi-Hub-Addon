@@ -108,10 +108,8 @@ fn fresh(stamps: &[(PathBuf, u64, u64)]) -> bool {
     let threads = std::thread::available_parallelism().map(|x| x.get()).unwrap_or(4).clamp(1, 16);
     let chunk = n.div_ceil(threads);
     std::thread::scope(|s| {
-        let jobs: Vec<_> = stamps
-            .chunks(chunk.max(1))
-            .map(|c| s.spawn(move || c.iter().all(|(p, size, mtime)| tex::stamp(p).map(|(a, b)| (a, b)).unwrap_or((u64::MAX, u64::MAX)) == (*size, *mtime))))
-            .collect();
+        let jobs: Vec<_> =
+            stamps.chunks(chunk.max(1)).map(|c| s.spawn(move || c.iter().all(|(p, size, mtime)| tex::stamp(p).map(|(a, b)| (a, b)).unwrap_or((u64::MAX, u64::MAX)) == (*size, *mtime)))).collect();
         jobs.into_iter().all(|j| j.join().unwrap_or(false))
     })
 }
@@ -227,7 +225,14 @@ pub fn pack_of(root: &Path, bus: &str) -> Result<(Arc<Manifest>, bool), String> 
     } else {
         reg().packs.insert(pack_id.clone(), Place::Memory(Arc::new(served(bytes, &built.scrambled))));
     }
-    core::log_to_file(&format!("bus3d: {bus} read and packed in {} ms ({} triangles, {} pieces, {} textures, {:.1} MB)", built.ms, manifest.counts.triangles, manifest.counts.pieces, manifest.counts.textures, manifest.bytes as f64 / 1e6));
+    core::log_to_file(&format!(
+        "bus3d: {bus} read and packed in {} ms ({} triangles, {} pieces, {} textures, {:.1} MB)",
+        built.ms,
+        manifest.counts.triangles,
+        manifest.counts.pieces,
+        manifest.counts.textures,
+        manifest.bytes as f64 / 1e6
+    ));
     reg().last = Some(Read { bus: bus.to_lowercase(), read: built.read, head: Arc::new(built.head), manifest: manifest.clone() });
     Ok((manifest, false))
 }

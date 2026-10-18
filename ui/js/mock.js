@@ -216,7 +216,18 @@ const answers = {
   // (a text on the bus's own display font, drawn by the game program: not in a browser)
   hub_display_preview: () => ({ failed: true }),
   // (the bus in 3D is written by the player's openOMSI: not in a browser)
-  hub_bus3d: () => ({ state: 'failed', error: 'The 3D model is written by openOMSI: open Omsi-Hub itself' }),
+  // (the 3D view reads the bus from the OMSI 2 folder: the mock has none)
+  b3d_env: () => ({ cloudSize: 2000 }),
+  b3d_open: () => {
+    throw 'The 3D view reads the bus from your OMSI 2 folder: open Omsi-Hub itself';
+  },
+  b3d_look: () => {
+    throw 'The 3D view reads the bus from your OMSI 2 folder: open Omsi-Hub itself';
+  },
+  b3d_photo_has: () => ({ has: false }),
+  // (the livery studio: no liveries begun in the mock, the studio's own fonts)
+  lak_projects: () => [],
+  lak_fonts: () => ['Hanken Grotesk', 'Roboto'],
   hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
   hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,
