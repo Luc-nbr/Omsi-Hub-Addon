@@ -56,6 +56,7 @@ omsi-map = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b
 omsi-scenery = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-timetable = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 omsi-world = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-content = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

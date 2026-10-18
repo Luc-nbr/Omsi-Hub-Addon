@@ -11,6 +11,7 @@ import { start, curLine, curTour, pickedTrip } from './drive.js';
 import { tripAt } from './trips.js';
 import { tr } from './bits.js';
 import { Home } from './home.js';
+import { ProfileStep } from '../steps/profile.js';
 import { MapStep } from '../steps/map.js';
 import { StartStep, freeRoute } from '../steps/start.js';
 import { DayStep } from '../steps/day.js';
@@ -19,6 +20,7 @@ import { BusStep } from '../steps/bus.js';
 
 /** The steps: id, name and icon (`flow::STEPS`). */
 export const STEPS = [
+  ['profile', 'Profile', 'person'],
   ['mode', 'Mode', 'route'],
   ['map', 'Map', 'map'],
   ['start', 'Start point', 'location_on'],
@@ -101,7 +103,7 @@ export async function hubExtras() {
   };
 }
 
-const VIEWS = { mode: Home, map: MapStep, start: StartStep, day: DayStep, duty: DutyStep, bus: BusStep };
+const VIEWS = { profile: ProfileStep, mode: Home, map: MapStep, start: StartStep, day: DayStep, duty: DutyStep, bus: BusStep };
 
 export function Flow() {
   const s = useStore();

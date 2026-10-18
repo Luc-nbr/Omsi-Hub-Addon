@@ -28,6 +28,7 @@ pub mod company;
 pub mod content;
 pub mod depot;
 pub mod drive;
+pub mod drivers;
 pub mod hub;
 pub mod lak;
 pub mod launcher;
@@ -84,6 +85,7 @@ pub fn to_json<T: serde::Serialize>(v: T) -> Answer {
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
     match cmd {
         c if c.starts_with("hub_update") => update::call(c, args, p),
+        c if c.starts_with("hub_profile") => drivers::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         c if c.starts_with("hub_") => hub::call(c, args, p),
         c if c.starts_with("addon_") => addon::call(c, args, p),
         c if c.starts_with("co_") => company::call(c, args, p),

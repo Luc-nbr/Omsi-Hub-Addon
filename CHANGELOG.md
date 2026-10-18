@@ -15,6 +15,11 @@ never changes their files.
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
 - **Your old saves** from the Omsi-Hub that came with its own game are offered on the first start:
   shown first, then copied (your companies, careers and settings). The old folder is left as it was.
+- **The drivers on this computer**, as in the old Omsi-Hub: "Who is driving today?" is the drive's
+  first step again, with a tile for each driver (OMSI's own personnel files, `Drivers/<name>.odr`),
+  a new one made in place and one deleted after asking. The game is started with the driver
+  chosen (`--driver`), so it keeps their figures; the **service record** shows them with the
+  level, the experience and the recent runs openOMSI wrote down.
 - **Four ways to drive**: a work shift built from the timetable's real trips, a tour, a free drive,
   and the bus company. Omsi-Hub starts openOMSI with the map, the bus and the duty; the plugin
   shows the duty in the game and sends the trips back when you are done.

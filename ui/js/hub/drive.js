@@ -203,9 +203,14 @@ export async function loadSituations() {
   set({ situations: await call('hub_situations', { map: S.choice.map }).catch(() => []) });
 }
 
-/** The drivers: the add-on drives as the player; openOMSI keeps its own profiles. */
+/** The drivers on this computer (`hub_profiles`: OMSI's personnel files and those openOMSI's
+ * sessions name) and the chosen one's service record. */
 export async function loadProfiles() {
-  set({ profiles: [], profile: null });
+  const got = await call('hub_profiles').catch(() => ({ names: [], current: '' }));
+  const profiles = got.names || [];
+  set({ profiles, config: { ...S.config, profile: got.current || '' } });
+  const name = S.config?.profile || profiles[0];
+  set({ profile: name ? await call('hub_profile', { name }).catch(() => null) : null });
 }
 
 /** A bus starred, to be listed first. */

@@ -47,6 +47,8 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         s.tutorial = Some(t);
         return s;
     }
+    // (the driver whose personnel file the game writes, as the old launcher started it)
+    s.driver = crate::drivers::launch_driver(d.profile.as_deref());
     if let Some(sit) = some(&d.situation) {
         s.situation = Some(sit);
         return s;

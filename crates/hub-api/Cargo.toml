@@ -32,6 +32,7 @@ omsi-map.workspace = true
 omsi-scenery.workspace = true
 omsi-timetable.workspace = true
 omsi-world.workspace = true
+omsi-content.workspace = true
 hashbrown.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true

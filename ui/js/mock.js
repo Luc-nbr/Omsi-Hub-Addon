@@ -264,10 +264,33 @@ const answers = {
   ],
   de_make: () => ({ entries: DEPOTS, view: DEPOT }),
   tg_gate: () => ({ on: true, label: '' }),
+  hub_profiles: () => ({ names: DRIVERS.slice(), current: DRIVERS[0] || '' }),
+  hub_profile: ({ name }) => driverRecord(name),
+  hub_profile_select: ({ name }) => ({ profile: name }),
+  hub_profile_create: ({ name }) => {
+    if (!DRIVERS.includes(name)) DRIVERS.push(name);
+    return driverRecord(name);
+  },
+  hub_profile_delete: ({ name }) => {
+    const k = DRIVERS.indexOf(name);
+    if (k >= 0) DRIVERS.splice(k, 1);
+    return true;
+  },
 
   ...companyAnswers,
   ...rosterflowAnswers,
 };
+
+// (the drivers on this computer, as `hub_profiles` lists them, and a service record of each)
+const DRIVERS = ['Luc', 'OMSI-Fan'];
+const RUN = { time: Math.floor(Date.now() / 1000) - 3600, driver: 'Luc', map: 'maps/Grundorf/global.cfg', bus: 'Vehicles/MAN_SD200/SD202.bus', line: '5', tour: '1', seconds: 2460, metres: 14200, stops: 18, early: 1, late: 2, tickets: 9, cash: 14.4, crashes: 0, hurt: 0, jolts: 3, driving: 94, comfort: 88, ticketing: 100 };
+const driverRecord = (name) => ({
+  name, file: `Drivers/${name}.odr`, hours: name === 'Luc' ? 12.6 : 0, km: name === 'Luc' ? 431.5 : 0, xp: name === 'Luc' ? 1460 : 0, level: name === 'Luc' ? 3 : 1, next_level_xp: name === 'Luc' ? 2250 : 250,
+  stops: 640, early: 31, late: 58, tickets: 412, cash: 655.2, crashes: 3, hurt: 0, rating_driving: 91, rating_comfort: 86, rating_tickets: 97,
+  sessions: name === 'Luc' ? [RUN, { ...RUN, time: RUN.time - 86400, line: null, tour: null, metres: 5100, seconds: 900 }] : [], exists: true,
+  record: { runs: name === 'Luc' ? 2 : 0, first: RUN.time - 86400, maps: [], buses: [], hours: Array(24).fill(0), jolts: 3, km: 19.3 },
+  trips: [], trip_totals: { trips: 0, timed: 0, stops: 0, early: 0, late: 0, average: null, worst: null, spotless: 0 },
+});
 
 export const backend = {
   async call(cmd, args) {

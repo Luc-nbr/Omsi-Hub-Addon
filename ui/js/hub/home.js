@@ -51,6 +51,7 @@ export function Home() {
   const on = current(c);
   const level = p ? Math.max(0, Math.min(1, (p.xp - Math.max(0, p.level - 1) ** 2 * 250) / Math.max(1, p.next_level_xp - Math.max(0, p.level - 1) ** 2 * 250))) : 0;
   const links = [
+    [tr('Driver: %{name}', { name }), 'person', () => goStep('profile')],
     [tr('Settings'), 'settings', () => go('settings')],
     [tr('Timetable'), 'schedule', openTimetable],
     [tr('Depot editor'), 'departure_board', () => openDepotEditor()],

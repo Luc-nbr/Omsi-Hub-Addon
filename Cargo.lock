@@ -1947,6 +1947,7 @@ dependencies = [
  "image",
  "log",
  "omsi-cfg",
+ "omsi-content",
  "omsi-geometry",
  "omsi-map",
  "omsi-model",
