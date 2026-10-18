@@ -151,7 +151,11 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
     };
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
     let g = process::start(&checked.install.exe, &spec).map_err(|e| match e {
+        #[cfg(feature = "native")]
         process::StartError::Blocked => crate::online::tr(process::BLOCKED),
+        // (the website starts no game)
+        #[cfg(not(feature = "native"))]
+        process::StartError::Blocked => crate::company::words::tr(process::BLOCKED),
         e => e.to_string(),
     })?;
     let pid = g.pid();
