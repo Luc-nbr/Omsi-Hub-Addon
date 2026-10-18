@@ -92,6 +92,9 @@ pub struct GameState {
     pub log: Vec<String>,
     pub toasts: Vec<Toast>,
     pub panels: BTreeMap<String, Value>,
+    /// How far the player dragged each panel (`omsi.ui.moved`); a panel set again keeps it,
+    /// one removed loses it.
+    pub moved: BTreeMap<String, (f64, f64)>,
     pub actions: Vec<String>,
     pub fonts: Vec<String>,
     pub sent: Vec<(i64, String)>,
@@ -127,6 +130,7 @@ impl Default for GameState {
             log: Vec::new(),
             toasts: Vec::new(),
             panels: BTreeMap::new(),
+            moved: BTreeMap::new(),
             actions: Vec::new(),
             fonts: Vec::new(),
             sent: Vec::new(),
@@ -162,6 +166,7 @@ pub const FUNCTIONS: &[&str] = &[
     "ui.update",
     "ui.focus",
     "ui.focused",
+    "ui.moved",
     "duty.get",
     "duty.trips",
     "duty.stops",
@@ -409,7 +414,17 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
         s.borrow_mut().toasts.push(Toast { text: a.0, title });
         Ok(true)
     });
-    f!(ui, "remove", |_l, s, id: String| Ok(s.borrow_mut().panels.remove(&id).is_some()));
+    f!(ui, "remove", |_l, s, id: String| {
+        let mut g = s.borrow_mut();
+        g.moved.remove(&id);
+        Ok(g.panels.remove(&id).is_some())
+    });
+    f!(ui, "moved", |_l, s, id: String| {
+        let g = s.borrow();
+        // (no panel: nothing, as the game answers)
+        let m = g.panels.contains_key(&id).then(|| g.moved.get(&id).copied().unwrap_or((0.0, 0.0)));
+        Ok((m.map(|m| m.0), m.map(|m| m.1)))
+    });
     f!(ui, "update", |_l, _s, _a: mlua::MultiValue| Ok(true));
     {
         let focused = Rc::new(RefCell::new(false));

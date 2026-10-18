@@ -714,3 +714,10 @@ _version: 2
   pl: "punktualnie"
   ru: "вовремя"
   uk: "вчасно"
+"Size":
+  de: "Größe"
+  fr: "Taille"
+  nl: "Grootte"
+  pl: "Rozmiar"
+  ru: "Размер"
+  uk: "Розмір"

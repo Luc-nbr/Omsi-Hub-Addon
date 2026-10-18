@@ -12,6 +12,8 @@
 -- (`crew.strip = false`) or by another module that draws a strip of its own (`M.set_enabled`):
 -- there is only ever one duty strip on the screen.
 
+local layout = require("layout")
+
 local M = {}
 
 local PANEL = "omsihub_strip"
@@ -54,7 +56,7 @@ end
 function M.set_enabled(on)
   enabled = on and crew ~= nil
   if not enabled and shown and omsi.ui and omsi.ui.remove then
-    omsi.ui.remove(PANEL)
+    layout.remove(PANEL)
     shown = false
   end
 end
@@ -270,12 +272,12 @@ function M.update(on)
   if not (crew and omsi.ui and omsi.ui.set) then return end
   if not (enabled and on) then
     if shown then
-      omsi.ui.remove(PANEL)
+      layout.remove(PANEL)
       shown = false
     end
     return
   end
-  omsi.ui.set(PANEL, { anchor = "bottom_left", x = 16, y = 16, width = 340, accent = ACCENT, draggable = true, children = M.rows(minute()) })
+  layout.set(PANEL, { anchor = "bottom_left", x = 16, y = 16, width = 340, accent = ACCENT, draggable = true, children = M.rows(minute()) })
   shown = true
 end
 
@@ -363,7 +365,7 @@ function M.change(p, element, value)
 end
 
 function M.stop()
-  if shown and omsi.ui and omsi.ui.remove then omsi.ui.remove(PANEL) end
+  if shown and omsi.ui and omsi.ui.remove then layout.remove(PANEL) end
   shown = false
 end
 
