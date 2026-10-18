@@ -1755,6 +1755,7 @@ export const companyAnswers = {
   co_more_map: () => ({
     roads: GRID.map((p, k) => ({ p, w: 8, main: k === 1 })),
     lines: [{ p: ROUTE, colour: LINES[0].colour }],
+    stops: [{ at: [800, 0], k: -1 }, { at: [800, 800], k: -1 }, { at: [1600, 800], k: -1 }],
     lo: [0, 0], hi: [2400, 1600],
   }),
 };

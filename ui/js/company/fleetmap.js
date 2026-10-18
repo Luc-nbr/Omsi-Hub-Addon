@@ -23,8 +23,12 @@ import { useMore, actMore, TextIn, box } from './more.js';
 import { Photo } from './fleet.js';
 import { cmd } from './kit.js';
 import { dark } from '../hub/theme.js';
-import { S } from '../store.js';
+import { S, useStore } from '../store.js';
+import { drawStopSign, stopSign } from '../hub/stopsigns.js';
 import { useMemo } from '../../vendor/preact-htm.js';
+
+/** The stops are drawn as signs below this many metres a point (zoomed in that far). */
+const STOP_SIGNS_MPP = 4;
 
 /** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
 const ROAD_PX = 1.4;
@@ -332,6 +336,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const size = useRef({ W, H, left });
   size.current = { W, H, left };
   const look = dark();
+  const signs = useStore((s) => s.settings?.stop_style);
   // (the accent and the page's font, read when the look changed: not every frame)
   const kept = useRef({});
   if (kept.current.look !== look) kept.current = { look, accent: css('--hub-accent') || '#2a75f7', font: null };
@@ -424,6 +429,12 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
       g.strokeStyle = l.colour;
       g.lineWidth = 4;
       g.stroke();
+    }
+    // their stops as the bus stop signs chosen (`stopsigns.js`), once near enough to tell them
+    // apart (further out they would cover the lines)
+    if (k.mpp < STOP_SIGNS_MPP) {
+      const style = stopSign();
+      for (const st of map.stops || []) if (st.at) drawStopSign(g, style, X(st.at[0]), Y(st.at[1]), 13);
     }
   };
   /** The buses where they are this frame, their tags, and the card beside the one picked. */
@@ -558,7 +569,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   useEffect(() => {
     cam.current = null;
   }, [map]);
-  useEffect(drawBase, [map, W, H, left, look]);
+  useEffect(drawBase, [map, W, H, left, look, signs]);
   // (the small map's buttons: zoom on its middle, the whole of it, a bus centred)
   if (ctl)
     ctl.current = {
