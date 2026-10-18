@@ -232,3 +232,16 @@
 .ol-update-row { display: flex; flex-direction: column; gap: 12px; }
 
 @media (prefers-reduced-motion: reduce) { .ol-spin, .hubcs-pulse, .ol-panel, .ol-notice, .ol-toast, .ol-dialog { animation: none; } }
+
+/* the profile photo (avatar.js): the picture, or the name's first letter */
+.ol-avatar { display: inline-grid; place-items: center; flex: none; border-radius: 50%; object-fit: cover; background: var(--hub-accent); color: var(--hub-on-accent); font-weight: 800; line-height: 1; user-select: none; }
+img.ol-avatar { background: var(--hub-field); }
+.ol-face { position: relative; display: inline-flex; flex: none; }
+.ol-face .ol-dot { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; opacity: 1; box-shadow: 0 0 0 2px var(--hub-panel); }
+.ol-face .ol-dot.busy { box-shadow: 0 0 0 2px var(--hub-panel); }
+.ol-avatar-pick { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px; }
+.ol-avatar-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.ol-avatar-acts .ol-hint { flex-basis: 100%; }
+.ol-avatar-btn { position: relative; padding: 0; border: 0; background: none; border-radius: 50%; cursor: pointer; flex: none; color: #fff; }
+.ol-avatar-over { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 50%; background: rgba(0, 0, 0, 0.45); opacity: 0; transition: opacity 0.15s; }
+.ol-avatar-btn:hover .ol-avatar-over, .ol-avatar-btn:focus-visible .ol-avatar-over, .ol-avatar-btn.busy .ol-avatar-over { opacity: 1; }

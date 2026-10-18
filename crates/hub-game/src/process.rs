@@ -32,6 +32,26 @@ pub struct Ended {
 pub enum StartError {
     Spec(SpecError),
     Io(std::io::Error),
+    /// Windows' app control (Smart App Control, or an organisation's policy) refused the program.
+    Blocked,
+}
+
+/// What the app says when Windows' app control refuses openOMSI (a text to translate).
+pub const BLOCKED: &str = "Windows blocked openOMSI: Smart App Control (or your organisation's app control) does not let this unsigned program start. Smart App Control has no list of allowed programs: openOMSI only starts with it off (Windows Security, App & browser control, Smart App Control), and it cannot be switched on again without reinstalling Windows. Under your organisation's policy, ask your administrator.";
+
+/// The system's codes for a program its app control refused: `ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION`
+/// (Smart App Control, Windows Defender Application Control) and `ERROR_ACCESS_DISABLED_BY_POLICY`
+/// (AppLocker, a software restriction policy).
+const BLOCKED_CODES: [i32; 2] = [4551, 1260];
+
+impl StartError {
+    fn of_io(e: std::io::Error) -> Self {
+        if cfg!(windows) && e.raw_os_error().is_some_and(|c| BLOCKED_CODES.contains(&c)) {
+            StartError::Blocked
+        } else {
+            StartError::Io(e)
+        }
+    }
 }
 
 impl std::fmt::Display for StartError {
@@ -39,6 +59,7 @@ impl std::fmt::Display for StartError {
         match self {
             StartError::Spec(e) => write!(f, "{e}"),
             StartError::Io(e) => write!(f, "openOMSI could not be started: {e}"),
+            StartError::Blocked => f.write_str(BLOCKED),
         }
     }
 }
@@ -86,12 +107,36 @@ pub fn ensure_executable(_exe: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The mark Windows puts on a file that came from the internet (the `Zone.Identifier` stream a
+/// browser or an unzipping tool writes) taken off openOMSI's program and the libraries beside it,
+/// as "Unblock" in the file's properties does: with it, SmartScreen and Smart App Control judge
+/// the unsigned program as a download and may refuse it. What will not go is left as it is.
+#[cfg(windows)]
+pub fn unblock(exe: &Path) {
+    let mut files = vec![exe.to_path_buf()];
+    if let Some(dir) = exe.parent() {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            files.extend(rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll") || x.eq_ignore_ascii_case("exe"))));
+        }
+    }
+    for f in files {
+        let mut mark = f.into_os_string();
+        mark.push(":Zone.Identifier");
+        let _ = std::fs::remove_file(mark);
+    }
+}
+
+/// (Only Windows marks downloads so.)
+#[cfg(not(windows))]
+pub fn unblock(_exe: &Path) {}
+
 /// openOMSI at `exe` started with `spec`.
 pub fn start(exe: &Path, spec: &LaunchSpec) -> Result<Game, StartError> {
     // (the spec checked before the program is touched: a bad drive says so on every system)
     let cmd = command(exe, spec).map_err(StartError::Spec)?;
     ensure_executable(exe).map_err(StartError::Io)?;
-    Game::spawn(cmd, exe).map_err(StartError::Io)
+    unblock(exe);
+    Game::spawn(cmd, exe).map_err(StartError::of_io)
 }
 
 impl Game {
@@ -139,6 +184,7 @@ impl Game {
 /// from its command line's parser and ends before anything of the game starts.
 pub fn ask_version(exe: &Path, wait: Duration) -> Option<GameVersion> {
     ensure_executable(exe).ok()?;
+    unblock(exe);
     let mut cmd = Command::new(exe);
     cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     no_window(&mut cmd);
@@ -172,13 +218,17 @@ pub fn export_glb(exe: &Path, spec: &LaunchSpec, wait: Duration) -> Result<PathB
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
     let _ = std::fs::remove_file(&out);
+    unblock(exe);
     let mut cmd = Command::new(exe);
     cmd.args(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }
     no_window(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))?;
+    let mut child = cmd.spawn().map_err(|e| match StartError::of_io(e) {
+        StartError::Blocked => BLOCKED.to_string(),
+        e => format!("{}: {e}", exe.display()),
+    })?;
     // (what it says on the way is read beside it, so that a full pipe never stops it)
     let err = child.stderr.take().map(|mut e| {
         std::thread::spawn(move || {

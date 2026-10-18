@@ -473,6 +473,11 @@ fn state_label(s: &str) -> String {
     })
 }
 
+/// A photo's address, from its name in the bucket.
+fn avatar_of(name: Option<&String>) -> Option<String> {
+    name.map(|n| endpoints().avatar_url(n))
+}
+
 fn friend_json(f: &Friend) -> Value {
     let st = state_of(f);
     let session = f.session_code.clone().filter(|_| st != "offline");
@@ -480,6 +485,7 @@ fn friend_json(f: &Friend) -> Value {
         "id": f.user_id, "name": f.display_name, "state": st, "state_label": state_label(st),
         "seen": if st == "offline" { seen_words(f.last_seen.as_deref()) } else { String::new() },
         "session": session, "join": session.is_some() && together_enabled(),
+        "avatar": avatar_of(f.avatar.as_ref()),
     })
 }
 
@@ -518,10 +524,10 @@ fn state() -> Value {
         "lasting": v.lasting,
         "need_profile": v.need_profile,
         "no_password": v.signed_in && v.no_password,
-        "me": v.profile.as_ref().map(|p| json!({ "name": p.display_name, "code": p.friend_code, "board": p.on_board })),
+        "me": v.profile.as_ref().map(|p| json!({ "name": p.display_name, "code": p.friend_code, "board": p.on_board, "avatar": avatar_of(p.avatar.as_ref()) })),
         "friends": order.iter().map(|f| friend_json(f)).collect::<Vec<_>>(),
         "online_count": friends.iter().filter(|f| state_of(f) != "offline").count(),
-        "requests": requests.iter().map(|f| json!({ "id": f.user_id, "name": f.display_name, "incoming": f.incoming, "new": f.incoming && !v.seen.contains(&format!("r:{}", f.user_id)) })).collect::<Vec<_>>(),
+        "requests": requests.iter().map(|f| json!({ "id": f.user_id, "name": f.display_name, "incoming": f.incoming, "new": f.incoming && !v.seen.contains(&format!("r:{}", f.user_id)), "avatar": avatar_of(f.avatar.as_ref()) })).collect::<Vec<_>>(),
         "invites": invites.iter().map(|i| {
             let from = name_of(&i.from);
             json!({ "id": i.key(), "from": from, "session": i.session_code, "text": trf("%{name} invites you to their company", &[("name", &from)]), "new": !v.seen.contains(&format!("i:{}", i.key())) })
@@ -767,6 +773,18 @@ fn profile(args: &Value) -> Value {
     answer(with(|c| if need { c.create_profile(name) } else { c.set_display_name(name) }).and_then(|_| refresh(false)).map(|_| done(&tr("Display name saved."))))
 }
 
+/// The profile photo: the page's picture (base64, made small and square already), or none
+/// (`clear`); the website shows the same one.
+fn avatar(args: &Value) -> Value {
+    if args.get("clear").and_then(Value::as_bool).unwrap_or(false) {
+        return answer(with(Client::clear_avatar).and_then(|_| refresh(false)).map(|_| done(&tr("Profile photo removed."))));
+    }
+    let Ok(bytes) = crate::launcher::base64(str_arg(args, "data")) else {
+        return fail(Error::Code("bad_photo"));
+    };
+    answer(with(|c| c.set_avatar(&bytes)).and_then(|_| refresh(false)).map(|_| done(&tr("Profile photo saved."))))
+}
+
 // --- the leaderboard ------------------------------------------------------------------------------
 
 /// Standing on the public leaderboard switched on or off, then the profile fetched again.
@@ -854,6 +872,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "ol_privacy_accept" => privacy_accept(),
         "ol_delete" => delete(args),
         "ol_profile" => profile(args),
+        "ol_avatar" => avatar(args),
         "ol_leaderboard" => leaderboard(args),
         "ol_report_stats" => match report_stats(&stats_of(args)) {
             Ok(code) => json!({ "ok": true, "code": code }),

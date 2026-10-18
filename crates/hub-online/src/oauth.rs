@@ -300,7 +300,7 @@ fn esc(s: &str) -> String {
 }
 
 /// `n` random bytes from the system's generator, base64url without padding.
-fn random(n: usize) -> Result<String, Error> {
+pub(crate) fn random(n: usize) -> Result<String, Error> {
     use ring::rand::SecureRandom;
     let mut b = vec![0u8; n];
     ring::rand::SystemRandom::new().fill(&mut b).map_err(|_| Error::Code("oauth_failed"))?;

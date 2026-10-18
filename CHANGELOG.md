@@ -15,6 +15,12 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
+  "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
+  them, and where Windows still refuses it, says so and what can be done.
+- **A profile photo**, the same in the app and on the website: upload it in the account panel or
+  on your service record (a click on the picture), or on omsihub.com; your friends, the
+  leaderboard and the website show it.
 - **The leaderboard gets your figures**: signed in, Omsi-Hub sends your driver's points, level,
   duties, time driven and kilometres whenever they change (after every drive).
 - **One account, one driver**: signed in, your driver is your account's (the display name's), with
@@ -23,7 +29,7 @@ never changes their files.
   shown first, then copied (your companies, careers and settings). The old folder is left as it was.
 - **The bus stop signs** on the maps - the drive's route map, the line editor and the company's
   fleet map -, as you choose them in the welcome or the settings: the German H (the default), the
-  British roundel, the French or the Dutch sign. The route map of the
+  British roundel, the French, the Dutch, the Polish, the Russian or the Ukrainian sign. The route map of the
   drive's steps is the old one again: its stops with their times, dragged to move, the wheel or
   the + and - to zoom.
 - **Blue** is Omsi-Hub's colour unless you choose another (Settings, Accent colour).

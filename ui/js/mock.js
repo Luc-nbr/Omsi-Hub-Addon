@@ -162,6 +162,7 @@ const answers = {
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
   // (the online account and the cloud saves, signed out: everything works offline)
+  ol_avatar: () => ({ ok: true, message: 'Profile photo saved.' }),
   ol_state: () => ({ mode: 'out', friends: [], invites: [], requests: [], badge: 0, online_count: 0, offline: false, together: false, hosting: false, privacy: { version: 2, needed: false } }),
   ol_refresh: () => ({ ok: true }),
   ol_seen: () => ({ ok: true }),

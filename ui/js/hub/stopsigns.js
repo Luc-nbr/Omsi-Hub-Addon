@@ -3,7 +3,10 @@
 // `stopSign`, drawn here the same), asked in the welcome; German by default. The German stop's
 // green H on yellow (Zeichen 224), the British red roundel with its bar, the French blue square
 // with the bus (C6), and - new in the add-on - the Dutch dark blue stop plate with the bus over
-// its yellow band.
+// its yellow band, and the signs of the app's other languages: the Polish D-15 (the black bus on
+// a white field in the blue square), the Russian stop with its letter А (the 5.16 square with
+// the letter the city stops carry for the bus) and the Ukrainian 5.41 (the black bus on a white
+// field with square corners).
 
 import { html, useEffect, useRef } from '../../vendor/preact-htm.js';
 import { S } from '../store.js';
@@ -15,6 +18,10 @@ export const STOP_SIGNS = [
   ['uk', 'British'],
   ['fr', 'French'],
   ['nl', 'Dutch'],
+  ['pl', 'Polish'],
+  ['ru', 'Russian'],
+  // (`uk` is the British sign already, the old app's value)
+  ['ua', 'Ukrainian'],
 ];
 
 /** The style chosen (the settings'), German unless another is. */
@@ -46,6 +53,38 @@ function bus(ctx, s, glass, dy = 0) {
   ctx.fill();
   ctx.beginPath();
   ctx.arc(s * 0.36, s * 0.38 + dy, s * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** A bus seen from the side in black on a white field (the Polish, Russian and Ukrainian signs). */
+function busDark(ctx, s) {
+  ctx.fillStyle = '#111418';
+  roundRect(ctx, -s * 0.66, -s * 0.42, s * 1.32, s * 0.72, s * 0.12);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(-s * 0.54, -s * 0.3, s * 0.3, s * 0.24);
+  ctx.fillRect(-s * 0.16, -s * 0.3, s * 0.3, s * 0.24);
+  ctx.fillRect(s * 0.22, -s * 0.3, s * 0.32, s * 0.24);
+  ctx.fillStyle = '#111418';
+  ctx.beginPath();
+  ctx.arc(-s * 0.36, s * 0.36, s * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 0.36, s * 0.36, s * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** The blue square with the white field the Polish, Russian and Ukrainian signs share
+ * (`rounded`: the field's corners); `s` half its width. */
+function blueField(ctx, s, rounded, edge) {
+  roundRect(ctx, -s, -s, s * 2, s * 2, s * 0.14);
+  ctx.fillStyle = '#1d56b3';
+  ctx.fill();
+  edge();
+  ctx.stroke();
+  const f = s * 0.72;
+  roundRect(ctx, -f, -f, f * 2, f * 2, rounded ? f * 0.18 : f * 0.02);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
 }
 
@@ -97,6 +136,29 @@ export function drawStopSign(ctx, style, x, y, d) {
     bus(ctx, s * 0.82, '#183f8f', -s * 0.2);
     ctx.fillStyle = '#f7d117';
     ctx.fillRect(-w / 2 + s * 0.18, s * 0.56, w - s * 0.36, s * 0.24);
+  } else if (style === 'pl' || style === 'ua') {
+    const s = r * 0.92;
+    blueField(ctx, s, style === 'pl', edge);
+    busDark(ctx, s * 0.6);
+  } else if (style === 'ru') {
+    const s = r * 0.92;
+    blueField(ctx, s, false, edge);
+    // (the letter drawn, so that it needs no font with Cyrillic: А as the Latin A looks)
+    const h = s * 1.0;
+    const w = s * 0.86;
+    const t = s * 0.2;
+    ctx.fillStyle = '#111418';
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, h / 2);
+    ctx.lineTo(-t / 2, -h / 2);
+    ctx.lineTo(t / 2, -h / 2);
+    ctx.lineTo(w / 2, h / 2);
+    ctx.lineTo(w / 2 - t, h / 2);
+    ctx.lineTo(0, -h / 2 + t * 1.2);
+    ctx.lineTo(-w / 2 + t, h / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-w * 0.28, h * 0.12, w * 0.56, t * 0.8);
   } else {
     ctx.fillStyle = '#f7d117';
     ctx.beginPath();
