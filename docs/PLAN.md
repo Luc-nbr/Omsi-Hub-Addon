@@ -100,13 +100,13 @@ pinned to one commit - openOMSI as it was up to 2026-10-13, MIT.
 
 Phases 2–5 can run in parallel sessions once phase 1 fixes the interfaces.
 
-## Where it stands (2026-10-17)
+## Where it stands (2026-10-18)
 
 | Phase | |
 | --- | --- |
 | 1. Inventory | Done (`docs/INVENTORY.md`) |
 | 2. `hub-omsi` | Done, with tests on a synthetic OMSI 2 folder |
-| 3. `hub-core` + `hub-api` | Done: the company, RosterFlow, online, cloud saves, the timetable and depot editors. Later: playing together (`tg_`, needs a relay) and the line editor (needs the map's lanes) |
+| 3. `hub-core` + `hub-api` | Done: the company, RosterFlow, online, cloud saves, the timetable and depot editors, playing together (`tg_`, over openOMSI's LAN layer and relay), the line editor (`hub_le`, on the map's lanes), the 3D view, photos and livery studio (`b3d_`, `lak_`), on the crates of Luc's openOMSI fork |
 | 4. `app/` + `ui/` | Done |
 | 5. `plugin/` + `hub-game` | Done; a drive is tested end to end against a fake openOMSI |
 | 6. Migration and release | The data move and the release workflow (Windows, macOS, Linux; pre-releases too) are done. Next: 0.1.0 as a pre-release (`CHANGELOG.md`, `docs/UPDATES.md` "A pre-release"), Luc's test on a real openOMSI and OMSI 2, the signing key, the repository public, then the old repository's last update and the website's download page |
