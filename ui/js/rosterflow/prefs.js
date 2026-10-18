@@ -15,7 +15,7 @@ import { Icon, RfButton, Switch, CheckRow, Seg, Stepper, Select } from './ui.js'
 
 /** The preferences, by kind: (kind, its icon, its items). */
 const KINDS = [
-  ['Vehicles', 'directions_bus', ['layover', 'prepost']],
+  ['Vehicles', 'directions_bus', ['layover', 'prepost', 'deadheads']],
   ['Drivers', 'person', ['signing', 'points', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types']],
   ['Depots', 'local_parking', ['depot']],
   ['Misc', 'apps', ['costs', 'algorithm']],
@@ -24,6 +24,7 @@ const KINDS = [
 const NAME = {
   layover: 'Layover',
   prepost: 'Pre/Post-Trip',
+  deadheads: 'Deadheads',
   signing: 'Driver Signing',
   points: 'Relief Points',
   relief: 'Relief Timing',
@@ -43,6 +44,7 @@ const NAME = {
 const INFO = {
   layover: 'The least time a bus stands between two trips at one place.',
   prepost: "The bus's check before it leaves the depot and after it is back.",
+  deadheads: 'How long a bus takes to drive empty from one place to another, and how far: between two relief points, or to and from one.',
   signing: "The paid minutes a driver signs on before work and off after it, at the duty's ends and around a split.",
   points: "Where drivers may begin or end a duty, change on the bus and take a break: the depot and the lines' termini by themselves, and the stops on a line's way you add.",
   relief: "When the driver changes within the bus's layover at a relief point (a terminus or the depot).",
@@ -82,6 +84,8 @@ function inUse(it, p) {
       return p.wage != null || p.driver_fixed != null || p.vehicle_fixed != null || p.per_km != null;
     case 'points':
       return (p.points || []).length > 0;
+    case 'deadheads':
+      return (p.deadheads || []).length > 0 || (p.points || []).some((x) => x.deadhead_min != null || x.deadhead_km != null);
     default:
       return true;
   }
@@ -122,7 +126,7 @@ function setPoint(pr, row, patch) {
  * is typed is the field's own until it is left or Enter is pressed: the page is drawn anew four
  * times a second while the company's clock runs, and a field given its value back each time lost
  * what was typed in it before it was kept (Luc: Duty Travel's table "cannot be edited"). */
-function Minutes0({ value, placeholder, set }) {
+function Minutes0({ value, placeholder, set, max = 240, dec = false }) {
   const shown = value == null ? '' : String(value);
   const [text, setText] = useState(shown);
   const typing = useRef(false);
@@ -131,11 +135,12 @@ function Minutes0({ value, placeholder, set }) {
   }, [shown]);
   const put = (t) => {
     typing.current = false;
-    const m = String(t).trim() === '' ? null : Math.max(0, Math.min(240, Math.round(Number(t)) || 0));
+    const n = Number(String(t).replace(',', '.'));
+    const m = String(t).trim() === '' ? null : Math.max(0, Math.min(max, (dec ? Math.round(n * 10) / 10 : Math.round(n)) || 0));
     setText(m == null ? '' : String(m));
     if (m !== (value ?? null)) set(m);
   };
-  return html`<input class="pf-min" type="number" min="0" max="240" value=${text} placeholder=${placeholder}
+  return html`<input class="pf-min" type="number" min="0" max=${max} step=${dec ? 0.1 : 1} value=${text} placeholder=${placeholder}
     onInput=${(ev) => ((typing.current = true), setText(ev.currentTarget.value))} onChange=${(ev) => put(ev.currentTarget.value)} onBlur=${(ev) => typing.current && put(ev.currentTarget.value)} />`;
 }
 
@@ -150,7 +155,7 @@ function ReliefPoints({ v, pr, put, e, set }) {
   const free = line ? line.stops.filter((s) => !rows.some((r) => eq(r.stop, s))) : [];
   const si = Math.min(e.addStop || 0, Math.max(0, free.length - 1));
   const use = (row, key) => html`<${CheckRow} on=${row.point[key]} label="" raw class="pf-tick" onChange=${(x) => put({ points: setPoint(pr, row, { [key]: x }) })} />`;
-  const add = () => put({ points: [...(pr.points || []), { stop: free[si], added: true, line: line.line, sign: true, relief: true, breaks: true, travel: null, walk: null, public: null, car: null }] });
+  const add = () => put({ points: [...(pr.points || []), { stop: free[si], added: true, line: line.line, sign: true, relief: true, breaks: true, travel: null, walk: null, public: null, car: null, deadhead_min: null, deadhead_km: null }] });
   return html`<div class="pf-points">
     <table class="pf-table">
       <thead><tr><th>${tr('Relief point').toUpperCase()}</th><th>${tr('Lines').toUpperCase()}</th><th>${tr('Kind').toUpperCase()}</th><th class="c">${tr('Sign-on/off').toUpperCase()}</th><th class="c">${tr('Relief').toUpperCase()}</th><th class="c">${tr('Break').toUpperCase()}</th><th></th></tr></thead>
@@ -196,12 +201,52 @@ function TravelPoints({ v, pr, put, e, set }) {
         ${WAY_FIELD.map((w) => html`<td class="c"><${Minutes0} value=${r.point[w]} placeholder=${pr[w]} set=${(m) => put({ points: setPoint(pr, r, { [w]: m }) })} /></td>`)}
       </tr>`)}</tbody>
     </table>
-    <div class="pf-row"><b class="pf-sub">${tr('Between two relief points').toUpperCase()}</b><span class="grow"></span><${Seg} at=${way} labels=${labels} raw style="width:420px" onPick=${(k) => set({ way: k })} /></div>
+    <div class="pf-row pf-subrow"><b class="pf-sub">${tr('Between two relief points').toUpperCase()}</b><${Seg} at=${way} labels=${labels} raw style="width:360px" onPick=${(k) => set({ way: k })} /></div>
     <div class="pf-matrix"><table>
       <tr><th>${tr('From → to').toUpperCase()}</th>${rows.map((b) => html`<th title=${b.name}>${b.name}</th>`)}</tr>
       ${rows.map((a) => html`<tr><th title=${a.name}>${a.name}</th>${rows.map((b) => (eq(a.stop, b.stop) ? html`<td class="x">-</td>` : html`<td><${Minutes0} value=${pairOf(a, b)?.[f]} placeholder=${fallback(a, b)} set=${(m) => setPair(a, b, m)} /></td>`))}</tr>`)}
     </table></div>
     <p class="pf-note">${tr("An empty field takes the way back's time, else the relief point's own, else the default.")}</p>`;
+}
+
+/** Kilometres as the page shows them ("3.5 km"). */
+const km = (x) => `${(Math.round(Number(x || 0) * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+
+/** Deadheads per relief point and between two (`rosterflow::deadhead_set`): to or from each
+ * point its minutes and kilometres, and the table from a point to another, minutes or
+ * kilometres at a time. An empty field takes the way back's, the points' own, then the line's
+ * quickest trip, then the defaults. */
+function DeadheadPoints({ v, pr, put, e, set }) {
+  const rows = pointRows(v, pr);
+  if (!rows.length) return html`<p class="pf-note">${tr("The relief points show once the timetable is read.")}</p>`;
+  const what = e.dhWhat || 0;
+  const f = what ? 'km' : 'minutes';
+  const own = what ? 'deadhead_km' : 'deadhead_min';
+  const pairs = pr.deadheads || [];
+  const pairOf = (a, b) => pairs.find((x) => eq(x.from, a.stop) && eq(x.to, b.stop));
+  const setPair = (a, b, m) => {
+    const k = pairs.findIndex((x) => eq(x.from, a.stop) && eq(x.to, b.stop));
+    const next = k >= 0 ? pairs.map((x, i) => (i === k ? { ...x, [f]: m } : x)) : [...pairs, { from: a.stop, to: b.stop, minutes: null, km: null, [f]: m }];
+    put({ deadheads: next.filter((x) => x.minutes != null || x.km != null) });
+  };
+  const auto = what ? pr.deadhead_km : pr.deadhead_min;
+  const fallback = (a, b) => pairOf(b, a)?.[f] ?? b.point[own] ?? a.point[own] ?? auto;
+  return html`<b class="pf-sub">${tr('Per relief point').toUpperCase()}</b>
+    <table class="pf-table">
+      <thead><tr><th>${tr('Relief point').toUpperCase()}</th><th class="c">${tr('Minutes').toUpperCase()}</th><th class="c">${tr('Kilometres').toUpperCase()}</th><th></th></tr></thead>
+      <tbody>${rows.map((r) => html`<tr>
+        <td class="name" title=${r.name}>${r.name}</td>
+        <td class="c"><${Minutes0} value=${r.point.deadhead_min} placeholder=${pr.deadhead_min} set=${(m) => put({ points: setPoint(pr, r, { deadhead_min: m }) })} /></td>
+        <td class="c"><${Minutes0} value=${r.point.deadhead_km} placeholder=${pr.deadhead_km} dec max=${500} set=${(m) => put({ points: setPoint(pr, r, { deadhead_km: m }) })} /></td>
+        <td class="dim">${tr('to or from it')}</td>
+      </tr>`)}</tbody>
+    </table>
+    <div class="pf-row pf-subrow"><b class="pf-sub">${tr('Between two relief points').toUpperCase()}</b><${Seg} at=${what} labels=${['Minutes', 'Kilometres']} style="width:240px" onPick=${(k) => set({ dhWhat: k })} /></div>
+    <div class="pf-matrix"><table>
+      <tr><th>${tr('From → to').toUpperCase()}</th>${rows.map((b) => html`<th title=${b.name}>${b.name}</th>`)}</tr>
+      ${rows.map((a) => html`<tr><th title=${a.name}>${a.name}</th>${rows.map((b) => (eq(a.stop, b.stop) ? html`<td class="x">-</td>` : html`<td><${Minutes0} value=${pairOf(a, b)?.[f]} placeholder=${fallback(a, b)} dec=${!!what} max=${what ? 500 : 240} set=${(m) => setPair(a, b, m)} /></td>`))}</tr>`)}
+    </table></div>
+    <p class="pf-note">${tr("An empty field takes the way back's, else the relief points' own, else the line's quickest trip between the two, else the default. A deadhead whose time is set here is no longer estimated (no orange dot).")}</p>`;
 }
 
 
@@ -319,6 +364,12 @@ export function PrefsWindow() {
       break;
     case 'prepost':
       body = html`<${Minutes} label="Pre-trip check" value=${pr.pre_trip} max=${60} set=${(x) => put({ pre_trip: x })} /><${Minutes} label="Post-trip check" value=${pr.post_trip} max=${60} set=${(x) => put({ post_trip: x })} />`;
+      break;
+    case 'deadheads':
+      body = html`<${Minutes} label="A deadhead where nothing is set" value=${pr.deadhead_min ?? 5} max=${120} set=${(x) => put({ deadhead_min: x })} />
+        <div class="pf-row"><span>${tr('Its kilometres where nothing is set')}</span><${Stepper} value=${pr.deadhead_km ?? 3} step=${0.5} min=${0} max=${100} fmt=${km} style="width:150px" onChange=${(x) => put({ deadhead_km: Math.round(x * 10) / 10 })} /></div>
+        <${Live} live=${live} item="deadheads" />
+        <${DeadheadPoints} v=${v} pr=${pr} put=${put} e=${e} set=${set} />`;
       break;
     case 'signing':
       body = html`<${Minutes} label="Sign-on at the duty's start" value=${pr.sign_on} max=${60} set=${(x) => put({ sign_on: x })} />

@@ -83,6 +83,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("rosterflow-beta66.yml", include_str!("../locales/rosterflow-beta66.yml")),
     ("rosterflow-breaks.yml", include_str!("../locales/rosterflow-breaks.yml")),
     ("rosterflow-days.yml", include_str!("../locales/rosterflow-days.yml")),
+    ("rosterflow-deadheads.yml", include_str!("../locales/rosterflow-deadheads.yml")),
     ("rosterflow-gantt.yml", include_str!("../locales/rosterflow-gantt.yml")),
     ("rosterflow-lines.yml", include_str!("../locales/rosterflow-lines.yml")),
     ("rosterflow-optimise.yml", include_str!("../locales/rosterflow-optimise.yml")),

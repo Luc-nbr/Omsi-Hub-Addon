@@ -19,6 +19,7 @@ use super::staff::{self, Block, MIN_PAID};
 use super::studio::{self as st, Duty, JoinedDuty, LineLayout, PieceRef, TripRef};
 use crate::LineInfo;
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::ops::Range;
 
 // --- the lines' colours ------------------------------------------------------------------------
@@ -230,6 +231,12 @@ pub struct Prefs {
     /// The bus's check before it leaves the depot and after it is back.
     pub pre_trip: i32,
     pub post_trip: i32,
+    /// Deadheads: a bus's run without passengers between two places where nothing else is
+    /// known (no deadhead set, no trip of the line between them), and the ones set between two
+    /// relief points (`DeadheadPair`; to or from one: `ReliefPoint::deadhead_min`).
+    pub deadhead_min: i32,
+    pub deadhead_km: f64,
+    pub deadheads: Vec<DeadheadPair>,
     // DEPOTS
     /// Buses out at once at most (the depot's capacity).
     pub depot_capacity: Limit,
@@ -298,6 +305,9 @@ impl Default for Prefs {
             layover: Limit::soft(3, 20_00),
             pre_trip: 5,
             post_trip: 5,
+            deadhead_min: st::DEADHEAD_MIN,
+            deadhead_km: super::ownline::DEPOT_RUN_KM,
+            deadheads: Vec::new(),
             depot_capacity: Limit::off(20),
             sign_on: 10,
             sign_off: 5,
@@ -368,11 +378,27 @@ pub struct ReliefPoint {
     pub walk: Option<i32>,
     pub public: Option<i32>,
     pub car: Option<i32>,
+    /// A bus's deadhead to or from it: its minutes and kilometres (None: not set).
+    pub deadhead_min: Option<i32>,
+    pub deadhead_km: Option<f64>,
 }
 
 impl Default for ReliefPoint {
     fn default() -> Self {
-        ReliefPoint { stop: String::new(), added: false, line: String::new(), sign: true, relief: true, breaks: true, travel: None, walk: None, public: None, car: None }
+        ReliefPoint {
+            stop: String::new(),
+            added: false,
+            line: String::new(),
+            sign: true,
+            relief: true,
+            breaks: true,
+            travel: None,
+            walk: None,
+            public: None,
+            car: None,
+            deadhead_min: None,
+            deadhead_km: None,
+        }
     }
 }
 
@@ -424,14 +450,17 @@ pub struct Uses {
 
 /// Whether `place` is the company's depot: "Depot", the depot file's name, or where a block's
 /// depot run begins or ends (`tours` the day's).
-pub fn is_depot(c: &Company, tours: &[TourOfDay], place: &str) -> bool {
+pub fn is_depot<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], place: &str) -> bool {
     let place = place.trim();
     if place.is_empty() {
         return false;
     }
     same(place, DEPOT_POINT)
         || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof")))
-        || tours.iter().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)))
+        || tours
+            .iter()
+            .map(|t| -> &TourOfDay { t.borrow() })
+            .any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)))
 }
 
 /// Whether `place` is a terminus of the day's lines: where a trip with passengers begins or
@@ -443,7 +472,7 @@ pub fn is_terminus(tours: &[TourOfDay], place: &str) -> bool {
 }
 
 /// The relief point a place is: the depot's names are one (`DEPOT_POINT`), a stop its own name.
-pub fn point_key(c: &Company, tours: &[TourOfDay], place: &str) -> String {
+pub fn point_key<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], place: &str) -> String {
     if is_depot(c, tours, place) {
         DEPOT_POINT.to_string()
     } else {
@@ -501,6 +530,67 @@ pub fn travel_between(c: &Company, tours: &[TourOfDay], from: &str, to: &str, wa
         return (way.unwrap_or(p.travel), 0);
     }
     travel_of(p, &a, &b, way)
+}
+
+// --- deadheads ------------------------------------------------------------------------------------
+//
+// The tester (2026-10-19): "Dead heads are broken ... specify deadheads". A bus running empty from
+// where one trip ends to where its next begins took the line's quickest trip between the two,
+// else five minutes and three kilometres: estimated, an issue on every block. Preferences ›
+// Deadheads sets them: between two relief points (the way back the same unless set too), else to
+// or from a point (the one the bus goes to first), else the line's trip, else the defaults.
+
+/// A deadhead's minutes and kilometres from one relief point to another (Preferences ›
+/// Deadheads' table; None: not set).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct DeadheadPair {
+    pub from: String,
+    pub to: String,
+    pub minutes: Option<i32>,
+    pub km: Option<f64>,
+}
+
+/// A bus's run without passengers between two places: how long, how far, and whether the player
+/// set its time (else it is estimated).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Deadhead {
+    pub minutes: i32,
+    pub km: f64,
+    pub set: bool,
+}
+
+/// The deadhead set from relief point `from` to relief point `to` (their keys, `point_key`), the
+/// most specific first: the pair's, the way back's, the point it goes to, the one it comes from.
+pub fn deadhead_set(p: &Prefs, from: &str, to: &str) -> (Option<i32>, Option<f64>) {
+    let pair = |a: &str, b: &str| p.deadheads.iter().find(|x| same(&x.from, a) && same(&x.to, b));
+    let pairs = [pair(from, to), pair(to, from)];
+    let points = [point(p, to), point(p, from)];
+    let minutes = pairs.iter().flatten().find_map(|x| x.minutes).or_else(|| points.iter().flatten().find_map(|x| x.deadhead_min));
+    let km = pairs.iter().flatten().find_map(|x| x.km).or_else(|| points.iter().flatten().find_map(|x| x.deadhead_km));
+    (minutes, km)
+}
+
+/// The deadhead from `from` to `to` (places of the day `tours`; `line` the trips whose times
+/// stand in where none is set): as Deadheads sets it, else the line's quickest trip between the
+/// two, else the defaults. None between a place and itself.
+pub fn deadhead_between<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], line: &[&PlannedTrip], from: &str, to: &str) -> Deadhead {
+    if same(from, to) {
+        return Deadhead { minutes: 0, km: 0.0, set: true };
+    }
+    let p = &c.planning.flow.prefs;
+    let (minutes, km) = deadhead_set(p, &point_key(c, tours, from), &point_key(c, tours, to));
+    Deadhead {
+        minutes: minutes.or_else(|| st::line_minutes(line, from, to)).unwrap_or(p.deadhead_min).max(0),
+        km: km.or_else(|| st::line_km(line, from, to)).unwrap_or(p.deadhead_km).max(0.0),
+        set: minutes.is_some(),
+    }
+}
+
+/// A bus's deadheads in its day `t` (`tours` the day's, `line` the trips of its line): where
+/// the one trip ends, where the next begins, and how far it runs empty between (`deadhead_between`).
+pub fn deadheads_of<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], t: &TourOfDay, line: &[&PlannedTrip]) -> Vec<(i32, i32, f64)> {
+    t.trips.windows(2).filter(|w| !same(w[0].end(), &w[1].from)).map(|w| (w[0].arr, w[1].dep, deadhead_between(c, tours, line, w[0].end(), &w[1].from).km)).collect()
 }
 
 /// What kind of relief point a row of the Preferences is.
@@ -1907,8 +1997,8 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
             let (x, n) = (&w[0], &w[1]);
             let rk = format!("{}/{}/{}", t.line, t.tour, n.dep);
             if !same(x.end(), &n.from) {
-                if !x.empty && !n.empty {
-                    let _ = st::travel(&line, x.end(), &n.from);
+                // (a deadhead whose time is set in Preferences › Deadheads is no guess)
+                if !x.empty && !n.empty && !deadhead_between(c, &tours, &line, x.end(), &n.from).set {
                     issues.push(Issue {
                         scope: Scope::Vehicle,
                         row: Some(i),
@@ -2364,7 +2454,7 @@ fn figures(c: &Company, tours: &[TourOfDay], shaped: &[Shaped], issues: &[Issue]
     let mut f = Figures { duties: shaped.len(), blocks: tours.len(), pvr, ..Default::default() };
     for t in tours {
         let line: Vec<&PlannedTrip> = tours.iter().filter(|x| same(&x.line, &t.line)).flat_map(|x| x.trips.iter()).collect();
-        f.dead_km += st::deadheads(t, &line).iter().map(|d| d.2).sum::<f64>();
+        f.dead_km += deadheads_of(c, tours, t, &line).iter().map(|d| d.2).sum::<f64>();
         for x in &t.trips {
             if x.counts() {
                 f.service_km += x.km;
@@ -2508,7 +2598,7 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
                     continue;
                 }
                 let Some(last) = trips.last() else { continue };
-                let travel = st::travel(&all, last.end(), &u.trips[0].from);
+                let travel = deadhead_between(c, raw, &all, last.end(), &u.trips[0].from).minutes;
                 let free = last.arr + travel;
                 if free > u.dep() {
                     continue;

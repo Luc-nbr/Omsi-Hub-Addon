@@ -515,13 +515,24 @@ fn unjoin_blocks(c: &mut Company, weekday: u8, line: &str, blocks: &[&str]) {
     c.planning.joined.retain(|j| !(j.weekday == weekday && j.pieces.iter().any(|p| same(&p.line, line) && blocks.iter().any(|b| same(&p.tour, b)))));
 }
 
-//// How long a bus takes from `a` to `b` empty: the line's quickest trip between them, else
-/// `DEADHEAD_MIN` (none between one place and itself).
+/// The line's quickest trip from `a` to `b`: its minutes (None: no trip of `trips` runs there).
+pub fn line_minutes(trips: &[&PlannedTrip], a: &str, b: &str) -> Option<i32> {
+    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.arr - x.dep).min()
+}
+
+/// The line's shortest trip from `a` to `b`: its kilometres (None: no trip of `trips` runs there).
+pub fn line_km(trips: &[&PlannedTrip], a: &str, b: &str) -> Option<f64> {
+    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.km).fold(None, |m: Option<f64>, k| Some(m.map_or(k, |m| m.min(k))))
+}
+
+/// How long a bus takes from `a` to `b` empty: the line's quickest trip between them, else
+/// `DEADHEAD_MIN` (none between one place and itself). The company's own deadheads, as
+/// RosterFlow's Preferences set them, are `rosterflow::deadhead_between`.
 pub fn travel(trips: &[&PlannedTrip], a: &str, b: &str) -> i32 {
     if same(a, b) {
         return 0;
     }
-    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.arr - x.dep).min().unwrap_or(DEADHEAD_MIN)
+    line_minutes(trips, a, b).unwrap_or(DEADHEAD_MIN)
 }
 
 /// The kilometres a bus runs empty from `a` to `b`: the line's shortest trip between them,
@@ -530,14 +541,23 @@ pub fn deadhead_km(trips: &[&PlannedTrip], a: &str, b: &str) -> f64 {
     if same(a, b) {
         return 0.0;
     }
-    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.km).fold(None, |m: Option<f64>, k| Some(m.map_or(k, |m| m.min(k)))).unwrap_or(DEPOT_RUN_KM)
+    line_km(trips, a, b).unwrap_or(DEPOT_RUN_KM)
 }
 
-/// Whether trip `x` fits into a bus's day (`block`, its trips in order; `line` every trip of
-/// the line, for the times between places): not over another trip, time enough to get to it
+/// How long a bus of the company takes from one place to another empty (`fits_into`'s).
+pub type RunTime<'a> = &'a dyn Fn(&str, &str) -> i32;
+
+/// The minutes of the company's deadheads on the day `tours` (`rosterflow::deadhead_between`;
+/// `line` the trips of the line, for the times not set).
+fn runs<'a>(c: &'a Company, tours: &'a [TourOfDay], line: &'a [&'a PlannedTrip]) -> impl Fn(&str, &str) -> i32 + 'a {
+    move |a: &str, b: &str| super::rosterflow::deadhead_between(c, tours, line, a, b).minutes
+}
+
+/// Whether trip `x` fits into a bus's day (`block`, its trips in order; `run` the time from one
+/// place to another, a deadhead's): not over another trip, time enough to get to it
 /// and on from it, not before the bus leaves the depot or after it is back. The depot runs the
 /// company adds itself move with the trips and are no hindrance.
-pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) -> Result<(), &'static str> {
+pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, run: RunTime) -> Result<(), &'static str> {
     let me = TripRef::of(x);
     let others: Vec<&PlannedTrip> = block.iter().filter(|t| !t.origin.trim().is_empty() && TripRef::of(t) != me).collect();
     let at = others.iter().filter(|t| t.dep <= x.dep).count();
@@ -548,7 +568,7 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
         if p.empty && !others[at..].iter().any(|t| t.counts()) && others[..at].iter().any(|t| t.counts()) {
             return Err(BACK_IN_DEPOT);
         }
-        if x.dep - p.arr < travel(line, p.end(), &x.from) {
+        if x.dep - p.arr < run(p.end(), &x.from) {
             return Err(NO_TIME);
         }
     }
@@ -559,7 +579,7 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
         if n.empty && !others[..at].iter().any(|t| t.counts()) && others[at..].iter().any(|t| t.counts()) {
             return Err(IN_DEPOT);
         }
-        if n.dep - x.arr < travel(line, x.end(), &n.from) {
+        if n.dep - x.arr < run(x.end(), &n.from) {
             return Err(NO_TIME);
         }
     }
@@ -567,12 +587,12 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
 }
 
 /// Whether all of `trips` fit into a bus's day together (`fits_into`, one after the other).
-pub fn all_fit(block: &[PlannedTrip], trips: &[&PlannedTrip], line: &[&PlannedTrip]) -> Result<(), &'static str> {
+pub fn all_fit(block: &[PlannedTrip], trips: &[&PlannedTrip], run: RunTime) -> Result<(), &'static str> {
     let mut cur: Vec<PlannedTrip> = block.to_vec();
     let mut sorted: Vec<&PlannedTrip> = trips.to_vec();
     sorted.sort_by_key(|x| x.dep);
     for x in sorted {
-        fits_into(&cur, x, line)?;
+        fits_into(&cur, x, run)?;
         cur.push(x.clone());
         cur.sort_by_key(|t| t.dep);
     }
@@ -670,7 +690,7 @@ pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize
                 return Err(OTHER_LINE);
             }
             guard_block(c, weekday, tours, i)?;
-            all_fit(&dst.trips, &moving, &line_trips)?;
+            all_fit(&dst.trips, &moving, &runs(c, tours, &line_trips))?;
             let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
             b.trips.extend(refs.iter().cloned());
         }
@@ -678,7 +698,7 @@ pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize
             if src.trips.iter().filter(|t| t.counts() && !t.is_second()).count() == moving.len() {
                 return Err(ALONE);
             }
-            all_fit(&[], &moving, &line_trips)?;
+            all_fit(&[], &moving, &runs(c, tours, &line_trips))?;
             lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: refs.clone(), cuts: None, reliefs: Vec::new() });
         }
     }
@@ -741,7 +761,7 @@ pub fn plan_assign(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str, x:
                 return Err(OTHER_LINE);
             }
             guard_block(c, weekday, tours, i)?;
-            fits_into(&dst.trips, x, &line_trips)?;
+            fits_into(&dst.trips, x, &runs(c, tours, &line_trips))?;
             let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
             b.trips.push(r.clone());
         }
@@ -801,8 +821,9 @@ pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, pic
     let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
     // (each bus's day as it would be: what it keeps, and what it takes over)
     let keep = |t: &TourOfDay, gone: &[TripRef]| -> Vec<PlannedTrip> { t.trips.iter().filter(|x| !gone.contains(&whole_ref(x))).cloned().collect() };
-    all_fit(&keep(src, &ra), &b, &line_trips).map_err(|_| SWAP_FAILS)?;
-    all_fit(&keep(dst, &rb), &a, &line_trips).map_err(|_| SWAP_FAILS)?;
+    let run = runs(c, tours, &line_trips);
+    all_fit(&keep(src, &ra), &b, &run).map_err(|_| SWAP_FAILS)?;
+    all_fit(&keep(dst, &rb), &a, &run).map_err(|_| SWAP_FAILS)?;
     let mut lay = layout_now(c, tours, &src.line, weekday);
     for (tour, gone, comes) in [(&src.tour, &ra, &rb), (&dst.tour, &rb, &ra)] {
         let blk = lay.blocks.iter_mut().find(|x| same(&x.tour, tour)).ok_or(NOT_FOUND)?;
@@ -1765,12 +1786,6 @@ pub struct Kpis {
     pub cost: Cents,
 }
 
-/// The empty runs between a block's trips: (from, to, km) where one trip ends elsewhere than
-/// the next begins (the line's trips `line` give the kilometres).
-pub fn deadheads(t: &TourOfDay, line: &[&PlannedTrip]) -> Vec<(i32, i32, f64)> {
-    t.trips.windows(2).filter(|w| !same(w[0].end(), &w[1].from)).map(|w| (w[0].arr, w[1].dep, deadhead_km(line, w[0].end(), &w[1].from))).collect()
-}
-
 /// The most blocks out at once.
 pub fn peak(tours: &[TourOfDay]) -> usize {
     let mut ev: Vec<(i32, i32)> = tours.iter().filter(|t| !t.trips.is_empty()).flat_map(|t| [(t.from(), 1), (t.to(), -1)]).collect();
@@ -1790,7 +1805,7 @@ pub fn kpis(c: &Company, tours: &[TourOfDay], duties: &[Duty]) -> Kpis {
     let mut km = 0.0;
     for t in tours {
         let line: Vec<&PlannedTrip> = tours.iter().filter(|x| same(&x.line, &t.line)).flat_map(|x| x.trips.iter()).collect();
-        let runs: f64 = deadheads(t, &line).iter().map(|d| d.2).sum();
+        let runs: f64 = super::rosterflow::deadheads_of(c, tours, t, &line).iter().map(|d| d.2).sum();
         empty_km += runs + t.trips.iter().filter(|x| x.empty).map(|x| x.km).sum::<f64>();
         km += runs + t.km();
     }
@@ -1944,6 +1959,7 @@ mod tests {
         };
         let back = at("t2", "B", "A", 420, 470, false);
         let line = [&back];
+        let line = |a: &str, b: &str| travel(&line, a, b);
         let bus = vec![at("out", "Depot", "A", 350, 358, true), at("t1", "A", "B", 360, 410, false), at("in", "B", "Depot", 412, 420, true)];
         // after the bus went back to the depot, before it left it, over its trip
         assert_eq!(fits_into(&bus, &at("x", "A", "B", 425, 470, false), &line), Err(BACK_IN_DEPOT));
