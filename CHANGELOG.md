@@ -41,6 +41,8 @@ never changes their files.
 - **The maps are drawn**: the route map of the drive's steps, the company's duty map and its fleet
   map show the map's roads and the way each trip drives, read from the map's own tiles and spline
   files. A junction's own lanes are not read yet: a route crosses it in a straight line.
+- **Depot files read right**: a destination's strings were read a place off (a line OMSI's files
+  do not have was taken for the stop it ends at), so its IBIS text was lost.
 - **The bus in 3D** on the bus step, as the old Omsi-Hub drew it: the page's own 3D view reads
   every bus as the game reads it (its meshes, its textures, the livery and the bus options chosen,
   what its scripts show at rest), turned and zoomed with the mouse, with the views from the
@@ -52,6 +54,12 @@ never changes their files.
   colour areas, stripes, texts, pictures, own shapes and the brush, mirrored onto the other side -
   and save it into the game as a livery of its own (openOMSI's content folder, never the OMSI 2
   folder). The liveries begun before are opened from the same folder.
+- **The line editor**, as in the old Omsi-Hub: a line of your own on any map - click its stops
+  on the map and the way between them is found over the map's own lanes (the kerb side, lane
+  changes), the way back made from the stops across the road, a leg dragged through a point;
+  its destinations, its timetable and its kind of service; saved into the map's timetable so
+  you and the timetable's buses drive it. For the bus company: its map, its lines, the estimate
+  and "Confirm and pay". A line of the map's own opens to change it.
 - **The game's buses and traffic on the fleet map**: while you drive on the company's map, your
   bus and every bus of the company's tours the game drives are where the game has them, with the
   game's delay; the game's cars, trams and bicycles, the buses of the lines the company does not
@@ -61,8 +69,7 @@ never changes their files.
 
 ### Not in it yet
 
-- **Playing together** (it needs a relay server) and **the line editor** (it needs the map's
-  lanes): their pages say so.
+- **Playing together** (it needs a relay server): its page says so.
 - **What needs a newer openOMSI plugin API** than the official releases have: the bus's own display
   font, the IBIS typed in for you, closed stops struck through on the navigator, and the duty board
   docked in the navigator. The launcher shows which ones your openOMSI supports.
