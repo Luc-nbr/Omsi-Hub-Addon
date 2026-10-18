@@ -15,6 +15,9 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **A profile photo**, the same in the app and on the website: upload it in the account panel or
+  on your service record (a click on the picture), or on omsihub.com; your friends, the
+  leaderboard and the website show it.
 - **The leaderboard gets your figures**: signed in, Omsi-Hub sends your driver's points, level,
   duties, time driven and kilometres whenever they change (after every drive).
 - **One account, one driver**: signed in, your driver is your account's (the display name's), with

@@ -10,6 +10,8 @@ import { call } from '../api.js';
 import { Card, Input, Select } from '../ui.js';
 import { Button, Icon, Seg, tr } from '../hub/bits.js';
 import { loadProfiles } from '../hub/drive.js';
+import { useOnline } from '../online/online.js';
+import { AvatarPicker } from '../online/avatar.js';
 
 const hours = (h) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, '0')} min`;
 
@@ -38,6 +40,9 @@ async function select(name) {
 export function ProfilePage() {
   const s = useStore();
   const p = s.profile;
+  // (the account's driver wears the account's photo, the same as on the website)
+  const online = useOnline();
+  const photo = p && online?.mode === 'in' && online.me && p.name === s.accountDriver;
   const [name, setName] = useState('');
   const [sex, setSex] = useState('M');
   const [asking, setAsking] = useState(false);
@@ -104,7 +109,9 @@ export function ProfilePage() {
         : html`
           <${Card}>
             <div class="row" style="gap:18px">
-              <div class="avatar" style="width:64px;height:64px;font-size:26px">${p.name[0]?.toUpperCase()}</div>
+              ${photo
+                ? html`<${AvatarPicker} me=${{ ...online.me, name: p.name }} size=${64} compact />`
+                : html`<div class="avatar" style="width:64px;height:64px;font-size:26px">${p.name[0]?.toUpperCase()}</div>`}
               <div class="grow">
                 <h2 style="font-size:22px">${p.name}${!p.exists ? html` <span class="muted small">${t('(no personnel file yet)')}</span>` : ''}</h2>
                 <div class="muted" style="margin:2px 0 10px">${t('Level %{n}', { n: p.level })} - ${t('%{xp} XP, %{left} to level %{next}', { xp: p.xp, left: Math.max(0, p.next_level_xp - p.xp), next: p.level + 1 })}</div>

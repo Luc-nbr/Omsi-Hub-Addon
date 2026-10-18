@@ -25,6 +25,19 @@ grouped into drives) and sent with `report_stats` when it changed since it was l
 is sent for another driver, signed out, or before the privacy statement is agreed to; whether the
 player stands on the public board stays their own switch.
 
+**The profile photo** is the same in the app and on the website (`hub-online`'s `avatar.rs`, the
+website's migration `supabase/migrations/20261018120000_avatars.sql` and its test
+`supabase/tests/avatars.test.mjs`): one small square picture (the page draws it at 256 px, WebP or
+JPEG, at most 1 MB) in the public bucket `avatars`, in a folder only its owner knows
+(`profiles.avatar_key`, never handed out: the photo's address carries no user id;
+`my_avatar_folder()`). A new photo goes under a new name, `set_avatar(name)` makes it the
+profile's `avatar` (only a picture in the player's own folder that is there) and answers the one it
+replaced for the caller to delete; `clear_avatar()` takes it away. `hub_leaderboard` and
+`my_friends` carry `avatar`, and its address is `/storage/v1/object/public/avatars/<avatar>`. In
+the app it is chosen in the account panel ("Your profile") or by a click on the account's driver's
+picture in the service record; the friends list shows the friends' photos. Deleting the account
+deletes the folder first.
+
 ## Moving to Supabase
 
 The online side moves from Neon to Supabase. The **website runs on Supabase**, and so does the app's

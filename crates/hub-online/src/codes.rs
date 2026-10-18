@@ -83,6 +83,9 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("no_cloud_save", "This cloud save is not there any more."),
     ("upload_failed", "The cloud storage refused the upload. Try again."),
     ("bad_save", "The cloud save is damaged: its checksum is wrong. Nothing was changed."),
+    // (the profile photo's)
+    ("bad_photo", "That picture cannot be used: choose a JPEG, PNG or WebP picture."),
+    ("photo_too_large", "That picture is too large: at most 1 MB."),
     // (the state)
     ("not_signed_in", "Sign in first."),
     ("privacy", "Please accept the Privacy Statement before using your account."),

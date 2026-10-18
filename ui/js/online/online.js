@@ -28,6 +28,8 @@ import { Btn, Icon, loadSheet, Sure, Switch, toast, tr } from './bits.js';
 // (the account's cloud saves: the 2 slots - `cloud.js`)
 import { CloudSaves } from './cloud.js';
 import { AGE, askPrivacy, PrivacyLink, Statement } from '../privacy.js';
+// (the profile photo, the same on the website: `avatar.js`)
+import { Avatar, AvatarPicker } from './avatar.js';
 
 loadSheet();
 
@@ -376,6 +378,7 @@ export function Profile({ v }) {
     ${v.offline && html`<${Note} icon="wifi" kind="quiet" text=${tr('Offline: the online features are back as soon as the network is.')} />`}
     <div class="ol-form">
       <h3>${tr('Your profile')}</h3>
+      <${AvatarPicker} me=${me} />
       <${Field} label=${tr('Display name')} value=${name} onInput=${setName} max=${24} onEnter=${save} />
       ${name.trim() !== (me.name || '') && html`<div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Save')} onClick=${save} /></div>`}
       <div class="ol-field"><span>${tr('Your friend code')}</span>
@@ -420,7 +423,7 @@ function InviteRow({ i }) {
 
 function FriendRow({ f, v }) {
   return html`<div class="ol-friend">
-    <span class=${'ol-dot ' + f.state} title=${f.state_label}></span>
+    <span class="ol-face"><${Avatar} url=${f.avatar} name=${f.name} size=${32} /><span class=${'ol-dot ' + f.state} title=${f.state_label}></span></span>
     <div class="who"><b class="cut">${f.name}</b><span class="dim cut">${f.state === 'offline' ? f.seen || f.state_label : f.state_label}</span></div>
     <span class="acts">
       ${f.join && html`<${Btn} kind="primary" icon="groups" label=${tr('Join')} title=${tr('Join their company session')} onClick=${() => joinSession(f.session)} />`}
@@ -457,7 +460,7 @@ function Friends({ v }) {
     </section>
     <${Invites} v=${v} />
     ${incoming.length > 0 && html`<section class="ol-sec"><div class="ol-caps"><b>${tr('Friend requests')}</b></div>
-      ${incoming.map((r) => html`<div class=${'ol-friend' + (r.new ? ' new' : '')}><${Icon} name="person" size=${18} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('wants to be your friend')}</span></div>
+      ${incoming.map((r) => html`<div class=${'ol-friend' + (r.new ? ' new' : '')}><${Avatar} url=${r.avatar} name=${r.name} size=${32} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('wants to be your friend')}</span></div>
         <span class="acts"><${Btn} kind="primary" icon="check" label=${tr('Accept')} onClick=${() => act('ol_respond', { id: r.id, accept: true })} /><${Btn} kind="ghost" icon="close" label=${tr('Decline')} onClick=${() => act('ol_respond', { id: r.id, accept: false })} /><${Sure} icon="stop_circle" label=${tr('Block')} sure=${tr('Block?')} onClick=${() => act('ol_block', { id: r.id })} /></span></div>`)}
     </section>`}
     <section class="ol-sec"><div class="ol-caps"><b>${tr('Friends')}</b><span>${tr('%{n} online', { n: v.online_count || 0 })}</span></div>
@@ -465,7 +468,7 @@ function Friends({ v }) {
       ${v.together && !v.hosting && v.friends.length > 0 && html`<${Note} icon="wifi_tethering" text=${tr('Share your company (Multiplayer) to invite friends to it.')} />`}
     </section>
     ${outgoing.length > 0 && html`<section class="ol-sec"><div class="ol-caps"><b>${tr('Sent requests')}</b></div>
-      ${outgoing.map((r) => html`<div class="ol-friend"><${Icon} name="schedule" size=${18} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('waiting for an answer')}</span></div>
+      ${outgoing.map((r) => html`<div class="ol-friend"><${Avatar} url=${r.avatar} name=${r.name} size=${32} /><div class="who"><b class="cut">${r.name}</b><span class="dim">${tr('waiting for an answer')}</span></div>
         <span class="acts"><${Sure} icon="close" label=${tr('Withdraw')} sure=${tr('Withdraw?')} onClick=${() => act('ol_remove', { id: r.id })} /></span></div>`)}
     </section>`}
   </div>`;
@@ -506,7 +509,7 @@ export function Panel({ v, tab, inline }) {
   ];
   const box = html`<div class=${'ol-panel' + (inline ? ' inline' : '')}>
       <header class="ol-head">
-        <${Icon} name=${signed ? 'group' : 'account_circle'} size=${22} />
+        ${signed && v.me ? html`<${Avatar} url=${v.me.avatar} name=${v.me.name} size=${30} />` : html`<${Icon} name=${signed ? 'group' : 'account_circle'} size=${22} />`}
         <div class="t"><h2>${signed ? v.me?.name || tr('Omsi-Hub online') : tr('Omsi-Hub online')}</h2><p>${signed ? tr('Signed in') : v?.mode === 'local' ? tr('Playing without an account') : tr('Not signed in')}</p></div>
         ${!inline && html`<button type="button" class="ol-icon-btn" title=${tr('Close')} onClick=${closePanel}><${Icon} name="close" size=${17} /></button>`}
       </header>
