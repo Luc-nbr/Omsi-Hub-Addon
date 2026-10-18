@@ -118,7 +118,8 @@ export function takeShell(sh) {
   const notices = sh.notices || [];
   const key = JSON.stringify({ ...sh, notices: [] });
   const patch = {};
-  if (key !== lastShell) {
+  // (the company entered again: its shell is taken even when it is the one last seen)
+  if (key !== lastShell || !S.co?.shell) {
     lastShell = key;
     patch.shell = sh;
   }

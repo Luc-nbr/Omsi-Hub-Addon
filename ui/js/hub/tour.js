@@ -225,7 +225,7 @@ function part(name) {
     case 'company-page':
       return visible($('.co-body') || $('.co .rf'));
     case 'company-career-parts':
-      return visible($('.co-body .co-seg'));
+      return visible($('.co-body .co-pg-careertabs'));
     case 'company-help':
       return visible($('.co-top .co-top-me')) || visible($('.co-bar .co-help'));
     case 'company-casual-today':

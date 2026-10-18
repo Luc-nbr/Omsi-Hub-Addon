@@ -138,7 +138,7 @@ function chooser() {
     modes: {
       title: 'How do you want to play?', text: 'Your own company in a time of its own, or one run together with others.',
       single: { title: 'Singleplayer', text: 'Found and run your own companies, in a time of their own that runs while you play.', foot: n === 1 ? '1 company on this computer' : `${n} companies on this computer` },
-      multi: { title: 'Join a company', text: 'A friend runs a bus company: join it with their session code, get a role, and drive its duties in your own game.', foot: 'With a session code', tip: 'The boss shares the company on its Multiplayer page and sends you the code.', off: 'Multiplayer - coming soon (beta)' },
+      multi: { title: 'Join a company', text: 'A friend runs a bus company: join it with their session code, get a role, and drive its duties in your own game.', foot: 'With a session code', tip: 'The boss shares the company on its Multiplayer page and sends you the code.', off: null },
     },
     companies: {
       back: 'Play mode',
@@ -236,7 +236,7 @@ function shell() {
       label: 'COMPANY TIME', date: dayLabel(c.date), time: hm(), live: st.realtime, in_game: false, lead: null, speed: st.speed, real: st.realtime,
       tip: st.realtime ? 'In step with the real clock: the company\'s time goes on while Omsi-Hub is closed, and is caught up when you open the company.' : "The company's time stands still while it is closed: the real clock is off in the company's settings.",
     },
-    rail: casual ? [CASUAL_PAGES.slice(0, 5).map(([tab, name, icon]) => ({ tab, icon, name, tip: name, badge: null, away: false }))] : rail, pages: casual ? CASUAL_PAGES.slice(0, 5).map((x) => x[0]) : pages, together: { on: false, label: 'Multiplayer - coming soon (beta)' }, bell: unread() + 2,
+    rail: casual ? [CASUAL_PAGES.slice(0, 5).map(([tab, name, icon]) => ({ tab, icon, name, tip: name, badge: null, away: false }))] : rail, pages: casual ? CASUAL_PAGES.slice(0, 5).map((x) => x[0]) : pages, together: { on: true, label: '' }, bell: unread() + 2,
     names: TABS, casual, cover: null, asking: false, reports: !!st.reports, away: false, launch: !!st.launch, sheet: false,
     casual_pages: casual ? { pages: Object.fromEntries([[HOME_TAB, 'Home', 'home', HOME_TAB], ...CASUAL_PAGES].map(([tab, name, icon, parent]) => [tab, { name, icon, parent }])), home: `${c.name} · Casual` } : null,
     today_read: true,
