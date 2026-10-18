@@ -14,9 +14,10 @@
 --   data/replies.jsonl    plugin -> Omsi-Hub: the driver's answers and quick buttons
 --   data/status.json      plugin -> Omsi-Hub: how the duty stands (for the dispatcher)
 --   data/live.json        plugin -> Omsi-Hub: where the bus is (ontime.lua)
+--   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.7.0"
+local VERSION = "1.8.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -324,6 +325,9 @@ local trip = require("trip")
 local card = require("card")
 local watch = require("watch")
 card.setup(tr)
+-- (the live dashboard in Omsi-Hub's window, on every drive: `dash.lua`)
+local dash = require("dash")
+dash.setup(trip, assignment, has)
 
 -- the drive watch's notices: a card for a while, or a line of text in a game without panels
 watch.setup(tr, function(icon, title, text)
@@ -582,6 +586,7 @@ omsi.every(1, function()
   messages.tick()
   strip.update(company_duty() and signon.at_work())
   if signon.at_work() then ontime.tick(1) end
+  if not fn("has_vehicle") or omsi.has_vehicle() then dash.tick(1) end
   dispatch()
 end)
 

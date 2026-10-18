@@ -27,6 +27,7 @@ pub mod depot;
 pub mod drive;
 pub mod hub;
 pub mod launcher;
+pub mod live;
 pub mod online;
 pub mod privacy;
 pub mod rosterflow;

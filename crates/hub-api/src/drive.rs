@@ -12,12 +12,13 @@
 //!    parked it off) and given the drive's assignment (`addon::give`): what the command line
 //!    cannot say - the company and its duty, the duty's parts (legs), a free route, the sheet,
 //!    the controls, the fare, the contract, the crew, the display font and the IBIS;
-//! 3. the game started with official flags only (`hub_game::launch::LaunchSpec`);
+//! 3. the game started with official flags only (`hub_game::launch::LaunchSpec`), and the page
+//!    told (`game-started`, with the way it is driven: the live dashboard, `live.rs`);
 //! 4. **the bridge's loop** on a thread of its own, every [`EVERY`] while the game runs: the
 //!    plugin's reports booked (`addon::book`), the company told (`company::after_booking`), its
 //!    own work done (the replies, the status, the inbox for the plugin: `messages::tick`), the
-//!    on-time brief written (`company::ontime::refresh`); the notices go to the plugin as they
-//!    come (`addon::notify_game`);
+//!    on-time brief written (`company::ontime::refresh`), the live dashboard sampled
+//!    (`live::sample`); the notices go to the plugin as they come (`addon::notify_game`);
 //! 5. the game ended: the reports booked once more, then the page told (`game-ended`, with what
 //!    was booked).
 
@@ -129,9 +130,10 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
     }
     // the plugin given the drive (a drive without it still starts: the command line alone)
     let data = hub_core::data_dir();
-    let issued = match crate::addon::ready(&checked.install.plugins_dir) {
-        Some(dir) => match crate::addon::give(&dir, d, &data) {
-            Ok(a) => Some(a.issued),
+    let plugin = crate::addon::ready(&checked.install.plugins_dir);
+    let assignment = match &plugin {
+        Some(dir) => match crate::addon::give(dir, d, &data) {
+            Ok(a) => Some(a),
             Err(e) => {
                 hub_core::log_line(&format!("drive: {e}"));
                 None
@@ -142,14 +144,19 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
             None
         }
     };
+    let issued = assignment.as_ref().map(|a| a.issued);
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
     let g = process::start(&checked.install.exe, &spec).map_err(|e| e.to_string())?;
     let pid = g.pid();
     hub_core::log_line(&format!("drive: openOMSI started (pid {pid}): {}", spec.args().unwrap_or_default().join(" ")));
     *game = Some(g);
     drop(game);
+    // (the live dashboard of the drive: `live.rs`)
+    crate::live::began(d, assignment.as_ref(), plugin.as_deref());
+    let mode = crate::live::mode_of(d, assignment.as_ref());
+    p.emit("game-started", json!({ "pid": pid, "mode": mode }));
     watch(p.emitter());
-    Ok(json!({ "started": true, "pid": pid, "issued": issued }))
+    Ok(json!({ "started": true, "pid": pid, "issued": issued, "mode": mode }))
 }
 
 /// One look of the bridge: the reports booked, the company told, the on-time brief written.
@@ -158,6 +165,7 @@ pub fn look() -> crate::addon::Booked {
     let b = crate::addon::book();
     crate::company::after_booking(&b);
     crate::company::ontime::refresh();
+    crate::live::sample();
     b
 }
 
