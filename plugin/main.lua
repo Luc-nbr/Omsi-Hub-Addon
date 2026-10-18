@@ -14,9 +14,10 @@
 --   data/replies.jsonl    plugin -> Omsi-Hub: the driver's answers and quick buttons
 --   data/status.json      plugin -> Omsi-Hub: how the duty stands (for the dispatcher)
 --   data/live.json        plugin -> Omsi-Hub: where the bus is (ontime.lua)
+--   data/traffic.json     plugin -> Omsi-Hub: the game's traffic, for the fleet map (traffic.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.7.0"
+local VERSION = "1.8.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -29,7 +30,7 @@ local NEEDS = {
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
   "duty.set_auto_ibis", "duty.type_ibis", "bus.set_display_font", "game.action",
   "duty.skip_to", "duty.finish", "duty.trip_stops", "audio.play",
-  "duty.set_closed_stops",
+  "duty.set_closed_stops", "traffic.list", "timetable.buses",
 }
 
 local function fn(name)
@@ -589,6 +590,10 @@ omsi.every(2, function()
   watch_trips()
   panel()
 end)
+-- (the game's traffic for the fleet map: whatever the player drives)
+local traffic = require("traffic")
+traffic.setup(has)
+omsi.every(1, function() traffic.tick(1, now(), clock()) end)
 omsi.every(5, live_notices)
 omsi.every(2, messages.read)
 omsi.every(5, messages.status)

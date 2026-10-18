@@ -225,6 +225,8 @@ pub struct MapRoads {
     /// The map's frame: its tiles' lowest and highest corners.
     pub lo: P,
     pub hi: P,
+    /// A tile's edge in metres.
+    pub edge: f64,
 }
 
 /// How the splines' ends meet their neighbours' (`prev`, `next`): how many neighbours were found,
@@ -237,12 +239,18 @@ pub struct Joins {
 }
 
 impl MapRoads {
+    /// A place given by its tile (numbered as `global.cfg`'s `[map]` list numbers them) and the
+    /// metres in it, in the map's metres.
+    pub fn at_tile(&self, tile_x: i64, tile_y: i64, local: P) -> P {
+        [tile_x as f64 * self.edge + local[0], tile_y as f64 * self.edge + local[1]]
+    }
+
     /// The roads of the map `g` (its `global.cfg` read), its tiles in the folder `map_dir`, the
     /// spline files found through `vfs`.
     pub fn read(vfs: &Vfs, g: &GlobalCfg, map_dir: &Path) -> MapRoads {
         let edge = g.tile_edge();
         let version = g.version.unwrap_or(14);
-        let mut m = MapRoads { lo: [f64::INFINITY; 2], hi: [f64::NEG_INFINITY; 2], ..MapRoads::default() };
+        let mut m = MapRoads { lo: [f64::INFINITY; 2], hi: [f64::NEG_INFINITY; 2], edge, ..MapRoads::default() };
         for (k, (x, y)) in g.tiles.iter().enumerate() {
             let origin = [*x as f64 * edge, *y as f64 * edge];
             m.lo = [m.lo[0].min(origin[0]), m.lo[1].min(origin[1])];
@@ -411,7 +419,7 @@ mod tests {
         let tile = Tile::parse(&CfgFile::from_str("tile_1_0.map", &tile_text()), 14);
         let mut files = HashMap::new();
         files.insert("splines\\road.sli".to_string(), SplineFile::parse(&CfgFile::from_str("road.sli", SLI)));
-        MapRoads { origins: vec![[0.0, 0.0], [300.0, 0.0]], tiles: vec![Tile::default(), tile], files, lo: [0.0; 2], hi: [600.0, 300.0] }
+        MapRoads { origins: vec![[0.0, 0.0], [300.0, 0.0]], tiles: vec![Tile::default(), tile], files, lo: [0.0; 2], hi: [600.0, 300.0], edge: 300.0 }
     }
 
     #[test]

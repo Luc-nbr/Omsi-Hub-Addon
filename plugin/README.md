@@ -6,7 +6,8 @@ the plugin through plain files (`crates/hub-game/src/bridge.rs`).
 
 - `main.lua`: the entry point (the duty, the reports, the handshake); the other files are its
   modules (`board`, `card`, `career`, `company`, `duty_strip`, `messages`, `ontime`, `signon`,
-  `trip`, `watch`, `hubjson`).
+  `traffic`, `trip`, `watch`, `hubjson`). `traffic` writes what is on the road (`data/traffic.json`)
+  for the company's fleet map; it only reads the game.
 - `harness/`: our own test harness (`hub-plugin-harness`, on mlua). It mocks the official API
   functions the plugin uses, so `cargo test` runs the plugin without openOMSI.
 

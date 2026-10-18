@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `plugin/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.7.0";
+pub const VERSION: &str = "1.8.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../../../plugin/main.lua")),
@@ -35,6 +35,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("ontime.lua", include_str!("../../../plugin/ontime.lua")),
     ("company.lua", include_str!("../../../plugin/company.lua")),
     ("legs.lua", include_str!("../../../plugin/legs.lua")),
+    ("traffic.lua", include_str!("../../../plugin/traffic.lua")),
 ];
 /// The texts the plugin shows (`tr` in `plugin/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).

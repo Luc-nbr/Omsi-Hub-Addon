@@ -12,12 +12,16 @@
 //! * `omsi.json.*` is serde_json; `omsi.log` lines go to [`GameState::log`] as
 //!   `[lua omsihub] <text>`, as the game's log has them;
 //! * `omsi.duty.get()` is [`GameState::duty`] (its `trip` counted from 1, as the plugin
-//!   counts); `omsi.duty.start` records the start and makes it the duty.
+//!   counts); `omsi.duty.start` records the start and makes it the duty;
+//! * `omsi.position()` is [`GameState::position`], `omsi.traffic.list()`,
+//!   `omsi.timetable.buses()` and `omsi.others()` are [`GameState::traffic`],
+//!   [`GameState::timetable_buses`] and [`GameState::others`] as JSON; `omsi.map.tile_at`
+//!   puts the map's coordinates on tiles of [`GameState::tile`] metres from the origin.
 //!
 //! A test can take functions away before the plugin runs ([`Harness::load_with`]), as an older
 //! openOMSI would not have them.
 
-use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue};
+use mlua::{Function, IntoLuaMulti, Lua, LuaSerdeExt, Table, Value as LuaValue};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -92,6 +96,14 @@ pub struct GameState {
     pub fonts: Vec<String>,
     pub sent: Vec<(i64, String)>,
     pub ibis: Vec<String>,
+    /// Where the player's bus is (x, y, heading; None on foot), the AI vehicles, the
+    /// timetable's buses and the other vehicles round the bus, as the API gives them; a tile's
+    /// edge.
+    pub position: Option<(f64, f64, f64)>,
+    pub traffic: Vec<Value>,
+    pub timetable_buses: Vec<Value>,
+    pub others: Vec<Value>,
+    pub tile: f64,
 }
 
 impl Default for GameState {
@@ -119,6 +131,11 @@ impl Default for GameState {
             fonts: Vec::new(),
             sent: Vec::new(),
             ibis: Vec::new(),
+            position: None,
+            traffic: Vec::new(),
+            timetable_buses: Vec::new(),
+            others: Vec::new(),
+            tile: 300.0,
         }
     }
 }
@@ -165,7 +182,12 @@ pub const FUNCTIONS: &[&str] = &[
     "game.action",
     "game.has",
     "map.info",
+    "map.tile_at",
     "audio.play",
+    "position",
+    "others",
+    "traffic.list",
+    "timetable.buses",
 ];
 
 /// The handlers and timers, in Lua (the harness's own).
@@ -316,10 +338,22 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
         if let Some(d) = &g.duty {
             v["line"] = json!(d.line);
             v["tour"] = json!(d.tour);
+            v["delay"] = json!(d.delay);
         }
         to_lua(l, &v)
     });
     f!(omsi, "has_vehicle", |_l, s, _a: ()| Ok(s.borrow().vehicle.is_some()));
+    f!(omsi, "position", |l, s, _a: ()| match s.borrow().position {
+        Some((x, y, h)) => (x, y, 0.0, h).into_lua_multi(l),
+        None => Ok(mlua::MultiValue::new()),
+    });
+    f!(omsi, "others", |l, s, _a: Option<f64>| to_lua(l, &Value::from(s.borrow().others.clone())));
+    let traffic = lua.create_table()?;
+    f!(traffic, "list", |l, s, _a: Option<f64>| to_lua(l, &Value::from(s.borrow().traffic.clone())));
+    omsi.set("traffic", traffic)?;
+    let timetable = lua.create_table()?;
+    f!(timetable, "buses", |l, s, _a: ()| to_lua(l, &Value::from(s.borrow().timetable_buses.clone())));
+    omsi.set("timetable", timetable)?;
     f!(omsi, "speed", |_l, s, _a: ()| Ok(s.borrow().speed));
     f!(omsi, "send", |_l, s, a: (i64, String)| {
         s.borrow_mut().sent.push(a);
@@ -482,6 +516,11 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
 
     let map = lua.create_table()?;
     f!(map, "info", |l, s, _a: ()| to_lua(l, &json!({ "path": s.borrow().map })));
+    f!(map, "tile_at", |_l, s, a: (f64, f64)| {
+        let t = s.borrow().tile;
+        let (tx, ty) = ((a.0 / t).floor(), (a.1 / t).floor());
+        Ok((tx as i64, ty as i64, a.0 - tx * t, a.1 - ty * t))
+    });
     omsi.set("map", map)?;
 
     let audio = lua.create_table()?;

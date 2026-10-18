@@ -1390,16 +1390,64 @@ function workshopAct(a) {
   }
 }
 
-/** The fleet map's panel and buses (`fleetmap::view`): the buses are placed on the routes the game
- * program read, which the add-on has not (`co_more_map` is not available) - so, as in the app, the
- * map is not built and no bus is on it; the panel has the clock and the lines. */
+/** The mock's map: a grid of roads, the company's line along it. */
+const GRID = [[0, 0, 2400, 0], [0, 800, 2400, 800], [0, 1600, 2400, 1600], [0, 0, 0, 1600], [800, 0, 800, 1600], [1600, 0, 1600, 1600], [2400, 0, 2400, 1600]];
+const ROUTE = [200, 0, 800, 0, 800, 800, 1600, 800, 1600, 1600, 2300, 1600];
+
+/** Where a vehicle is `m` metres along the line `p` (to and fro), and its heading. */
+function along(p, m) {
+  const seg = [];
+  let len = 0;
+  for (let i = 0; i + 3 < p.length; i += 2) {
+    const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
+    seg.push([p[i], p[i + 1], p[i + 2], p[i + 3], l]);
+    len += l;
+  }
+  let d = ((m % (2 * len)) + 2 * len) % (2 * len);
+  const back = d > len;
+  if (back) d = 2 * len - d;
+  for (const [x0, y0, x1, y1, l] of seg) {
+    if (d <= l) {
+      const f = d / l;
+      const h = (Math.atan2(x1 - x0, y1 - y0) * 180) / Math.PI + (back ? 180 : 0);
+      return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, (h + 360) % 360];
+    }
+    d -= l;
+  }
+  return [p[0], p[1], 0];
+}
+
+/** The fleet map's panel and buses (`fleetmap::view`): two of the company's buses on its line, and
+ * the game's traffic as the plugin writes it while the game runs (`v.traffic`), moving with the
+ * real clock. */
 function fleetmap() {
+  const s = Date.now() / 1000;
+  const l = LINES[0];
+  const bus = (key, m, tone) => {
+    const [x, y, h] = along(ROUTE, m);
+    return { key, at: [x, y], h, colour: l.colour, tag: l.number, state: 'service', tone, min: 0, player: false, on: false };
+  };
+  // (the plugin's places every two seconds)
+  const t2 = Math.floor(s / 2) * 2;
+  const vehicles = GRID.flatMap((p, k) => [0, 1].map((j) => {
+    const [x, y, h] = along(p, t2 * (9 + k + j * 3) + j * 700 + k * 300);
+    return [`${k}-${j}`, Math.round(x), Math.round(y), Math.round(h), ['car', 'car', 'taxi', 'truck', 'car', 'tram', 'bicycle'][(k + j) % 7]];
+  }));
+  const g = along(GRID[2], t2 * 8 + 400);
+  const p = along(GRID[4], t2 * 10);
   return {
-    built: false, title: 'FLEET MAP', live: { text: "Live: the company's time", tone: 'accent2' }, clock: `${hhmm(co().minute)}:00`, secs: co().minute * 60, playing: false, is_live: true, speed: 0,
+    built: true, title: 'FLEET MAP', live: { text: "Live: the game's time", tone: 'ok' }, clock: `${hhmm(co().minute)}:00`, secs: co().minute * 60, playing: false, is_live: true, speed: 0,
     tips: { run: 'Run the clock', stop: 'Stop the clock', x10: 'Ten times as fast', x60: 'Sixty times as fast', now: 'Back to now', close: 'Close' },
-    counts: 'On the road: 0  ·  at a terminus: 0  ·  tours today: 0',
-    legend: LINES.map((l) => ({ plate: plate(l), colour: l.colour, caption: l.caption, n: 0 })), no_lines: 'The company runs no line on this day.',
-    buses: [], picked: null, card: null,
+    counts: 'On the road: 2  ·  at a terminus: 0  ·  tours today: 2',
+    legend: LINES.map((x, i) => ({ plate: plate(x), colour: x.colour, caption: x.caption, n: i ? 0 : 2 })), no_lines: 'The company runs no line on this day.',
+    buses: [bus(`${l.name}|1`, s * 9, 'ok'), bus(`${l.name}|2`, s * 9 + 2600, 'warn')],
+    traffic: {
+      label: "The game's traffic",
+      vehicles,
+      buses: [{ key: 'game|62|4|1205', at: [g[0], g[1]], h: g[2], tag: '62' }],
+      players: [{ key: 'player|Sam', at: [p[0], p[1]], h: p[2], tag: 'Sam' }],
+    },
+    picked: null, card: null,
   };
 }
 
@@ -1704,8 +1752,9 @@ export const companyAnswers = {
     return f ? f(a) : {};
   },
   co_more_act: (a) => (co() ? moreAct(a) : {}),
-  // (the app reads the map's tiles: the mock has none)
-  co_more_map: () => {
-    throw 'The map is not there in the mock: open Omsi-Hub itself';
-  },
+  co_more_map: () => ({
+    roads: GRID.map((p, k) => ({ p, w: 8, main: k === 1 })),
+    lines: [{ p: ROUTE, colour: LINES[0].colour }],
+    lo: [0, 0], hi: [2400, 1600],
+  }),
 };

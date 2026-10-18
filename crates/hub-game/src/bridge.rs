@@ -29,7 +29,10 @@
 //! * `data/replies.jsonl`: one [`Reply`] a line - a message delivered, read, accepted or
 //!   declined, a canned reply, a quick button to control ([`ReplyReader`]);
 //! * `data/status.json`: how the duty stands, written every few seconds ([`Status`]: the trip,
-//!   its delay, how much of it is left) - what the AI dispatcher looks at.
+//!   its delay, how much of it is left) - what the AI dispatcher looks at;
+//! * `data/traffic.json`: what is on the road, every few seconds ([`Traffic`]: the player's
+//!   bus, the AI vehicles, the timetable's buses, the other players), for the fleet map
+//!   (`lua/traffic.lua`).
 //!
 //! A game without `files.write` / `files.append` gets the same lines into its log instead
 //! (`omsi.log`, `[lua omsihub] OMSIHUB-HELLO {...}`, `OMSIHUB-REPORT {...}` and
@@ -56,6 +59,7 @@ pub const REPORTS_FILE: &str = "reports.jsonl";
 pub const MESSAGES_FILE: &str = "messages.json";
 pub const REPLIES_FILE: &str = "replies.jsonl";
 pub const STATUS_FILE: &str = "status.json";
+pub const TRAFFIC_FILE: &str = "traffic.json";
 /// What the plugin's log lines start with when it cannot write files.
 pub const LOG_HELLO: &str = "OMSIHUB-HELLO ";
 pub const LOG_REPORT: &str = "OMSIHUB-REPORT ";
@@ -576,6 +580,105 @@ pub fn write_inbox(plugin_dir: &Path, inbox: &Inbox) -> std::io::Result<bool> {
 /// How the duty stands, as the plugin last wrote it.
 pub fn read_status(plugin_dir: &Path) -> Option<Status> {
     let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(STATUS_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// What is on the road in the game, as the plugin writes it (`data/traffic.json`): in the
+/// game's map coordinates (metres, x east, y north), headings clockwise from north.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Traffic {
+    /// The real time (Unix seconds) and the game's clock.
+    pub at: f64,
+    pub clock: Option<f64>,
+    /// The map the game drives on (its global.cfg, as the game names it).
+    pub map: String,
+    /// One place of these coordinates given by its tile too: where the map's tiles lie.
+    #[serde(rename = "ref")]
+    pub reference: Option<TilePlace>,
+    pub player: Option<Mover>,
+    /// The AI vehicles but the timetable's buses.
+    #[serde(deserialize_with = "list")]
+    pub vehicles: Vec<Vehicle>,
+    #[serde(deserialize_with = "list")]
+    pub buses: Vec<GameBus>,
+    #[serde(deserialize_with = "list")]
+    pub players: Vec<Mover>,
+}
+
+/// A place in the game's coordinates and the same place by its tile (numbered as global.cfg's
+/// `[map]` list numbers them) and the metres in it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TilePlace {
+    pub x: f64,
+    pub y: f64,
+    pub tile_x: i64,
+    pub tile_y: i64,
+    pub local_x: f64,
+    pub local_y: f64,
+}
+
+/// A vehicle where it is: the player's bus (its speed in km/h; its duty's line and tour, its
+/// delay in seconds and its passengers, as the game has them), another player's (its name).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mover {
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub speed: f64,
+    pub name: String,
+    pub line: String,
+    pub tour: String,
+    pub delay: Option<f64>,
+    pub passengers: Option<f64>,
+}
+
+/// An AI vehicle of the traffic: `kind` as `omsi.traffic.list` has it (car, taxi, bus, truck,
+/// tram, bicycle).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Vehicle {
+    pub id: Option<i64>,
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub kind: String,
+}
+
+/// A bus of the timetable the game's AI drives (`omsi.timetable.buses`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameBus {
+    pub id: Option<i64>,
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub line: String,
+    pub tour: String,
+    pub trip: Option<f64>,
+    pub terminus: String,
+    /// Seconds late (early negative).
+    pub delay: Option<f64>,
+    /// Its fleet number.
+    pub number: String,
+    pub at_stop: bool,
+}
+
+/// A list as the plugin writes it: an empty Lua table comes as `{}`; an entry it cannot read
+/// is left out.
+fn list<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(d: D) -> Result<Vec<T>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(match v {
+        serde_json::Value::Array(items) => items.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect(),
+        _ => Vec::new(),
+    })
+}
+
+/// What is on the road, as the plugin last wrote it.
+pub fn read_traffic(plugin_dir: &Path) -> Option<Traffic> {
+    let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(TRAFFIC_FILE)).ok()?;
     serde_json::from_str(&text).ok()
 }
 

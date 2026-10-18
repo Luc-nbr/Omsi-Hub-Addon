@@ -26,6 +26,12 @@ Each version of the Omsi-Hub add-on, newest first. The release on GitHub links h
   without one is photographed from the model openOMSI writes for the 3D view, one bus after the
   other, while its tile is shown, and the photo is kept. The photos the old Omsi-Hub took are
   still found.
+- **The game's buses and traffic on the fleet map**: while you drive on the company's map, your
+  bus and every bus of the company's tours the game drives are where the game has them, with the
+  game's delay; the game's cars, trams and bicycles, the buses of the lines the company does not
+  run and the other players' buses in a LAN game are drawn too (a switch in the panel hides the
+  traffic). Needs an openOMSI with `omsi.traffic.list` and `omsi.timetable.buses` (0.2.22); the
+  launcher shows whether yours has them.
 
 ## 0.1.0 (pre-release, for testing)
 

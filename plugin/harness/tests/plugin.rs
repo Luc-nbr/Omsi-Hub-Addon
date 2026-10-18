@@ -216,3 +216,56 @@ fn a_free_drive_says_its_route() {
     assert!(toasted(&h, "Free drive on line 14: 14_Hbf-Zoo"));
     assert!(h.state.borrow().started.is_empty());
 }
+
+#[test]
+fn the_game_s_traffic_reaches_the_fleet_map() {
+    let dir = installed("traffic");
+    let mut g = game();
+    g.position = Some((650.5, 1210.25, 92.0));
+    g.duty = Some(hub_plugin_harness::Duty { line: "10".into(), tour: "2".into(), trip: 1, trips: 2, delay: 95.0 });
+    g.speed = 31.0;
+    g.traffic = vec![
+        json!({ "id": 7, "kind": "car", "x": 700.0, "y": 1200.0, "heading": 270.0 }),
+        json!({ "id": 9, "kind": "timetable_bus", "x": 100.0, "y": 50.0, "heading": 45.0 }),
+        json!({ "id": 11, "kind": "tram", "x": 820.04, "y": 1190.0 }),
+    ];
+    g.timetable_buses = vec![json!({ "id": 9, "line": 5, "tour": "3", "trip": 2, "terminus": "Zoo", "delay": 125.0, "number": 4711, "x": 100.0, "y": 50.0, "at_stop": true })];
+    g.others = vec![json!({ "kind": "ai", "x": 1.0, "y": 2.0 }), json!({ "kind": "player", "name": "Sam", "x": 905.0, "y": 610.0, "heading": 180.0 })];
+    let mut h = Harness::load(&dir, g).unwrap();
+    h.frame().unwrap();
+    let t = bridge::read_traffic(&dir).expect("data/traffic.json");
+    assert_eq!(t.map, "maps/Grundorf/global.cfg");
+    let p = t.player.expect("the player's bus");
+    assert_eq!((p.x, p.y, p.heading, p.speed), (650.5, 1210.3, 92.0, 31.0));
+    assert_eq!((p.line.as_str(), p.tour.as_str(), p.delay), ("10", "2", Some(95.0)));
+    // (the timetable's bus only in its own list, with its heading from the traffic's)
+    let v: Vec<_> = t.vehicles.iter().map(|v| (v.id, v.x, v.y, v.heading, v.kind.as_str())).collect();
+    assert_eq!(v, [(Some(7), 700.0, 1200.0, 270.0, "car"), (Some(11), 820.0, 1190.0, 0.0, "tram")]);
+    let b = &t.buses[0];
+    assert_eq!((b.line.as_str(), b.tour.as_str(), b.number.as_str(), b.delay, b.heading, b.at_stop), ("5", "3", "4711", Some(125.0), 45.0, true));
+    assert_eq!((t.players.len(), t.players[0].name.as_str()), (1, "Sam"));
+    // (where the tiles lie: the player's place on its tile of 300 m)
+    let r = t.reference.expect("a place by its tile");
+    assert_eq!((r.tile_x, r.tile_y, r.local_x, r.x), (2, 4, 50.5, 650.5));
+
+    // on foot, without traffic: empty lists, as `{}` from Lua, read as empty
+    h.state.borrow_mut().position = None;
+    h.state.borrow_mut().traffic.clear();
+    h.state.borrow_mut().timetable_buses.clear();
+    h.state.borrow_mut().others.clear();
+    for _ in 0..2 {
+        h.frame().unwrap();
+    }
+    let t = bridge::read_traffic(&dir).expect("written again");
+    assert!(t.player.is_none() && t.vehicles.is_empty() && t.buses.is_empty() && t.reference.is_none(), "{t:?}");
+}
+
+#[test]
+fn an_openomsi_without_the_traffic_functions_writes_none() {
+    let dir = installed("no-traffic");
+    let mut h = Harness::load_with(&dir, game(), "omsi.traffic = nil; omsi.timetable = nil; omsi.position = nil").unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    assert!(bridge::read_traffic(&dir).is_none());
+}

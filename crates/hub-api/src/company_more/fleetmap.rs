@@ -9,8 +9,12 @@
 //!   (`lateness::model_with`, the Operations page's): late leaving, losing (or making up) time on
 //!   the way, waiting at the terminus between trips, an empty run along its route or straight;
 //!   a bus broken down stands where it broke down, and the bus sent runs the block on;
-//! - the bus the player drives is where the game says it is (its telemetry, `telemetry.json`,
-//!   while the player has it on), else on the timetable by the delay the game reported.
+//! - while the game runs on the company's map, its buses are where the game says they are: the
+//!   player's bus, and each bus of the timetable the game's AI drives on a tour of the plan
+//!   (what the plugin writes, `traffic.json`: `hub_game::bridge::Traffic`); else the player's
+//!   bus is on the timetable by the delay the game reported;
+//! - the game's other traffic is drawn too: its cars, trams and bicycles, the buses of the
+//!   timetable's lines the company does not run, and the other players' buses in a LAN game.
 //!
 //! The clock follows the time of day - the game's while it runs on the company's map, else the
 //! company's to the second - or runs by itself, ten or sixty times as fast. The view is asked for
@@ -42,9 +46,10 @@ use std::time::Instant;
 
 /// A bus waiting for its first trip is shown from this many seconds before it leaves.
 const SHOWN_BEFORE: f64 = 1800.0;
-/// The game's telemetry is read at most this often, and believed for this long.
-const TELEMETRY_EVERY: f64 = 0.4;
-const TELEMETRY_FRESH: f64 = 10.0;
+/// What the game says is on the road is read at most this often (the plugin writes it every
+/// two seconds), and believed for this long.
+const TRAFFIC_EVERY: f64 = 1.0;
+const TRAFFIC_FRESH: f64 = 10.0;
 
 /// A block of today's plan as the map moves its bus.
 struct Block {
@@ -59,7 +64,7 @@ struct Block {
     tags: Vec<(String, String)>,
 }
 
-/// The game's telemetry of the player's bus (`omsi-app`'s `telemetry.rs`), in the map's metres.
+/// The player's bus or a timetable bus where the game says it is, in the map's metres.
 #[derive(Clone, Debug, Default)]
 struct Telemetry {
     at: [f64; 2],
@@ -69,6 +74,18 @@ struct Telemetry {
     speed: f64,
     line: String,
     tour: String,
+}
+
+/// What the game says is on the road, in the map's metres (`traffic_of`).
+#[derive(Clone, Debug, Default)]
+struct GameRoad {
+    player: Option<Telemetry>,
+    /// The timetable's buses the game's AI drives, and their fleet numbers.
+    buses: Vec<(Telemetry, String)>,
+    /// The other vehicles: `(id, at, heading, kind)`.
+    vehicles: Vec<(Option<i64>, fm::P, f64, String)>,
+    /// The other players' buses: their names, where they are, their headings.
+    players: Vec<(String, fm::P, f64)>,
 }
 
 /// The day's delays as the lateness model has them at a minute of the company's clock: the
@@ -92,8 +109,9 @@ pub struct MapState {
     picked: Option<String>,
     /// The trips' routes and their stops' places as the game program read them, by trip.
     routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>,
-    /// Where the map's metres begin, in the game's world (the telemetry's).
-    origin: Option<[f64; 2]>,
+    /// A tile's edge in the map's metres (the map's roads read): with the place the game gives
+    /// by its tile, where the game's coordinates lie on the map.
+    edge: Option<f64>,
     /// The company, map and day the routes were read for.
     built_for: Option<(String, String, usize)>,
     legend: Vec<(co::CompanyLine, String)>,
@@ -104,8 +122,8 @@ pub struct MapState {
     /// The delays the game reported (line number, tour) → seconds, and when they were read.
     delays: HashMap<(String, String), f64>,
     delays_at: Option<Instant>,
-    telemetry: Option<Telemetry>,
-    telemetry_at: Option<Instant>,
+    road: Option<GameRoad>,
+    road_at: Option<Instant>,
 }
 
 /// A line's colour: its own, else the one RosterFlow's chips give it.
@@ -166,14 +184,14 @@ pub fn roads(_args: &Value, _p: &dyn Platform) -> Answer {
         if !c.map.eq_ignore_ascii_case(&map) {
             return Vec::new();
         }
-        keep(s, c, lines, routes, None)
+        keep(s, c, lines, routes, Some(r.roads.edge))
     });
     Ok(json!({ "roads": r.drawn, "lines": lines, "lo": [r.roads.lo[0], r.roads.lo[1]], "hi": [r.roads.hi[0], r.roads.hi[1]] }))
 }
 
 /// Keep the routes read for the buses (`map::build`); answers the lines as the map draws them:
 /// each trip's route once, in its line's colour.
-fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>, origin: Option<[f64; 2]>) -> Vec<Value> {
+fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<String, (Vec<fm::P>, Vec<Option<fm::P>>)>, edge: Option<f64>) -> Vec<Value> {
     let mut drawn = Vec::new();
     let mut legend = Vec::new();
     for cl in &c.lines {
@@ -193,7 +211,7 @@ fn keep(s: &Session, c: &Company, lines: &[core::LineInfo], routes: HashMap<Stri
     }
     let mut m = more(s);
     m.map.routes = routes;
-    m.map.origin = origin;
+    m.map.edge = edge;
     m.map.legend = legend;
     m.map.blocks_for = None;
     m.map.built_for = Some((c.map.clone(), c.date.clone(), c.lines.len()));
@@ -371,49 +389,76 @@ fn live_delays(m: &mut MapState, c: &Company, in_game: bool) {
     }
 }
 
-/// The game's telemetry of the player's bus, read a few times a second while the game runs on
-/// the company's map and the player has it on (the file is there): None when it is old, paused
-/// on a menu without a bus, or the map's origin is not known.
-fn telemetry(m: &mut MapState, in_game: bool) {
-    if !in_game || m.origin.is_none() {
-        m.telemetry = None;
+/// What the game says is on the road, read every second while the game runs on the company's
+/// map and the plugin writes it: None when it is old, of another map, or the map's roads are not
+/// read yet.
+fn game_road(m: &mut MapState, c: &Company, in_game: bool) {
+    let Some(edge) = m.edge.filter(|_| in_game) else {
+        m.road = None;
+        return;
+    };
+    if m.road_at.is_some_and(|t| t.elapsed().as_secs_f64() < TRAFFIC_EVERY) {
         return;
     }
-    if m.telemetry_at.is_some_and(|t| t.elapsed().as_secs_f64() < TELEMETRY_EVERY) {
-        return;
-    }
-    m.telemetry_at = Some(Instant::now());
-    let read = std::fs::read_to_string(data().join("telemetry.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-    m.telemetry = read.and_then(|v| telemetry_of(&v, m.origin.unwrap_or_default(), real_secs()));
+    m.road_at = Some(Instant::now());
+    let read = crate::addon::plugins_dir().ok().map(|d| hub_game::install::plugin_dir(&d)).and_then(|d| hub_game::bridge::read_traffic(&d));
+    m.road = read.and_then(|t| traffic_of(&t, &c.map, edge, real_secs()));
 }
 
-/// The player's bus of a telemetry file (`v`), in the map's metres from `origin`, if it is fresh
-/// at `now` (Unix seconds).
-fn telemetry_of(v: &Value, origin: [f64; 2], now: f64) -> Option<Telemetry> {
-    let updated = v.get("updated").and_then(Value::as_f64)?;
-    if (now - updated).abs() > TELEMETRY_FRESH {
+/// The same map, however the game names it (its global.cfg, from the game's folder or not).
+fn same_map(game: &str, company: &str) -> bool {
+    let n = |m: &str| m.replace('\\', "/").trim().trim_start_matches("./").to_lowercase();
+    let (g, c) = (n(game), n(company));
+    g.is_empty() || g == c || g.ends_with(&format!("/{c}")) || c.ends_with(&format!("/{g}"))
+}
+
+/// What the plugin wrote (`t`), in the map's metres (its tiles `edge` metres), if it is fresh at
+/// `now` (Unix seconds) and of the company's map `map`. Where the game's coordinates lie: the
+/// place it gives by its tile too; without one, the map's own.
+fn traffic_of(t: &hub_game::bridge::Traffic, map: &str, edge: f64, now: f64) -> Option<GameRoad> {
+    if (now - t.at).abs() > TRAFFIC_FRESH || !same_map(&t.map, map) {
         return None;
     }
-    let p = v.get("player").filter(|p| p.is_object())?;
-    let f = |k: &str| p.get(k).and_then(Value::as_f64);
-    let duty = v.get("duty");
-    let s = |k: &str| duty.and_then(|d| d.get(k)).and_then(Value::as_str).unwrap_or("").trim().to_string();
-    Some(Telemetry {
-        at: [f("x")? - origin[0], f("y")? - origin[1]],
-        heading: f("heading").unwrap_or(0.0).rem_euclid(360.0),
-        delay: f("delay_s"),
-        passengers: f("passengers"),
-        speed: f("speed_kmh").unwrap_or(0.0),
-        line: s("line"),
-        tour: s("tour"),
-    })
+    let origin = t.reference.map_or([0.0, 0.0], |r| [r.x - (r.tile_x as f64 * edge + r.local_x), r.y - (r.tile_y as f64 * edge + r.local_y)]);
+    let at = |x: f64, y: f64| [x - origin[0], y - origin[1]];
+    let h = |h: f64| h.rem_euclid(360.0);
+    let player = t.player.as_ref().map(|p| Telemetry {
+        at: at(p.x, p.y),
+        heading: h(p.heading),
+        delay: p.delay,
+        passengers: p.passengers,
+        speed: p.speed,
+        line: p.line.trim().to_string(),
+        tour: p.tour.trim().to_string(),
+    });
+    let buses = t
+        .buses
+        .iter()
+        .map(|b| {
+            (
+                Telemetry {
+                    at: at(b.x, b.y),
+                    heading: h(b.heading),
+                    delay: b.delay,
+                    passengers: None,
+                    speed: if b.at_stop { 0.0 } else { 20.0 },
+                    line: b.line.trim().to_string(),
+                    tour: b.tour.trim().to_string(),
+                },
+                b.number.trim().to_string(),
+            )
+        })
+        .collect();
+    let vehicles = t.vehicles.iter().map(|v| (v.id, at(v.x, v.y), h(v.heading), v.kind.clone())).collect();
+    let players = t.players.iter().map(|p| (p.name.clone(), at(p.x, p.y), h(p.heading))).collect();
+    Some(GameRoad { player, buses, vehicles, players })
 }
 
-/// Whether the player's duty in the game is block `b` (its line and its tour, or a tour of the
-/// timetable it runs).
+/// Whether the bus `t` the game drives (the player's, or one of the timetable's) is on block `b`:
+/// its line and its tour, or a tour of the timetable it runs.
 fn drives(t: &Telemetry, b: &Block, tp: &co::day::TourPlan) -> bool {
     !t.line.is_empty()
-        && (t.line.eq_ignore_ascii_case(b.number.trim()) || b.tags.iter().any(|x| x.0.eq_ignore_ascii_case(&t.line)))
+        && (t.line.eq_ignore_ascii_case(b.number.trim()) || t.line.eq_ignore_ascii_case(b.line.trim()) || b.tags.iter().any(|x| x.0.eq_ignore_ascii_case(&t.line)))
         && (t.tour.eq_ignore_ascii_case(b.tour.trim()) || tp.tour.runs_tour(&t.tour))
 }
 
@@ -442,6 +487,8 @@ struct Marker {
     rental: bool,
     /// The player drives it, and the game said where it is.
     player: bool,
+    /// The game's AI drives its tour, and the game said where it is.
+    from_game: bool,
     telemetry: Option<Telemetry>,
 }
 
@@ -496,7 +543,9 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
         m.clock = (m.clock + dt * m.speed).rem_euclid(86_400.0);
     }
     live_delays(m, c, in_game);
-    telemetry(m, in_game);
+    game_road(m, c, in_game);
+    // (the game's timetable buses each on one block of the plan at most)
+    let mut taken = vec![false; m.road.as_ref().map_or(0, |r| r.buses.len())];
     // the blocks of today's plan, and how its trips run
     let mut markers: Vec<Marker> = Vec::new();
     let clock = m.clock;
@@ -525,9 +574,21 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
             let after_break = broken.is_some();
             let vehicle = model_bus.or(tp.bus);
             let rental = after_break && vehicle == tp.bus;
-            // (the player's bus: where the game says it is, while it says so)
+            // (the player's bus where the game says it is, while it says so; another bus of the
+            // plan where the game's AI drives its tour)
             let player = tp.by_player || tp.duties.iter().any(|x| x.driver == Some(PLAYER));
-            let tele = m.telemetry.as_ref().filter(|t| player && drives(t, b, tp)).cloned();
+            let road = m.road.as_ref();
+            let mine = road.and_then(|r| r.player.as_ref()).filter(|t| player && drives(t, b, tp)).cloned();
+            let ai = if player || broken.is_some() {
+                None
+            } else {
+                road.and_then(|r| r.buses.iter().enumerate().find(|(i, (t, _))| !taken[*i] && drives(t, b, tp))).map(|(i, (t, _))| {
+                    taken[i] = true;
+                    t.clone()
+                })
+            };
+            let from_game = ai.is_some();
+            let tele = mine.clone().or(ai);
             if let Some(t) = &tele {
                 live.at = Some(t.at);
                 live.heading = t.heading;
@@ -538,9 +599,9 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
                     live.doing = if t.speed > 1.0 { Doing::Deadhead } else { Doing::Layover };
                 }
             }
-            markers.push(Marker { key: key.clone(), b: bi, live, vehicle: if rental { None } else { vehicle }, rental, player: tele.is_some(), telemetry: tele });
+            markers.push(Marker { key: key.clone(), b: bi, live, vehicle: if rental { None } else { vehicle }, rental, player: mine.is_some(), from_game, telemetry: tele });
             if let Some(br) = broken {
-                markers.push(Marker { key: format!("{key}|broken"), b: bi, live: br, vehicle: tp.bus, rental: false, player: false, telemetry: None });
+                markers.push(Marker { key: format!("{key}|broken"), b: bi, live: br, vehicle: tp.bus, rental: false, player: false, from_game: false, telemetry: None });
             }
         }
         m.day = day;
@@ -562,6 +623,21 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
             })
         })
         .collect();
+    // the game's other traffic: its vehicles, the buses of the lines the company does not run
+    // (their line on their tag), the other players' buses (their names)
+    let dm = |x: f64| (x * 10.0).round() / 10.0;
+    let traffic = m.road.as_ref().map(|r| {
+        let others: Vec<Value> = r
+            .buses
+            .iter()
+            .zip(&taken)
+            .filter(|(_, t)| !**t)
+            .map(|((t, number), _)| json!({ "key": format!("game|{}|{}|{number}", t.line, t.tour), "at": [dm(t.at[0]), dm(t.at[1])], "h": dm(t.heading), "tag": t.line }))
+            .collect();
+        let vehicles: Vec<Value> = r.vehicles.iter().enumerate().map(|(i, (id, at, h, kind))| json!([id.map_or(format!("v{i}"), |n| n.to_string()), dm(at[0]), dm(at[1]), dm(*h), kind])).collect();
+        let players: Vec<Value> = r.players.iter().map(|(name, at, h)| json!({ "key": format!("player|{name}"), "at": [dm(at[0]), dm(at[1])], "h": dm(*h), "tag": name })).collect();
+        json!({ "vehicles": vehicles, "buses": others, "players": players, "label": tr("The game's traffic") })
+    });
     // the panel
     let on_road = markers.iter().filter(|mk| matches!(mk.live.doing, Doing::Service | Doing::Deadhead)).count();
     let pausing = markers.iter().filter(|mk| mk.live.doing == Doing::Layover).count();
@@ -589,6 +665,7 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
         "counts": counts,
         "legend": legend, "no_lines": tr("The company runs no line on this day."),
         "buses": buses,
+        "traffic": traffic,
         "picked": picked,
         "card": card,
     })
@@ -738,7 +815,7 @@ fn bus_card(c: &Company, plan: &Plan, d: &Day, m: &MapState, mk: &Marker, clock:
         "head": head_of(c, b, &colour, &tag, bus),
         "photo": photo, "facts": facts,
         "what": what, "state": doing_key(mk.live.doing), "next": next,
-        "source": if mk.player { Some(tr("Live position from the game")) } else { None },
+        "source": if mk.player || mk.from_game { Some(tr("Live position from the game")) } else { None },
         "delay": delay_v,
         "rows": rows, "notes": notes, "links": links,
     })
@@ -861,13 +938,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_players_bus_is_where_the_game_says_while_it_is_fresh() {
-        let v = json!({ "updated": 1000.0, "player": { "x": 1500.0, "y": -200.0, "heading": 370.0, "delay_s": 95.0, "passengers": 12, "speed_kmh": 30.0 }, "duty": { "line": " 5 ", "tour": "2" } });
-        let t = telemetry_of(&v, [1000.0, 100.0], 1004.0).expect("fresh");
-        assert_eq!((t.at, t.heading, t.delay, t.passengers), ([500.0, -300.0], 10.0, Some(95.0), Some(12.0)));
-        assert_eq!((t.line.as_str(), t.tour.as_str()), ("5", "2"));
-        assert!(telemetry_of(&v, [0.0, 0.0], 1100.0).is_none(), "an old file is not believed");
-        assert!(telemetry_of(&json!({ "updated": 1000.0, "player": null }), [0.0, 0.0], 1000.0).is_none(), "no bus");
+    fn the_game_s_buses_are_where_it_says_while_it_is_fresh() {
+        use hub_game::bridge::{GameBus, Mover, TilePlace, Traffic, Vehicle};
+        // (the game's coordinates 1000 m east and 100 m north of the map's tiles: its place
+        // 1650, 1310 is 50, 10 m into tile 2, 4)
+        let t = Traffic {
+            at: 1000.0,
+            map: "C:\\OMSI 2\\maps\\Grundorf\\global.cfg".into(),
+            reference: Some(TilePlace { x: 1650.0, y: 1310.0, tile_x: 2, tile_y: 4, local_x: 50.0, local_y: 10.0 }),
+            player: Some(Mover { x: 1500.0, y: -200.0, heading: 370.0, speed: 30.0, line: " 5 ".into(), tour: "2".into(), delay: Some(95.0), passengers: Some(12.0), ..Mover::default() }),
+            vehicles: vec![Vehicle { id: Some(7), x: 1100.0, y: 200.0, heading: -90.0, kind: "car".into() }],
+            buses: vec![GameBus { x: 1300.0, y: 400.0, line: "10".into(), tour: "3".into(), delay: Some(-30.0), number: "4711".into(), at_stop: true, ..GameBus::default() }],
+            players: vec![Mover { name: "Sam".into(), x: 1000.0, y: 100.0, ..Mover::default() }],
+            ..Traffic::default()
+        };
+        let r = traffic_of(&t, "maps/Grundorf/global.cfg", 300.0, 1004.0).expect("fresh, of the company's map");
+        let p = r.player.expect("the player's bus");
+        assert_eq!((p.at, p.heading, p.delay, p.passengers), ([500.0, -300.0], 10.0, Some(95.0), Some(12.0)));
+        assert_eq!((p.line.as_str(), p.tour.as_str()), ("5", "2"));
+        assert_eq!(r.vehicles, vec![(Some(7), [100.0, 100.0], 270.0, "car".to_string())]);
+        let (b, number) = &r.buses[0];
+        assert_eq!((b.at, b.delay, b.speed, number.as_str()), ([300.0, 300.0], Some(-30.0), 0.0, "4711"));
+        assert_eq!(r.players, vec![("Sam".to_string(), [0.0, 0.0], 0.0)]);
+        assert!(traffic_of(&t, "maps/Grundorf/global.cfg", 300.0, 1100.0).is_none(), "an old file is not believed");
+        assert!(traffic_of(&t, "maps/Ruhrau/global.cfg", 300.0, 1004.0).is_none(), "another map");
+        // (without a place by its tile: the game's coordinates are the map's)
+        let plain = Traffic { reference: None, ..t };
+        assert_eq!(traffic_of(&plain, "maps/Grundorf/global.cfg", 300.0, 1000.0).unwrap().players[0].1, [1000.0, 100.0]);
+        assert!(same_map("", "maps/X/global.cfg") && same_map("./maps/x/GLOBAL.cfg", "maps/X/global.cfg") && !same_map("maps/Y/global.cfg", "maps/X/global.cfg"));
     }
 
     #[test]
