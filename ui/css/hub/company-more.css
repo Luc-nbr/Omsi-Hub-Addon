@@ -67,6 +67,17 @@
 .cm-plan3d .dp-menu button.on svg { color: var(--hub-accent-text, var(--hub-accent)); }
 .cm-plan3d .dp-menu button span { flex: 1; display: flex; flex-direction: column; }
 .cm-plan3d .dp-menu button small { font-size: 9px; font-weight: 500; color: var(--hub-text-dim); }
+/* (the build mode: what it says of the spot and its buttons, along the bottom; a module's card) */
+.cm-plan3d .dp-place { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border-radius: 12px; background: var(--hub-panel); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.22); }
+.cm-plan3d .dp-place .dp-why { flex: 1; min-width: 0; font-size: 10.6px; font-weight: 600; color: var(--co-ok); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-place .dp-why.no { color: var(--co-danger-text); }
+.cm-plan3d .dp-place .co-btn { height: 32px; padding: 0 10px; flex: none; }
+.cm-plan3d .dp-card { position: absolute; left: 12px; bottom: 12px; width: 280px; display: flex; flex-direction: column; gap: 3px; padding: 12px 14px 10px; border-radius: 12px; background: var(--hub-panel); color: var(--hub-text); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.22); }
+.cm-plan3d .dp-card b { font-size: 11.4px; }
+.cm-plan3d .dp-card span { font-size: 10px; color: var(--hub-text-dim); }
+.cm-plan3d .dp-card .row { display: flex; gap: 6px; margin-top: 6px; }
+.cm-plan3d .dp-card .co-btn { height: 30px; padding: 0 10px; }
+.cm-buildrow .co-btn.on { background: var(--hub-accent); color: var(--hub-on-accent); }
 /* (the Build list: a dot a level, the one being built in amber) */
 .cm-pips { position: absolute; display: flex; gap: 5px; }
 .cm-pips i { width: 7px; height: 7px; border-radius: 50%; background: rgba(var(--co-white), var(--aw-16, 0.16)); }

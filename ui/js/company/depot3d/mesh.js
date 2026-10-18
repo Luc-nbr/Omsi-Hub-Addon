@@ -98,6 +98,16 @@ export class Mesh {
     if (cap && r1 > 0) for (let k = 0; k < n; k++) for (const p of [[cx, y1, cz], at(k + 1, r1, y1), at(k, r1, y1)]) this.vertex(p, [0, 1, 0], col, area, glow);
   }
 
+  /** Another mesh's vertices added, moved by `xf` (`{ pt([x, y, z]), dir([x, y, z]) }`). */
+  append(other, xf) {
+    const d = other.data;
+    for (let i = 0; i < d.length; i += STRIDE) {
+      const p = xf.pt([d[i], d[i + 1], d[i + 2]]);
+      const n = xf.dir([d[i + 3], d[i + 4], d[i + 5]]);
+      this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], d[i + 6], d[i + 7], d[i + 8], d[i + 9], d[i + 10]);
+    }
+  }
+
   floats() {
     return new Float32Array(this.data);
   }

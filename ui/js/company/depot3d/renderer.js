@@ -57,6 +57,8 @@ precision highp float;
 ${LIGHT_FS}
 uniform vec3 uAccent;
 uniform float uHi;
+uniform vec4 uTint;
+uniform float uAlpha;
 in vec3 vCol, vNrm;
 in vec4 vSh;
 in float vArea, vGlow;
@@ -64,7 +66,8 @@ out vec4 o;
 void main() {
   vec3 c = lit(vCol, normalize(vNrm), vSh, vGlow);
   if (uHi > 0.5 && abs(vArea - uHi) < 0.25) c = mix(c, uAccent, 0.42);
-  o = vec4(c, 1.0);
+  c = mix(c, uTint.rgb, uTint.a);
+  o = vec4(c * uAlpha, uAlpha);
 }`;
 
 const BUS_VS = `#version 300 es
@@ -348,6 +351,32 @@ export class DepotRenderer {
     this.invalidate();
   }
 
+  /** A see-through layer over the yard (the build mode's grid, the ghost of the module being
+   * put down): its mesh tinted `tint` ([r, g, b, how much]) at `alpha`; null takes it away. */
+  setOverlay(name, mesh, tint = [1, 1, 1, 0], alpha = 0.5) {
+    if (!this.ok) return;
+    const gl = this.gl;
+    this.overlays ??= new Map();
+    let o = this.overlays.get(name);
+    if (!mesh) {
+      if (o) o.count = 0;
+      this.invalidate();
+      return;
+    }
+    if (!o) {
+      o = { vao: gl.createVertexArray(), buf: gl.createBuffer() };
+      gl.bindVertexArray(o.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, o.buf);
+      this.vertexLayout();
+      gl.bindVertexArray(null);
+      this.overlays.set(name, o);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, o.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.floats(), gl.DYNAMIC_DRAW);
+    Object.assign(o, { count: mesh.count, tint, alpha });
+    this.invalidate();
+  }
+
   /** Light up an area of the yard (`scene.js`'s AREAS), 0 for none. */
   highlight(area) {
     if (area === this.hi) return;
@@ -509,6 +538,7 @@ export class DepotRenderer {
       if (u.uHi) gl.uniform1f(u.uHi, this.hi);
     }
     this.drawAll(this.yard, this.bus, vp, lightVP, 0, this.skin);
+    this.drawOverlays(vp, lightVP);
     this.onFrame?.(vp, this.size.w, this.size.h);
     this.timeFrame();
     if (moving) this.invalidate();
@@ -530,9 +560,37 @@ export class DepotRenderer {
     }
   }
 
+  drawOverlays(vp, lightVP) {
+    const list = [...(this.overlays?.values() || [])].filter((o) => o.count);
+    if (!list.length) return;
+    const gl = this.gl;
+    const u = this.yard.u;
+    gl.useProgram(this.yard.p);
+    gl.uniformMatrix4fv(u.uVP, false, vp);
+    gl.uniformMatrix4fv(u.uLight, false, lightVP);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    for (const o of list) {
+      gl.uniform4fv(u.uTint, o.tint);
+      gl.uniform1f(u.uAlpha, o.alpha);
+      gl.bindVertexArray(o.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, o.count);
+    }
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.uniform4fv(u.uTint, [0, 0, 0, 0]);
+    gl.uniform1f(u.uAlpha, 1);
+    gl.bindVertexArray(null);
+  }
+
   drawAll(yard, bus, vp, lightVP, shadowPass, skin) {
     const gl = this.gl;
     gl.useProgram(yard.p);
+    if (yard.u.uAlpha) {
+      gl.uniform4fv(yard.u.uTint, [0, 0, 0, 0]);
+      gl.uniform1f(yard.u.uAlpha, 1);
+    }
     gl.uniformMatrix4fv(yard.u.uVP, false, vp);
     gl.uniformMatrix4fv(yard.u.uLight, false, lightVP);
     gl.bindVertexArray(this.yardVao);

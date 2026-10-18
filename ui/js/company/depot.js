@@ -6,9 +6,10 @@
 // could be built is a dashed plot, building work is amber, the buses wear the company's colour.
 // A bus clicked on the plan is picked for the workshop's list (and clicked again let go).
 //
-// The yard is drawn in 3D (`depot3d/`) where the computer can; the plan from above stays, chosen
-// beside it and where there is no WebGL2. A row of the Build list under the pointer lights its
-// area up in the 3D yard.
+// The yard is drawn in 3D (`depot3d/`) where the computer can, or from straight above (2D); the
+// plan drawn flat stays where there is no WebGL2. A row of the Build list under the pointer
+// lights its area up in the yard; a module more (a block of spaces, a bay, a first washing bay
+// ...) is put down where the player wants it (the build mode: `placing`), more land bought.
 
 import { html, tr, ui, setUi, useSize, textW, Icon, Btn, Section, Figure, Tag, Meter, Plate, IconBtn, Seg, rgbOf, inkOn, fill } from './kit.js';
 import { useMore, actMore, TextIn, box, fillOf, useListSize } from './more.js';
@@ -24,7 +25,7 @@ const EARLY_SOFT = '122, 168, 255';
 const faint = (a) => `rgba(var(--co-faint-rgb), ${a})`;
 
 export function DepotPage() {
-  const st = ui('depot', { selected: null, view: '3d', hover: null, no3d: false });
+  const st = ui('depot', { selected: null, view: '3d', hover: null, no3d: false, placing: null });
   const v = useMore('depot', { selected: st.selected });
   const [ref, size] = useSize();
   let body = null;
@@ -40,18 +41,17 @@ export function DepotPage() {
     const bh = Math.min(6 * 62 + 56, H * 0.62);
     const pw = leftW - 36;
     const ph = Math.max(0, H - fh - 12 - 58);
-    const in3d = st.view === '3d' && !st.no3d;
     const names = Object.fromEntries(v.build.rows.map((a) => [a.key, { label: a.label, icon: a.icon }]));
     const pick = (id) => setUi('depot', { selected: st.selected === id ? null : id });
     const tools = !st.no3d && html`<${Seg} value=${st.view} options=${[['3d', tr('3D')], ['2d', tr('2D')]]} onChange=${(view) => setUi('depot', { view })} style="height:26px;width:92px" />`;
     body = html`
       ${v.figures.map((f, k) => html`<div style=${box(k * (fw + 12), 0, fw, fh)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
       <${Section} title=${v.plan.title} tools=${tools} style=${box(0, fh + 12, leftW, Math.max(0, H - fh - 12))}>
-        ${in3d && ph >= 120
-          ? html`<${Depot3D} p=${v.plan} names=${names} w=${pw} h=${ph} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true })} />`
+        ${!st.no3d && ph >= 120 && v.plan.layout
+          ? html`<${Depot3D} p=${v.plan} names=${names} w=${pw} h=${ph} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />`
           : html`<${Plan} p=${v.plan} w=${pw} h=${ph} selected=${st.selected} />`}
       </${Section}>
-      <${Section} title=${v.build.title} style=${box(rx, 0, rw, bh)}><${Build} b=${v.build} /></${Section}>
+      <${Section} title=${v.build.title} style=${box(rx, 0, rw, bh)}><${Build} b=${v.build} land=${v.plan.layout?.land} place=${!st.no3d && !!v.plan.layout} placing=${st.placing} /></${Section}>
       <${Section} title=${v.workshop.title} style=${box(rx, bh + 12, rw, Math.max(0, H - bh - 12))}><${Workshop} ws=${v.workshop} selected=${st.selected} /></${Section}>`;
   }
   return html`<div class="cm-page" ref=${ref}>${body}</div>`;
@@ -221,12 +221,21 @@ function Plan({ p, w, h, selected }) {
 
 // --- the buildings ---------------------------------------------------------------------------
 
-function Build({ b }) {
+function Build({ b, land, place, placing }) {
   const [ref, size] = useListSize();
   const W = Math.max(0, size.w - 10);
+  // (more land, beside the areas: bought at once)
+  const rows = land ? [...b.rows, { key: 'land', icon: 'add', label: tr('More land'), effect: land.tip, cost: land.cost, buyLand: true, tip: land.tip }] : b.rows;
+  const go = (a) => {
+    if (a.buyLand) return actMore('depot_land');
+    // (a module more is put down where the player wants it, in the yard; without it on its
+    // first free spot)
+    if (a.place && place && !a.locked) return setUi('depot', { placing: placing?.area === a.key && !placing.move ? null : { area: a.key }, selected: null });
+    return actMore('depot_build', { area: a.key });
+  };
   return html`<div class="co-scroll cm-list" ref=${ref}>
-    <div style=${`position:relative;height:${b.rows.length * 62}px`}>
-      ${size.w > 0 && b.rows.map((a, k) => {
+    <div style=${`position:relative;height:${rows.length * 62}px`}>
+      ${size.w > 0 && rows.map((a, k) => {
         const y = k * 62;
         const lw = textW(a.label, 14.5, 700);
         const tw = textW(a.level, 12, 700) + 16;
@@ -237,7 +246,9 @@ function Build({ b }) {
           ${k > 0 && html`<i class="cm-hair" style="top:-3px"></i>`}
           <span class="cm-icon t-accent2" style="left:4px;top:9px"><${Icon} name=${a.icon} size=${22} /></span>
           <${TextIn} x=${38} y=${6} w=${W - 230} h=${24} px=${14.5} weight=${700}>${a.label}</${TextIn}>
-          ${pips
+          ${!a.level
+            ? null
+            : pips
             ? lx + pips < W - 190 && html`<span class="cm-pips" title=${a.level} style=${`left:${lx}px;top:12px`}>${Array.from({ length: a.max }, (_, i) => html`<i class=${i < a.lv ? 'on' : i === a.lv && a.works ? 'works' : ''}></i>`)}</span>`
             : lx + tw < W - 190 && html`<span class="cm-icon" style=${`left:${lx}px;top:7px`}><${Tag} text=${a.level} tone="soft" /></span>`}
           <${TextIn} x=${38} y=${32} w=${W - 230} h=${20} px=${13.5} tone="soft">${a.effect}</${TextIn}>
@@ -245,7 +256,7 @@ function Build({ b }) {
             ${a.works
               ? html`<span class="cm-said t-warn">${a.works}</span>`
               : a.cost
-                ? html`<${Btn} icon=${a.locked ? 'lock' : 'add'} label=${a.cost} title=${a.tip} style="width:180px;height:38px" onClick=${() => actMore('depot_build', { area: a.key })} />`
+                ? html`<${Btn} icon=${a.locked ? 'lock' : a.place && place ? 'open_with' : 'add'} label=${a.cost} title=${a.tip} kind=${placing?.area === a.key && !placing.move ? 'on' : ''} style="width:180px;height:38px" onClick=${() => go(a)} />`
                 : html`<span class="cm-said t-ok">${a.complete}</span>`}
           </span>
         </div>`;

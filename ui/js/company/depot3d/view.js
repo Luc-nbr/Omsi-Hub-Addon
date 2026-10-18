@@ -1,14 +1,20 @@
 // The depot in 3D on the depot page: the yard from `scene.js` drawn by `renderer.js`, its
 // labels floating over the buildings, the buses to pick (clicked: picked for the workshop's
-// list, clicked again: let go). Drag to turn the yard round, right-drag (or Shift) to move it,
+// list, clicked again: let go), the modules to move or pull down (clicked: their card). In the
+// build mode (`placing`: a module of an area to put down, or one to move) its ghost follows the
+// pointer on the yard's grid, green where it fits (`yard.js`), R turns it, a click puts it down,
+// Escape or a right click stops. Drag to turn the yard round (in 2D: to move it), right-drag (or
+// Shift) to move it,
 // scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its own
 // model in its livery once that is there (`skins.js`), until then as the plain one. How finely it is drawn is
 // chosen in its menu (`quality.js`). Without WebGL2 the page draws its plan from above instead
 // (`onFail`).
 
-import { html, useEffect, useRef, useState, tr, Icon, IconBtn, ui, setUi } from '../kit.js';
+import { html, useEffect, useRef, useState, tr, Icon, IconBtn, Btn, ui, setUi } from '../kit.js';
+import { actMore } from '../more.js';
 import { project } from '../../hub/bus3d/math.js';
-import { buildScene, AREAS } from './scene.js';
+import { buildScene, AREAS, moduleUnder, ghostMesh, gridMesh } from './scene.js';
+import { rectOf, whyNot } from './yard.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
 import { DepotRenderer, VIEW } from './renderer.js';
@@ -23,6 +29,15 @@ const QUALITY = [
   ['low', 'Low', 'No shadows or trees: for slower computers'],
 ];
 const NAMES = { high: 'Now: high', medium: 'Now: medium', low: 'Now: low' };
+/** Why a module does not fit, in words (as `hub_core::company::yard::fits` says it). */
+const WHY = {
+  land: 'It does not fit on your land here: put it elsewhere or buy more land.',
+  gate: 'It would block the way in from the gate.',
+  taken: 'Something stands there already.',
+  lane: 'Keep the lanes in front of the buildings and spaces free.',
+};
+const GREEN = [0.2, 0.78, 0.42, 0.7];
+const RED = [0.92, 0.26, 0.22, 0.7];
 
 /** The areas' icons, as the Build list has them (`depot::Area::icon`), for an area it does not
  * list. */
@@ -30,7 +45,7 @@ const ICONS = { parking: 'local_parking', workshop: 'construction', wash: 'water
 
 const still = () => document.documentElement.classList.contains('hub-still');
 
-export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
+export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placing, onPlaced, flat }) {
   const canvas = useRef(null);
   const tags = useRef(null);
   const r = useRef(null);
@@ -41,6 +56,11 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
   const [level, setLevel] = useState(() => levelOf(chosenQuality()));
   const [menu, setMenu] = useState(false);
   const [, setBuilt] = useState(0);
+  const [ghost, setGhost] = useState(null);
+  const [rot, setRot] = useState(0);
+  const [sel, setSel] = useState(null);
+  const [sure, setSure] = useState(false);
+  const pointer = useRef(null);
   const [skins, setSkins] = useState(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
@@ -128,6 +148,82 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
 
   useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover]);
 
+  // 2D: the yard from straight above (and back to the view from the corner)
+  useEffect(() => {
+    if (r.current) r.current.aim(flat ? { yaw: 0, pitch: 1.48 } : { yaw: VIEW.yaw, pitch: VIEW.pitch }, still());
+  }, [flat, level]);
+
+  // the build mode: the grid and every lane on, the ghost following the pointer; R turns it,
+  // Escape stops
+  useEffect(() => {
+    const view = r.current;
+    if (!view) return undefined;
+    setSel(null);
+    setGhost(null);
+    view.setOverlay('ghost', null);
+    if (!placing) {
+      view.setOverlay('grid', null);
+      return undefined;
+    }
+    setRot(placing.rot || 0);
+    view.setOverlay('grid', gridMesh(p.layout, pal), [1, 1, 1, 0.3], 0.35);
+    // (before the page's own keys: Escape here stops the build mode, it does not go back)
+    const onKey = (e) => {
+      if (e.target?.closest?.('input, textarea, [contenteditable]')) return;
+      if (e.key === 'Escape') onPlaced?.();
+      else if (e.key === 'r' || e.key === 'R') setRot((k) => (k + 1) % 4);
+      else return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [placing?.area, placing?.move, key, level]);
+
+  useEffect(() => {
+    if (placing && pointer.current) aimGhost(pointer.current);
+  }, [rot]);
+
+  /** The ghost where the pointer is: its cells on the grid, whether it fits. */
+  function aimGhost(e) {
+    const view = r.current;
+    const sc = scene.current;
+    const L = p.layout;
+    if (!view || !sc || !placing) return;
+    const [px, py] = at(e);
+    const hit = view.ground(px, py);
+    if (!hit) return;
+    const b = sc.bounds;
+    const gx0 = hit[0] + (b.x0 + b.x1) / 2;
+    const gz0 = hit[1] + (b.z0 + b.z1) / 2;
+    const rr = rectOf(L, placing.area, 0, 0, rot);
+    const x = Math.round(gx0 / L.cell - rr.w / 2);
+    const y = Math.round(gz0 / L.cell - rr.h / 2);
+    if (ghost && ghost.x === x && ghost.y === y && ghost.rot === rot) return;
+    const why = whyNot(L, placing.area, x, y, rot, placing.move ?? null);
+    setGhost({ x, y, rot, why });
+    view.setOverlay('ghost', ghostMesh(L, placing.area, x, y, rot, pal), why ? RED : GREEN, 0.6);
+  }
+
+  async function putDown() {
+    if (!ghost || ghost.why) return;
+    const args = { x: ghost.x, y: ghost.y, rot: ghost.rot };
+    const done = placing.move ? await actMore('depot_move', { id: placing.move, ...args }) : await actMore('depot_build_at', { area: placing.area, ...args });
+    if (done?.ok) onPlaced?.();
+  }
+
+  /** The module under a point of the canvas. */
+  function moduleAt(e) {
+    const view = r.current;
+    const sc = scene.current;
+    if (!view || !sc) return null;
+    const [px, py] = at(e);
+    const hit = view.ground(px, py);
+    if (!hit) return null;
+    const b = sc.bounds;
+    return moduleUnder(sc.picks, hit[0] + (b.x0 + b.x1) / 2, hit[1] + (b.z0 + b.z1) / 2);
+  }
+
   /** The labels over what they name, where the camera now shows it. */
   function placeTags(vp, cw, ch) {
     const box = tags.current;
@@ -171,6 +267,11 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
     const view = r.current;
     if (!view) return;
     const g = drag.current;
+    if (!g && placing) {
+      pointer.current = { clientX: e.clientX, clientY: e.clientY };
+      aimGhost(e);
+      return;
+    }
     if (!g) {
       const b = busAt(e);
       const id = b ? b.id : null;
@@ -184,7 +285,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
     g.moved += Math.abs(dx) + Math.abs(dy);
     if (g.moved < 4) return;
     const c = view.goal;
-    if (g.pan) {
+    if (g.pan || flat) {
       const k = view.matrices().dist * 0.0016;
       const right = [Math.cos(c.yaw), -Math.sin(c.yaw)];
       const away = [-Math.sin(c.yaw), -Math.cos(c.yaw)];
@@ -196,9 +297,19 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
     const g = drag.current;
     drag.current = null;
     if (!g) return;
-    if (g.moved < 4 && e.button === 0) {
+    if (g.moved < 4 && placing) {
+      if (e.button === 2) onPlaced?.();
+      else if (e.button === 0) putDown();
+    } else if (g.moved < 4 && e.button === 0) {
       const b = busAt(e);
-      if (b) onPick?.(b.id);
+      if (b) {
+        onPick?.(b.id);
+        setSel(null);
+      } else {
+        const o = moduleAt(e);
+        setSel(o && o.id !== sel ? o.id : null);
+        setSure(false);
+      }
     } else keep();
   };
 
@@ -208,18 +319,38 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
   };
   const s = scene.current;
   const tagFor = (t) => {
-    const k = t.key === 'parking_more' ? 'parking' : t.key;
-    const n = { icon: ICONS[k], label: t.head, ...names[k] };
-    const lit = hover && (t.key === hover || (t.key === 'parking_more' && hover === 'parking'));
+    const k = t.key;
+    const n = { icon: ICONS[k], label: k === 'land' ? tr('More land') : t.head, ...names[k] };
+    const lit = hover && t.key === hover;
     if (t.works) return html`<div class=${'dp-tag works' + (lit ? ' lit' : '')}><${Icon} name="construction" size=${13} /><span>${n.label}<small>${t.works}</small></span></div>`;
-    if (!t.built || t.key === 'parking_more') return html`<div class=${'dp-tag plot' + (lit ? ' lit' : '')}><${Icon} name="add" size=${13} /><span>${n.label}</span></div>`;
+    if (!t.built) return html`<div class=${'dp-tag plot' + (lit ? ' lit' : '')}><${Icon} name="add" size=${13} /><span>${n.label}</span></div>`;
     return html`<div class=${'dp-tag' + (lit ? ' lit' : '')}><${Icon} name=${n.icon || 'info'} size=${13} /><span>${n.label}</span></div>`;
   };
   const tip = under && s?.buses.find((b) => b.id === under);
+  const card = sel && s?.picks.find((o) => o.id === sel);
+  const hint = placing ? tr('Click to put it down, R to turn it, Esc to stop') : flat ? tr('Drag to move, scroll to zoom') : tr('Drag to turn, right-drag to move, scroll to zoom');
   return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} style=${`width:${w}px;height:${h}px`}>
     <canvas key=${level} ref=${canvas} class=${under ? 'on-bus' : ''} style=${`width:${w}px;height:${h}px`} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerLeave=${() => !drag.current && under !== null && setUnder(null)} onContextMenu=${(e) => e.preventDefault()}></canvas>
     <div class="dp-tags" ref=${tags}>${s?.labels.map(tagFor)}</div>
-    ${tip && html`<div class="dp-tip">${tip.tip}</div>`}
+    ${tip && !placing && html`<div class="dp-tip">${tip.tip}</div>`}
+    ${placing && html`<div class="dp-place">
+      <span class=${'dp-why' + (ghost?.why ? ' no' : '')}>${ghost?.why ? tr(WHY[ghost.why]) : placing.move ? tr('Move it where it fits: it costs nothing.') : tr('Put it down where it fits, its lane kept free.')}</span>
+      <${Btn} kind="ghost" icon="refresh" label=${tr('Turn')} onClick=${() => setRot((k) => (k + 1) % 4)} />
+      <${Btn} kind="ghost" icon="close" label=${tr('Stop')} onClick=${() => onPlaced?.()} />
+    </div>`}
+    ${card && !placing && html`<div class="dp-card">
+      <b>${card.title}</b>
+      <span>${card.works || card.what}</span>
+      ${!card.building && html`<div class="row">
+        <${Btn} kind="ghost" icon="open_with" label=${tr('Move')} onClick=${() => setUi('depot', { placing: { area: card.area, move: card.id, rot: card.rot } })} />
+        <${Btn} kind=${sure ? 'danger' : 'ghost'} icon="close" label=${sure ? tr('Sure? Pull it down') : tr('Pull down')} onClick=${async () => {
+          if (!sure) return setSure(true);
+          const done = await actMore('depot_demolish', { id: card.id });
+          if (done?.ok) setSel(null);
+          setSure(false);
+        }} />
+      </div>`}
+    </div>`}
     <div class="dp-tools">
       <${IconBtn} icon="zoom_in" size=${17} title=${tr('Zoom in')} onClick=${() => aim({ zoom: (r.current?.goal.zoom || 1) / 1.35 })} />
       <${IconBtn} icon="zoom_out" size=${17} title=${tr('Zoom out')} onClick=${() => aim({ zoom: (r.current?.goal.zoom || 1) * 1.35 })} />
@@ -236,6 +367,6 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
         setMenu(false);
       }}><span>${tr(label)}<small>${q === 'auto' ? tr(NAMES[level]) : tr(under)}</small></span>${q === quality && html`<${Icon} name="check" size=${16} />`}</button>`)}
     </div>`}
-    <div class="dp-hint">${tr('Drag to turn, right-drag to move, scroll to zoom')}</div>
+    ${!placing && html`<div class="dp-hint">${hint}</div>`}
   </div>`;
 }
