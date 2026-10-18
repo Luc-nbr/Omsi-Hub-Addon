@@ -17,11 +17,18 @@ The company mode, RosterFlow included, runs on omsihub.com for a company that is
 - **Build:** `node tools/build-web.mjs [folder]` makes `dist/web/` (the module, `profile.web`,
   and the page files); the website serves that folder.
 
-## What the save does not carry yet: the content
+## The content beside the save
 
-Without the OMSI 2 files the company's own data shows (money, staff, fleet, agenda, inbox), but
-what reads the map or the buses has nothing to read. The desktop will send a content pack beside
-the save; what it must hold (paths under the OMSI 2 folder):
+The save holds the company's own data (money, staff, fleet, agenda, inbox); what reads the map or
+the buses reads the computer's files. So after a save goes up, the app sends those files into the
+same slot (`crates/hub-api/src/cloud_content.rs`, at most every half hour per company): three
+parts (`map`, `buses`, `data`), each a `hub_core::webpack` archive, zstd'd and cut in pieces of at
+most 24 MiB (`content-<kind>-<sha>.<n>`), named by `content.json`. A part that did not change is not
+sent again. The website fetches them (`auth.js` `cloudContent`) and `hub_content` lays them out
+before the save (`omsi/…` in `/omsi`, `data/…` in `/data`); the bus photos are asked for as
+`b3d_photo` and read from `data/web/photos/` (`webpack::photo_name`), the logo from `data/web/logo`.
+
+What the parts hold (paths under the OMSI 2 folder):
 
 | What | Files | Read by |
 |---|---|---|

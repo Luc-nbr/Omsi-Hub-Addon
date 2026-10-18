@@ -33,6 +33,7 @@ pub mod trips;
 pub mod ttrun;
 pub mod ttstore;
 pub mod vehicles;
+pub mod webpack;
 
 pub use duty::Duty;
 pub use log::log_line;

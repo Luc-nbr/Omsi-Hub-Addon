@@ -25,6 +25,8 @@
 pub mod addon;
 #[cfg(feature = "native")]
 pub mod cloud;
+#[cfg(feature = "native")]
+pub mod cloud_content;
 pub mod company;
 pub mod content;
 pub mod depot;
@@ -157,6 +159,12 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
         c if c.starts_with("rf_") => rosterflow::call_bytes(c, args, p),
         #[cfg(feature = "native")]
         c if c.starts_with("b3d_") => content::bus3d::call_bytes(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
+        // (the website: the photos the desktop sent with the cloud save, `cloud_content`)
+        #[cfg(not(feature = "native"))]
+        "b3d_photo" => {
+            let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            std::fs::read(hub_core::paths::data_dir().join(hub_core::webpack::photo_name(&s("bus"), &s("paint")))).map_err(|_| "no photo".to_string())
+        }
         #[cfg(feature = "native")]
         c if c.starts_with("lak_") => lak::call_bytes(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         _ => Err(format!("unknown command: {cmd}")),

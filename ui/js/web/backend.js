@@ -118,6 +118,13 @@ export async function start({ wasm, data = {}, omsi = {} }) {
       if ('err' in r) throw new Error(r.err);
       return r.ok;
     },
+    /** A part of the content the desktop sent beside the save (`content-<kind>-…`, its pieces
+     * joined) laid out in the folders: how many files. */
+    content(part) {
+      const r = JSON.parse(dec.decode(run(x.hub_content, part instanceof Uint8Array ? part : new Uint8Array(part))));
+      if ('err' in r) throw new Error(r.err);
+      return r.ok.files;
+    },
     /** Company `id` packed as a cloud save again: `{ bytes, sha256 }`. */
     pack(id) {
       const b = run(x.hub_pack, id);

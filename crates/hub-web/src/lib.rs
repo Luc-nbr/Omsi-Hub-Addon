@@ -133,6 +133,42 @@ mod web {
         Ok(json!({ "id": c.id, "name": c.name, "profile": c.profile }))
     }
 
+    /// A part of the content the desktop sent beside the save (`hub_core::webpack`, zstd'd: the
+    /// map's timetable, the buses' files, the data folder's own) laid out: `omsi/…` under the OMSI 2
+    /// folder, `data/…` under the data folder. Answers `{ok: {files}}`.
+    #[no_mangle]
+    pub unsafe extern "C" fn hub_content(ptr: *const u8, len: usize) -> *const u8 {
+        let bytes = if len == 0 { &[][..] } else { std::slice::from_raw_parts(ptr, len) };
+        let v = match content(bytes) {
+            Ok(n) => json!({ "ok": { "files": n } }),
+            Err(e) => json!({ "err": e }),
+        };
+        put(serde_json::to_vec(&v).unwrap_or_default())
+    }
+
+    fn content(bytes: &[u8]) -> Result<usize, String> {
+        use std::io::Read;
+        let mut archive = Vec::new();
+        let d = ruzstd::decoding::StreamingDecoder::new(bytes).map_err(|e| format!("bad_content: {e}"))?;
+        d.take(MAX_CONTENT + 1).read_to_end(&mut archive).map_err(|e| format!("bad_content: {e}"))?;
+        if archive.len() as u64 > MAX_CONTENT {
+            return Err("bad_content: too large".into());
+        }
+        let files = hub_api::launcher::webpack::unpack(&archive).map_err(|e| format!("{e:#}"))?;
+        let n = files.len();
+        for (name, bytes) in files {
+            let path = std::path::Path::new("/").join(&name);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("{name}: {e}"))?;
+            }
+            std::fs::write(&path, bytes).map_err(|e| format!("{name}: {e}"))?;
+        }
+        Ok(n)
+    }
+
+    /// The most a part of the content may unpack to.
+    const MAX_CONTENT: u64 = 1 << 30;
+
     /// The most a save may unpack to (the desktop's `MAX_UNPACKED`).
     const MAX_UNPACKED: u64 = 512 << 20;
 

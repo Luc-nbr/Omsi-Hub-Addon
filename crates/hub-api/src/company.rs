@@ -251,7 +251,11 @@ pub fn logo_picture(path: &str) -> Option<String> {
     if let Some(x) = kept.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
         return x.clone();
     }
-    let read = std::fs::read(path).ok().filter(|b| !b.is_empty() && b.len() <= 3 << 20).map(|b| {
+    let bytes = std::fs::read(path).ok();
+    // (the website: the logo the desktop sent with the cloud save, `cloud_content`)
+    #[cfg(not(feature = "native"))]
+    let bytes = bytes.or_else(|| std::fs::read(hub_core::paths::data_dir().join("web").join("logo")).ok());
+    let read = bytes.filter(|b| !b.is_empty() && b.len() <= 3 << 20).map(|b| {
         let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
         let mime = match ext.as_str() {
             "jpg" | "jpeg" => "image/jpeg",

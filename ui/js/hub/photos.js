@@ -10,7 +10,7 @@
 // that cannot be drawn keeps its initials; it is tried again after a while.
 
 import { S } from '../store.js';
-import { callBytes } from '../api.js';
+import { callBytes, onWeb } from '../api.js';
 import { fetchBytes } from './bus3d/urls.js';
 import { takePhoto } from './bus3d/photo.js';
 
@@ -32,11 +32,15 @@ const wanted = new Map();
 let busy = false;
 /** The page cannot draw: no photos are taken. */
 let noWebgl = false;
+// (the website has the buses' photos from the desktop, not their 3D files: none taken there)
+if (onWeb) noWebgl = true;
 
 const url = (bytes) => URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
 
 /** A photo taken by our renderer and kept for the bus as it is now. */
 function readNew(file, paint) {
+  // (the website: the photos the desktop sent with the cloud save)
+  if (onWeb) return callBytes('b3d_photo', { bus: file, paint: paint || '' }).then(url);
   return fetchBytes('b3d_photo', { bus: file, paint: paint || '' }).then(url);
 }
 
