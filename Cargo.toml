@@ -75,6 +75,14 @@ ab_glyph = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
 
+# (the dependencies without debug info and our own crates with line tables only: with openOMSI's
+# crates the test binaries' debug info filled the CI runner's disk)
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 4
