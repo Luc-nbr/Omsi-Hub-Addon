@@ -88,6 +88,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         c if c.starts_with("cs_") => cloud::call(c, args, p),
         c if c.starts_with("tt_") => timetable::call(c, args, p),
         c if c.starts_with("de_") => depot::call(c, args, p),
+        c if c.starts_with("b3d_") => content::bus3d::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }
@@ -98,6 +99,7 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
         c if c.starts_with("hub_") => hub::call_bytes(c, args, p),
         c if c.starts_with("co_") => company::call_bytes(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call_bytes(c, args, p),
+        c if c.starts_with("b3d_") => content::bus3d::call_bytes(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }

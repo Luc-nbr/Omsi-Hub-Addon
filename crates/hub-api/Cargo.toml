@@ -20,6 +20,17 @@ chrono.workspace = true
 base64.workspace = true
 # (the updates: this repository's releases asked of GitHub's API, `update.rs`)
 ureq.workspace = true
+# (the 3D view, the bus photos and the livery studio: a bus read as the game reads it, with
+# openOMSI's readers - THIRD_PARTY_NOTICES.md - and the studio's core, `content/bus3d`, `lak`)
+omsi-cfg.workspace = true
+omsi-model.workspace = true
+omsi-o3d.workspace = true
+omsi-sim.workspace = true
+omsi-texture.workspace = true
+omsi-vehicle.workspace = true
+hub-livery.workspace = true
+glam.workspace = true
+sha2.workspace = true
 
 # A fake openOMSI for the drive's end-to-end test (`tests/drive.rs`): it writes the plugin's
 # files as the plugin in a real openOMSI would, then ends. Never shipped: the app links the library.

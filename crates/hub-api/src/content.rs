@@ -22,8 +22,8 @@
 //! * `hub_more_bus_best` - see [`busbest`]; `hub_more_weather_read`, `hub_more_weather_write` -
 //!   see [`weather`]; `hub_more_bus_options`, `hub_more_bus_option_set`, `hub_more_setvars` -
 //!   see [`busoptions`]; `hub_more_font_*` and `hub_display_preview` - see [`fonts`];
-//! * `hub_bus3d`, `hub_bus3d_glb` (bytes) - the bus in 3D, written by the player's openOMSI:
-//!   see [`bus3d`];
+//! * `b3d_*` - the bus in 3D, its photos and the livery studio's bus, read as the game reads it
+//!   with openOMSI's readers (the old app's Bus3D): see [`bus3d`];
 //! * `hub_le` - the line editor: not available yet (it needs the map's lane graph).
 
 pub mod bus3d;
@@ -80,7 +80,6 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "hub_more_font_set" => fonts::set(args),
         "hub_more_font_add" => fonts::add(args),
         "hub_display_preview" => Ok(fonts::display_preview(&str_arg(args, "bus"), &str_arg(args, "text"))),
-        "hub_bus3d" => bus3d::model(args),
         "hub_le" => Err(NO_LINE_EDITOR.to_string()),
         _ => Err(format!("unknown command: {cmd}")),
     }
@@ -91,7 +90,6 @@ pub fn call_bytes(cmd: &str, args: &Value, _p: &dyn Platform) -> Result<Vec<u8>,
     match cmd {
         "hub_map_picture" => map_picture(&need_vfs()?, &arg::<String>(args, "map")?),
         "hub_more_font_pic" => fonts::picture(args),
-        "hub_bus3d_glb" => bus3d::glb(args),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }

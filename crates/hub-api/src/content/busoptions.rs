@@ -285,14 +285,31 @@ pub fn shown_in(model: &CfgFile) -> HashSet<String> {
     out
 }
 
+/// The liveries of the bus file `path` as the game makes them (the old app's `busoptions::read`:
+/// `omsi_sim::vehicle::model_paint_schemes` of its model's `[CTC]` folders): each once.
+fn game_liveries(path: &Path) -> Vec<Livery> {
+    let Ok(def) = omsi_vehicle::Vehicle::load(path) else { return Vec::new() };
+    let Some(model) = def.model.as_deref().map(|m| omsi_cfg::resolve_path(def.dir(), m)).and_then(|m| omsi_model::Model::load(&m).ok()) else { return Vec::new() };
+    let mut out: Vec<Livery> = Vec::new();
+    for s in omsi_sim::vehicle::model_paint_schemes(def.dir(), &model) {
+        let name = s.name.trim().to_string();
+        if !out.iter().any(|o| o.name.eq_ignore_ascii_case(&name)) {
+            out.push(Livery { name, vars: s.set_vars });
+        }
+    }
+    out
+}
+
 /// Read what the bus file `path` offers: its liveries (the paint folder's `.cti` files, each
 /// livery once, in the files' order), its scripts and what its model shows.
 pub fn read(path: &Path) -> Result<Catalogue, String> {
     let bus = hub_omsi::vehicle::Bus::load(path).map_err(|e| e.to_string())?;
     let dir = bus.dir().to_path_buf();
     let model = bus.model.as_deref().and_then(|m| hub_omsi::vfs::resolve_in(&dir, m)).and_then(|m| CfgFile::read(m).ok());
-    let mut liveries: Vec<Livery> = Vec::new();
-    if let Some(ctc) = bus.ctc_dir.as_deref().and_then(|c| hub_omsi::vfs::resolve_in(&dir, c)) {
+    // (the liveries as the game makes them, `omsi_sim`'s paint schemes; else the paint folder's
+    // `.cti` files read here)
+    let mut liveries: Vec<Livery> = game_liveries(path);
+    if let Some(ctc) = bus.ctc_dir.as_deref().and_then(|c| hub_omsi::vfs::resolve_in(&dir, c)).filter(|_| liveries.is_empty()) {
         let mut files: Vec<PathBuf> = hub_core::paths::read_dir_paths(&ctc).into_iter().filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cti"))).collect();
         files.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
         for f in files {
@@ -333,6 +350,13 @@ fn catalogue(bus: &str) -> Option<Arc<Catalogue>> {
     let c = Arc::new(read(&path).ok()?);
     map.insert(path, (stamp, c.clone()));
     Some(c)
+}
+
+/// What the game gets for `bus` in `paint` with the choices `picks`, the bus read here and now
+/// (`vars_for` without the file the choices are kept in: the checks).
+#[cfg(test)]
+pub(crate) fn vars_with(root: &Path, bus: &str, paint: &str, picks: &BTreeMap<String, f32>) -> Vec<(String, f32)> {
+    setvars(read(&hub_core::paths::resolve_path(root, bus)).ok().as_ref(), paint, picks)
 }
 
 /// The options of `cat` as the bus step shows them, with the livery `paint` and the values
