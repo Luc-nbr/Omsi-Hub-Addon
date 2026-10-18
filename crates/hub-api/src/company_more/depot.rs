@@ -48,13 +48,14 @@ fn building(c: &Company, area: Area, title: &str) -> Value {
     json!({ "built": built, "head": head, "works": works })
 }
 
-/// A bus where it stands: its number, and its card in the tooltip.
+/// A bus where it stands: its number, its size (the 3D yard draws it as long), and its card in
+/// the tooltip.
 fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     let mut tip = format!("{} {}  ·  {} {:.0} %", v.number, v.name, tr("condition"), v.condition);
     if v.in_workshop(&c.date) {
         tip.push_str(&format!("  ·  {}", trf("in the workshop until %{date}", &[("date", &day_label(v.workshop_until.as_deref().unwrap_or("")))])));
     }
-    json!({ "id": v.id, "number": v.number, "tip": tip })
+    json!({ "id": v.id, "number": v.number, "size": v.kind.size, "tip": tip })
 }
 
 /// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.
@@ -118,6 +119,7 @@ fn buildings(c: &Company) -> Value {
             let mut row = json!({
                 "key": a.key(), "icon": a.icon(), "label": tr(a.label()),
                 "level": trf("level %{n} of %{max}", &[("n", &lv.to_string()), ("max", &a.max().to_string())]),
+                "lv": lv, "max": a.max(),
                 "effect": effect(c, *a),
             });
             if let Some(w) = c.site.works_on(*a) {

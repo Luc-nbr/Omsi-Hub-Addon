@@ -1,0 +1,67 @@
+_version: 2
+# The depot page's yard in 3D (ui/js/company/depot3d): its tools and its graphics levels. The
+# English text is the key; "3D" and "2D" read the same in every language.
+
+"From above":
+  nl: "Van bovenaf"
+  de: "Von oben"
+  fr: "Vue de dessus"
+  ru: "Сверху"
+  uk: "Згори"
+  pl: "Z góry"
+"Reset the view":
+  nl: "Beeld terugzetten"
+  de: "Ansicht zurücksetzen"
+  fr: "Réinitialiser la vue"
+  ru: "Сбросить вид"
+  uk: "Скинути вигляд"
+  pl: "Przywróć widok"
+"Drag to turn, right-drag to move, scroll to zoom":
+  nl: "Sleep om te draaien, rechts slepen om te verschuiven, scroll om te zoomen"
+  de: "Ziehen zum Drehen, mit rechts ziehen zum Verschieben, scrollen zum Zoomen"
+  fr: "Glisser pour tourner, glisser avec le bouton droit pour déplacer, défiler pour zoomer"
+  ru: "Перетащите, чтобы повернуть, правой кнопкой — чтобы сдвинуть, колесо — масштаб"
+  uk: "Перетягніть, щоб повернути, правою кнопкою — щоб зсунути, коліщатко — масштаб"
+  pl: "Przeciągnij, aby obrócić, prawym przyciskiem, aby przesunąć, przewiń, aby przybliżyć"
+"Shadows, smooth edges, full sharpness":
+  nl: "Schaduwen, gladde randen, volle scherpte"
+  de: "Schatten, glatte Kanten, volle Schärfe"
+  fr: "Ombres, bords lissés, pleine netteté"
+  ru: "Тени, сглаживание, полная чёткость"
+  uk: "Тіні, згладжування, повна чіткість"
+  pl: "Cienie, wygładzone krawędzie, pełna ostrość"
+"Softer shadows, a little less sharp":
+  nl: "Zachtere schaduwen, iets minder scherp"
+  de: "Weichere Schatten, etwas weniger scharf"
+  fr: "Ombres plus douces, un peu moins net"
+  ru: "Мягче тени, чуть менее чётко"
+  uk: "М'якші тіні, трохи менш чітко"
+  pl: "Łagodniejsze cienie, nieco mniej ostro"
+"No shadows or trees: for slower computers":
+  nl: "Geen schaduwen of bomen: voor tragere computers"
+  de: "Keine Schatten oder Bäume: für langsamere Computer"
+  fr: "Sans ombres ni arbres : pour les ordinateurs plus lents"
+  ru: "Без теней и деревьев: для медленных компьютеров"
+  uk: "Без тіней і дерев: для повільніших комп'ютерів"
+  pl: "Bez cieni i drzew: dla wolniejszych komputerów"
+"Now: high":
+  nl: "Nu: hoog"
+  de: "Jetzt: hoch"
+  fr: "Actuellement : élevé"
+  ru: "Сейчас: высокое"
+  uk: "Зараз: високе"
+  pl: "Teraz: wysoka"
+"Now: medium":
+  nl: "Nu: middel"
+  de: "Jetzt: mittel"
+  fr: "Actuellement : moyen"
+  ru: "Сейчас: среднее"
+  uk: "Зараз: середнє"
+  pl: "Teraz: średnia"
+"Now: low":
+  nl: "Nu: laag"
+  de: "Jetzt: niedrig"
+  fr: "Actuellement : faible"
+  ru: "Сейчас: низкое"
+  uk: "Зараз: низьке"
+  pl: "Teraz: niska"

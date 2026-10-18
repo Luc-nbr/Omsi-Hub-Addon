@@ -1139,8 +1139,17 @@ function contracts() {
 
 function depot() {
   const c = co();
-  const busAt = (b) => ({ id: b.id, number: b.number, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
+  const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
   const bld = (head, works = null) => ({ built: true, head, works });
+  // (`?mock&buses=120`: a full yard, for the 3D depot's speed)
+  const many = Number(new URLSearchParams(location.search).get('buses')) || 0;
+  if (many && !depot.inner) {
+    depot.inner = true;
+    const fleet = Array.from({ length: many }, (_, k) => ({ id: 1000 + k, number: String(100 + k), size: k % 5 === 0 ? 'articulated' : 'solo', tip: `${100 + k} MAN NL202` }));
+    const v = depot();
+    depot.inner = false;
+    return { ...v, plan: { ...v.plan, hall: { ...v.plan.hall, bays: 6, max: 6 }, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, blocks: 8, built: 8, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8) } };
+  }
   return {
     figures: [
       { label: 'Parking', value: '3 / 12', under: '9 spaces free', tone: 'text' },
@@ -1157,10 +1166,10 @@ function depot() {
     build: {
       title: 'Build',
       rows: [
-        { key: 'parking', icon: 'local_parking', label: 'Parking', level: 'level 1 of 4', effect: '12 spaces', cost: '€45,000', locked: false, tip: 'Build the next level: 30 days of work, then €300 a month' },
-        { key: 'workshop', icon: 'construction', label: 'Workshop', level: 'level 1 of 4', effect: '2 bays', cost: '€80,000', locked: false, tip: 'Build the next level: 45 days of work, then €500 a month' },
-        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
-        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', effect: 'Diesel 4 % cheaper', complete: 'Complete' },
+        { key: 'parking', icon: 'local_parking', label: 'Parking', level: 'level 1 of 4', lv: 1, max: 4, effect: '12 spaces', cost: '€45,000', locked: false, tip: 'Build the next level: 30 days of work, then €300 a month' },
+        { key: 'workshop', icon: 'construction', label: 'Workshop', level: 'level 1 of 4', lv: 1, max: 4, effect: '2 bays', cost: '€80,000', locked: false, tip: 'Build the next level: 45 days of work, then €500 a month' },
+        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', lv: 1, max: 2, effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
+        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', lv: 2, max: 2, effect: 'Diesel 4 % cheaper', complete: 'Complete' },
       ],
     },
     workshop: {
