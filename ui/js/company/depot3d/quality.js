@@ -5,14 +5,14 @@
 //
 // * high: the sun's shadows at 2048², smoothed edges, the screen's full sharpness (up to 2x);
 // * medium: shadows at 1024², smoothed edges, at most 1.5x;
-// * low: no shadows, no smoothing, 1x, no trees.
+// * low: no shadows, no smoothing, 1x, no trees, the buses' pictures at half their size.
 
 const KEY = 'omsihub.depot3d.quality';
 
 export const LEVELS = {
-  high: { shadow: 2048, msaa: true, dpr: 2, trees: true },
-  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true },
-  low: { shadow: 0, msaa: false, dpr: 1, trees: false },
+  high: { shadow: 2048, msaa: true, dpr: 2, trees: true, atlas: 1024 },
+  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true, atlas: 1024 },
+  low: { shadow: 0, msaa: false, dpr: 1, trees: false, atlas: 512 },
 };
 const DOWN = { high: 'medium', medium: 'low', low: 'low' };
 

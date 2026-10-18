@@ -48,14 +48,16 @@ fn building(c: &Company, area: Area, title: &str) -> Value {
     json!({ "built": built, "head": head, "works": works })
 }
 
-/// A bus where it stands: its number, its size (the 3D yard draws it as long), and its card in
-/// the tooltip.
+/// A bus where it stands: its number, its size (the 3D yard draws it as long), its bus file and
+/// livery (its depot model), and its card in the tooltip.
 fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     let mut tip = format!("{} {}  ·  {} {:.0} %", v.number, v.name, tr("condition"), v.condition);
     if v.in_workshop(&c.date) {
         tip.push_str(&format!("  ·  {}", trf("in the workshop until %{date}", &[("date", &day_label(v.workshop_until.as_deref().unwrap_or("")))])));
     }
-    json!({ "id": v.id, "number": v.number, "size": v.kind.size, "tip": tip })
+    // (the livery it wears: the house livery once the studio made one, as the game gets it)
+    let paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
+    json!({ "id": v.id, "number": v.number, "size": v.kind.size, "file": v.bus, "paint": paint, "tip": tip })
 }
 
 /// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.

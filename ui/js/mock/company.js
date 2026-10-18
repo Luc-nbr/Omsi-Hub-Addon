@@ -1139,13 +1139,17 @@ function contracts() {
 
 function depot() {
   const c = co();
-  const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
+  const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', file: b.file, paint: b.livery, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
   const bld = (head, works = null) => ({ built: true, head, works });
   // (`?mock&buses=120`: a full yard, for the 3D depot's speed)
   const many = Number(new URLSearchParams(location.search).get('buses')) || 0;
   if (many && !depot.inner) {
     depot.inner = true;
-    const fleet = Array.from({ length: many }, (_, k) => ({ id: 1000 + k, number: String(100 + k), size: k % 5 === 0 ? 'articulated' : 'solo', tip: `${100 + k} MAN NL202` }));
+    const kinds = [['Vehicles/MAN_NL_NG/NL202.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Weiss'], ['Vehicles/MAN_NG/NG272.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'BVG'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Hamburg']];
+    const fleet = Array.from({ length: many }, (_, k) => {
+      const [file, paint] = kinds[k % 7 === 0 ? 2 : k % 5 === 0 ? 3 : k % 3 === 0 ? 1 : k % 11 === 0 ? 4 : 0];
+      return { id: 1000 + k, number: String(100 + k), size: /NG272/.test(file) ? 'articulated' : 'solo', file, paint, tip: `${100 + k} MAN  ·  ${paint}` };
+    });
     const v = depot();
     depot.inner = false;
     return { ...v, plan: { ...v.plan, hall: { ...v.plan.hall, bays: 6, max: 6 }, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, blocks: 8, built: 8, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8) } };

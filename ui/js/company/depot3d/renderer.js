@@ -3,10 +3,13 @@
 // model drawn once for all of them (instanced); a shadow map of the sun, made again only when
 // the yard or its buses change, not when the camera moves. It draws only when something
 // changes (the camera, the buses, the look), as the 3D view does (`hub/bus3d/engine.js`).
+//
+// A bus whose own depot model is there (`skins.js`) is drawn as that: each model in its livery
+// one buffer, one texture and one draw for all the buses wearing it.
 
 import { inverse, lookAt, mul, ortho, perspective, project, unit } from '../../hub/bus3d/math.js';
 import { STRIDE } from './mesh.js';
-import { INSTANCE } from './bus.js';
+import { INSTANCE, SKINNED } from './bus.js';
 
 const FOV = (30 * Math.PI) / 180;
 
@@ -72,7 +75,7 @@ layout(location=3) in float aPaint;
 layout(location=4) in float aPart;
 layout(location=5) in vec4 aI0;
 layout(location=6) in vec4 aI1;
-layout(location=7) in vec2 aI2;
+layout(location=7) in vec3 aI2;
 uniform mat4 uVP, uLight;
 uniform float uShadowPass;
 out vec3 vCol, vNrm;
@@ -81,7 +84,7 @@ flat out float vPart, vState;
 void main() {
   float state = aI1.w;
   bool ring = aPart > 1.5 && aPart < 2.5;
-  bool hide = (aPart > 0.5 && aPart < 1.5 && aI2.y < 0.5) || (ring && (state < 0.5 || uShadowPass > 0.5));
+  bool hide = (aPart > 0.5 && aPart < 1.5 && aI2.y < 0.5) || (ring && (state < 0.5 || uShadowPass > 0.5)) || (!ring && aI2.z > 0.5);
   vec3 p = aPos;
   if (!ring) p.y *= aI2.x / 3.1;
   vec2 l = vec2(p.x, p.z * aI0.w);
@@ -108,6 +111,41 @@ void main() {
     return;
   }
   vec3 c = lit(vCol, normalize(vNrm), vSh, vPart > 2.5 ? 1.0 : 0.0);
+  if (vState > 0.5 && vState < 2.5) c = mix(c, vec3(1.0), vState > 1.5 ? 0.12 : 0.2);
+  o = vec4(c, 1.0);
+}`;
+
+const SKIN_VS = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec2 aUv;
+layout(location=3) in vec4 aI;
+uniform mat4 uVP, uLight;
+out vec3 vNrm;
+out vec2 vUv;
+out vec4 vSh;
+flat out float vState;
+void main() {
+  float c = cos(aI.z), s = sin(aI.z);
+  vec3 w = vec3(aI.x + c * aPos.x + s * aPos.z, aPos.y, aI.y - s * aPos.x + c * aPos.z);
+  vNrm = vec3(c * aNrm.x + s * aNrm.z, aNrm.y, -s * aNrm.x + c * aNrm.z);
+  vUv = aUv;
+  vState = aI.w;
+  vSh = uLight * vec4(w, 1.0);
+  gl_Position = uVP * vec4(w, 1.0);
+}`;
+
+const SKIN_FS = `#version 300 es
+precision highp float;
+${LIGHT_FS}
+uniform sampler2D uTex;
+in vec3 vNrm;
+in vec2 vUv;
+in vec4 vSh;
+flat in float vState;
+out vec4 o;
+void main() {
+  vec3 c = lit(texture(uTex, vUv).rgb, normalize(vNrm), vSh, 0.0);
   if (vState > 0.5 && vState < 2.5) c = mix(c, vec3(1.0), vState > 1.5 ? 0.12 : 0.2);
   o = vec4(c, 1.0);
 }`;
@@ -173,6 +211,10 @@ export class DepotRenderer {
     this.yardDepth = compile(gl, YARD_VS, DEPTH_FS);
     this.bus = compile(gl, BUS_VS, BUS_FS);
     this.busDepth = compile(gl, BUS_VS, DEPTH_FS);
+    this.skin = compile(gl, SKIN_VS, SKIN_FS);
+    this.skinDepth = compile(gl, SKIN_VS, DEPTH_FS);
+    /** The buses' own models: `key -> { vao, count, tex, inst, instances }`. */
+    this.skins = new Map();
     const SHADOW = Math.max(1, level.shadow);
     this.shadowSize = SHADOW;
     this.shadowTex = gl.createTexture();
@@ -224,7 +266,7 @@ export class DepotRenderer {
     for (const [loc, size, off] of [
       [5, 4, 0],
       [6, 4, 16],
-      [7, 2, 32],
+      [7, 3, 32],
     ]) {
       gl.enableVertexAttribArray(loc);
       gl.vertexAttribPointer(loc, size, gl.FLOAT, false, b, off);
@@ -242,6 +284,66 @@ export class DepotRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     this.instances = data.length / INSTANCE;
+    if (moved) this.dirtyShadow = true;
+    this.invalidate();
+  }
+
+  /** A bus's own model (`skins.js`: its hull and its atlas), once a model. */
+  setSkin(key, model, image) {
+    if (!this.ok || this.skins.has(key)) return;
+    const gl = this.gl;
+    const vao = gl.createVertexArray();
+    const buf = gl.createBuffer();
+    const inst = gl.createBuffer();
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, model.verts, gl.STATIC_DRAW);
+    for (const [loc, size, off] of [
+      [0, 3, 0],
+      [1, 3, 12],
+      [2, 2, 24],
+    ]) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, off);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 4, gl.FLOAT, false, SKINNED * 4, 0);
+    gl.vertexAttribDivisor(3, 1);
+    gl.bindVertexArray(null);
+    // (the atlas smaller at the lowest level)
+    let pic = image;
+    const side = this.level.atlas || image.width;
+    if (image.width > side) {
+      pic = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(side, side) : Object.assign(document.createElement('canvas'), { width: side, height: side });
+      pic.getContext('2d').drawImage(image, 0, 0, side, side);
+    }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pic);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (aniso && this.level.msaa) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+    this.skins.set(key, { vao, count: model.verts.length / 8, tex, inst, instances: 0 });
+  }
+
+  /** Which buses are drawn as their own models (`bus.js`'s `skinned`); `moved` as for
+   * `setBuses`. */
+  setSkinned(groups, moved) {
+    if (!this.ok) return;
+    const gl = this.gl;
+    for (const [key, sk] of this.skins) {
+      const data = groups.get(key);
+      sk.instances = data ? data.length / SKINNED : 0;
+      if (!data) continue;
+      gl.bindBuffer(gl.ARRAY_BUFFER, sk.inst);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    }
     if (moved) this.dirtyShadow = true;
     this.invalidate();
   }
@@ -378,7 +480,7 @@ export class DepotRenderer {
       gl.colorMask(false, false, false, false);
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(2, 4);
-      this.drawAll(this.yardDepth, this.busDepth, lightVP, lightVP, 1);
+      this.drawAll(this.yardDepth, this.busDepth, lightVP, lightVP, 1, this.skinDepth);
       gl.disable(gl.POLYGON_OFFSET_FILL);
       gl.colorMask(true, true, true, true);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -390,10 +492,11 @@ export class DepotRenderer {
     gl.enable(gl.DEPTH_TEST);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
-    for (const prog of [this.yard, this.bus]) {
+    for (const prog of [this.yard, this.bus, this.skin]) {
       gl.useProgram(prog.p);
       const u = prog.u;
       gl.uniform1i(u.uShadow, 0);
+      if (u.uTex) gl.uniform1i(u.uTex, 1);
       gl.uniform3fv(u.uSun, sun);
       gl.uniform3fv(u.uSunCol, L.sun);
       gl.uniform3fv(u.uSky, L.sky.map((v) => v * v));
@@ -405,7 +508,7 @@ export class DepotRenderer {
       if (u.uWarn) gl.uniform3fv(u.uWarn, pal.warn);
       if (u.uHi) gl.uniform1f(u.uHi, this.hi);
     }
-    this.drawAll(this.yard, this.bus, vp, lightVP, 0);
+    this.drawAll(this.yard, this.bus, vp, lightVP, 0, this.skin);
     this.onFrame?.(vp, this.size.w, this.size.h);
     this.timeFrame();
     if (moving) this.invalidate();
@@ -427,7 +530,7 @@ export class DepotRenderer {
     }
   }
 
-  drawAll(yard, bus, vp, lightVP, shadowPass) {
+  drawAll(yard, bus, vp, lightVP, shadowPass, skin) {
     const gl = this.gl;
     gl.useProgram(yard.p);
     gl.uniformMatrix4fv(yard.u.uVP, false, vp);
@@ -441,6 +544,19 @@ export class DepotRenderer {
       gl.uniform1f(bus.u.uShadowPass, shadowPass);
       gl.bindVertexArray(this.busVao);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, this.busCount, this.instances);
+    }
+    if ([...this.skins.values()].some((k) => k.instances)) {
+      gl.useProgram(skin.p);
+      gl.uniformMatrix4fv(skin.u.uVP, false, vp);
+      gl.uniformMatrix4fv(skin.u.uLight, false, lightVP);
+      gl.activeTexture(gl.TEXTURE1);
+      for (const k of this.skins.values()) {
+        if (!k.instances) continue;
+        gl.bindTexture(gl.TEXTURE_2D, k.tex);
+        gl.bindVertexArray(k.vao);
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, k.count, k.instances);
+      }
+      gl.activeTexture(gl.TEXTURE0);
     }
     gl.bindVertexArray(null);
   }

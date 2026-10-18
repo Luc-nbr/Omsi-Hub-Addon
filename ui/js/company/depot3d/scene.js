@@ -261,5 +261,5 @@ export function buildScene(p, pal, level = { trees: true }) {
 /** A bus where it stands: its centre, its heading (0: nose to the street) and what it is. */
 function place(bus, x, z, heading, at) {
   const len = LENGTH[bus.size] || LENGTH.solo;
-  return { id: bus.id, number: bus.number, tip: bus.tip, x, z, heading, len, height: bus.size === 'double' ? 4.3 : 3.1, articulated: bus.size === 'articulated', at };
+  return { id: bus.id, number: bus.number, tip: bus.tip, file: bus.file || '', paint: bus.paint || '', x, z, heading, len, height: bus.size === 'double' ? 4.3 : 3.1, articulated: bus.size === 'articulated', at };
 }

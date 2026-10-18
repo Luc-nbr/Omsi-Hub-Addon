@@ -56,7 +56,7 @@ pub fn forget(_bus: &str) {
 }
 
 /// Whether the files of a photo are as they were (asked at most once a minute per photo).
-fn fresh(name: &str, stamps: &[(PathBuf, u64, u64)]) -> bool {
+pub(super) fn fresh(name: &str, stamps: &[(PathBuf, u64, u64)]) -> bool {
     let seen = seen();
     if let Some((at, ok)) = seen.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
         if at.elapsed() < Duration::from_secs(60) {
@@ -136,7 +136,7 @@ pub fn put(args: &Value) -> Answer {
 
 /// The files a photo of `bus` in `paint` depends on: its kept pack's and its looks' (the
 /// `.cti` files and scripts of the bus, every look of the pack's).
-fn stamps_of(root: &Path, bus: &str, paint: &str) -> Vec<(PathBuf, u64, u64)> {
+pub(super) fn stamps_of(root: &Path, bus: &str, paint: &str) -> Vec<(PathBuf, u64, u64)> {
     let Some(pack) = cache::kept_pack(root, bus) else { return Vec::new() };
     let d = cache::dir();
     let Some(side) = std::fs::read(d.join("p").join(format!("{pack}.json"))).ok().and_then(|b| serde_json::from_slice::<cache::Side>(&b).ok()) else { return Vec::new() };

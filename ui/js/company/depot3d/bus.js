@@ -4,15 +4,18 @@
 // back to 0.5 at the nose) that each bus stretches to its own; an articulated bus shows its
 // bellows, and the ring round it shows when it is the one picked or under the pointer.
 //
-// The model stands in for the bus itself until its own depot model is baked (phase 2 of the
-// 3D depot): then each bus wears its livery.
+// The model stands in for the bus itself until its own depot model is there (`skins.js`): then
+// the bus is drawn as that, in its livery, and of this model only its ring shows.
 
 import { Mesh } from './mesh.js';
 
 /** What a vertex is (the mesh's last float): the body, the bellows, the ring, a light. */
 export const PART = { body: 0, joint: 1, ring: 2, light: 3 };
-/** Floats an instance: x, z, heading, length; r, g, b, state; height, articulated. */
-export const INSTANCE = 10;
+/** Floats an instance: x, z, heading, length; r, g, b, state; height, articulated, its own
+ * model shown. */
+export const INSTANCE = 11;
+/** Floats an instance of a bus's own model: x, z, heading, state. */
+export const SKINNED = 4;
 /** An instance's state: as it is, picked, under the pointer, waiting (in the street, or for a
  * bay). */
 export const STATE = { none: 0, picked: 1, hover: 2, warn: 3 };
@@ -55,14 +58,29 @@ export function busMesh(pal) {
   return m;
 }
 
-/** The instances of `buses` (from `scene.js`): their places, colours and states. */
-export function instances(buses, colour, { picked, hover }) {
+const stateOf = (b, picked, hover) => (b.id === picked ? STATE.picked : b.id === hover ? STATE.hover : b.at === 'street' || b.at === 'waiting' ? STATE.warn : STATE.none);
+
+/** The instances of `buses` (from `scene.js`): their places, colours and states; `own(bus)`
+ * whether the bus is drawn as its own model. */
+export function instances(buses, colour, { picked, hover, own = () => false }) {
   const out = new Float32Array(buses.length * INSTANCE);
   buses.forEach((b, k) => {
-    const state = b.id === picked ? STATE.picked : b.id === hover ? STATE.hover : b.at === 'street' || b.at === 'waiting' ? STATE.warn : STATE.none;
-    out.set([b.x, b.z, b.heading, b.len, colour[0], colour[1], colour[2], state, b.height, b.articulated ? 1 : 0], k * INSTANCE);
+    out.set([b.x, b.z, b.heading, b.len, colour[0], colour[1], colour[2], stateOf(b, picked, hover), b.height, b.articulated ? 1 : 0, own(b) ? 1 : 0], k * INSTANCE);
   });
   return out;
+}
+
+/** The buses drawn as their own models, by model (`keyOf(bus)`, null: none): `key ->
+ * Float32Array` of their instances. */
+export function skinned(buses, keyOf, { picked, hover }) {
+  const groups = new Map();
+  for (const b of buses) {
+    const key = keyOf(b);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(b.x, b.z, b.heading, stateOf(b, picked, hover));
+  }
+  return new Map([...groups].map(([k, v]) => [k, new Float32Array(v)]));
 }
 
 /** Which bus a ray (from `o` along `d`) meets first, by its box: its index, or -1. */

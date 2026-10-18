@@ -1,14 +1,16 @@
 // The depot in 3D on the depot page: the yard from `scene.js` drawn by `renderer.js`, its
 // labels floating over the buildings, the buses to pick (clicked: picked for the workshop's
 // list, clicked again: let go). Drag to turn the yard round, right-drag (or Shift) to move it,
-// scroll to zoom; the camera is kept for when the page comes back. How finely it is drawn is
+// scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its own
+// model in its livery once that is there (`skins.js`), until then as the plain one. How finely it is drawn is
 // chosen in its menu (`quality.js`). Without WebGL2 the page draws its plan from above instead
 // (`onFail`).
 
 import { html, useEffect, useRef, useState, tr, Icon, IconBtn, ui, setUi } from '../kit.js';
 import { project } from '../../hub/bus3d/math.js';
 import { buildScene, AREAS } from './scene.js';
-import { busMesh, instances, pickBus } from './bus.js';
+import { busMesh, instances, pickBus, skinned } from './bus.js';
+import { skin, skinKey } from './skins.js';
 import { DepotRenderer, VIEW } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
@@ -39,6 +41,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
   const [level, setLevel] = useState(() => levelOf(chosenQuality()));
   const [menu, setMenu] = useState(false);
   const [, setBuilt] = useState(0);
+  const [skins, setSkins] = useState(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
   const pal = palette();
@@ -87,18 +90,41 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail }) {
     const s = buildScene(p, pal, LEVELS[level]);
     scene.current = s;
     view.setYard(s.mesh, s.bounds, pal);
-    view.setBuses(instances(s.buses, rgb01(p.colour), { picked: selected, hover: under }), true);
+    buses(true);
     setBuilt((n) => n + 1);
   }, [key, level]);
+
+  // the buses' own models, as they come
+  useEffect(() => buses(true), [skins]);
 
   // (the labels drawn again: a picture puts them where they belong)
   useEffect(() => r.current?.invalidate());
 
   // the picked bus and the one under the pointer
-  useEffect(() => {
+  useEffect(() => buses(false), [selected, under]);
+
+  /** The buses to the renderer: each as its own model where that is there (asked for where it
+   * is not: `skins.js`), else as the plain one. */
+  function buses(moved) {
+    const view = r.current;
     const s = scene.current;
-    if (r.current && s) r.current.setBuses(instances(s.buses, rgb01(p.colour), { picked: selected, hover: under }), false);
-  }, [selected, under]);
+    if (!view || !s) return;
+    const come = () => setSkins((n) => n + 1);
+    const own = new Map();
+    for (const b of s.buses) {
+      const k = skin(b.file, b.paint, come);
+      if (!k) continue;
+      const key = skinKey(b.file, b.paint);
+      view.setSkin(key, k.model, k.image);
+      // (its own length and height: the ring and the pointer go by them)
+      b.len = k.model.length;
+      b.height = k.model.height;
+      own.set(b.id, key);
+    }
+    const states = { picked: selected, hover: under };
+    view.setBuses(instances(s.buses, rgb01(p.colour), { ...states, own: (b) => own.has(b.id) }), moved);
+    view.setSkinned(skinned(s.buses, (b) => own.get(b.id), states), moved);
+  }
 
   useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover]);
 

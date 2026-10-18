@@ -191,7 +191,7 @@ uniform int uTexMode;     // 0 none, 1 texture, 2 texture still to be made linea
 uniform int uTransMode;   // 0 its own alpha, 1 the map's alpha, 2 the map's brightness
 uniform int uMaskMode;    // 0 the texture's alpha, 1 the mask's alpha, 2 the mask's brightness
 uniform int uGlass;
-uniform int uFlat;        // 1: white only (a mask), 2: the draw's colour (diagnosis)
+uniform int uFlat;        // 1: white only (a mask), 2: the draw's colour (diagnosis), 3: the depot model's bake
 uniform vec3 uId;
 uniform float uEnv;
 uniform float uAlphaScale;
@@ -238,6 +238,18 @@ void main() {
   if (uFlat == 2) {
     if (uMode >= 1 && alpha < 0.5) discard;
     fragColour = vec4(uId, 1.0);
+    return;
+  }
+  if (uFlat == 3) {
+    // the depot model's bake (bake.js): the colours as they are, lit evenly - the depot lights
+    // them itself -, the glass a dark tint that hides the inside
+    vec3 c3 = tex.rgb * uDiffuse.rgb * (0.8 + 0.2 * max(n.y, 0.0)) + tex.rgb * uEmissive;
+    float a3 = uMode == 0 ? 1.0 : alpha;
+    if (uGlass == 1) {
+      c3 = mix(c3, vec3(0.012, 0.016, 0.024), 0.7);
+      a3 = max(a3, 0.85);
+    }
+    fragColour = vec4(toSrgb(c3), a3);
     return;
   }
 

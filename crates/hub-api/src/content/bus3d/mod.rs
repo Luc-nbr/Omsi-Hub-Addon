@@ -7,6 +7,8 @@
 //!   textures) and its look in `paint` - built the first time, from the cache after that;
 //! * `b3d_look { bus, pack, paint?, options? }`: another livery's look of an open bus;
 //! * `b3d_env`: OMSI's own sky (`envir.cfg`) and clouds (`Weather/clouds.cfg`) for the view;
+//! * `b3d_depot_has`, `b3d_depot_put` and the bytes `b3d_depot`: the buses' depot models
+//!   (`depot`), kept as the photos are;
 //! * bytes: `b3d_pack { id }` (the pack, scrambled blocks descrambled in memory),
 //!   `b3d_tex { id, from?, to?, skip? }` (a DXT texture's bytes `from..to`, else the picture
 //!   decoded to RGBA, halved `skip` times).
@@ -16,6 +18,7 @@
 //! so that the renderer's worker can fetch them itself.
 
 pub mod cache;
+pub mod depot;
 pub mod look;
 pub mod pack;
 pub mod photo;
@@ -148,6 +151,8 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "b3d_env" => env(),
         "b3d_photo_put" => photo::put(args),
         "b3d_photo_has" => photo::has(args),
+        "b3d_depot_put" => depot::put(args),
+        "b3d_depot_has" => depot::has(args),
         _ => return None,
     })
 }
@@ -168,6 +173,7 @@ pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
             }
         })(),
         "b3d_photo" => photo::get(args),
+        "b3d_depot" => depot::get(args),
         _ => return None,
     })
 }
