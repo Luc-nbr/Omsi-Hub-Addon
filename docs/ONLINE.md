@@ -68,7 +68,12 @@ What changed for the app's client ("The app's side" below):
 ### Google
 
 Besides email and a password, a player can sign in with Google (Luc, 2026-10-16). Discord and Steam
-were tried the same day and dropped: Google or email only, on the website and in the app.
+were tried the same day and dropped. **Discord is back on the website** (Luc, 2026-10-19: "een
+functie om met discord in te loggen en om discord te koppelen aan je website account"): Supabase
+Auth's Discord provider on account.html, and any account can link a Discord account for the roles
+and the tickets on the Omsi-Hub Discord server (the website's `discord/README.md`). The app still
+signs in with Google or email only: an account made with Discord on the website gets a password
+for the app through "Forgot your password?" (Discord in the app is still to come).
 
 - Google is a Supabase Auth provider. The website sends the player to
   `/auth/v1/authorize?provider=google&redirect_to=<page>` and gets the session back in the address.
