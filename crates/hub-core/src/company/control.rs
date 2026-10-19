@@ -9,17 +9,28 @@
 //! what the controller did. A trip's own hold-ups are known once it has begun; the trips ahead
 //! carry what is known (`delays`). The day's close books the same model.
 //!
-//! The controller's ways to bring a late bus back on time, as real controllers use them:
-//! - a short-turn: the trip turns back early, its last stops and the next trip's first are skipped
-//!   (lost passengers, and on a bus contract the journey not paid: `part_penalty`), the next trip leaves on time;
-//! - running out of service to the terminus: the rest of the trip without stopping, quicker;
-//! - a shorter layover before the next trip, where the plan has one;
+//! The controller's ways to bring a late bus back on time, as real controllers use them, worked
+//! out from the timetable's stops, the blocks and duties and RosterFlow (`recovery`; the testers,
+//! 2026-10-19: "the system should be way smarter than it is now"):
+//! - a short-turn loses a part of a trip: the bus turns back at the latest stop on the way from
+//!   which it rejoins the next trip on time, its last stops and the next trip's first are not
+//!   served (lost passengers, and on a bus contract the journey not paid: `part_penalty`) - not
+//!   where its driver is relieved at the terminus;
+//! - running out of service to the terminus: the rest of the trip without its stops, quicker;
+//! - running dead to the opposite terminus loses a whole trip: the next trip run empty, in
+//!   RosterFlow's deadhead time, the bus there for the trip after on time;
+//! - a shorter layover before the next trip: down to the terminus's turnaround - the boarding a
+//!   busy terminus takes stays (`recovery::turnaround`);
 //! - a spare bus swapped in at the terminus for the next trip: it runs the rest of the block on
-//!   time, the late bus goes back to the depot and is the spare (`busy`);
+//!   time, the late bus goes back to the depot and is the spare (`busy`) - no trip lost, but the
+//!   fuel out and back and the wages of the driver who brings it (`recovery::spare_run`);
 //! - for a late driver, someone covering his first trips (a spare line standing by within its
 //!   hours, from where it stands by: `rosterflow::spare_lines`; a free colleague, an agency
 //!   driver booked for the day, or one the agency sends now: `plan::late_covers`);
 //! - for a breakdown, the clock's own choices (`clock::choose`: a spare bus, a rental bus, dropping).
+//!
+//! The duties nobody drives and the tours without a bus are service control's too: their trips
+//! are lost until it covers them (`Open`), and a late driver someone covers is shown covered.
 //!
 //! What is done is kept with the day (`Control` in `DayScript::controls`) and the day's close
 //! counts it: the model gives each trip its delay, the share of it cut short and the bus swapped
@@ -27,13 +38,14 @@
 //! so; Normal suggests the best; Realistic leaves the choice to the player (`watch`).
 
 use super::clock::{self as ck, DayScript, Level, Run, World};
-use super::dates;
 use super::economy;
 use super::inbox::{Kind, Message};
 use super::lateness;
 use super::model::{Cents, Company, CompanyLine, GameMode};
 use super::network::{self, PlannedTrip, TourOfDay};
-use super::plan::{self, BusOf, DayPlan, Disruption, Fill, Who};
+use super::plan::{self, BusOf, DayPlan, Disruption, Fill, Problem, Who};
+use super::recovery;
+use crate::LineInfo;
 use serde::{Deserialize, Serialize};
 
 /// A trip more than this many minutes behind is late (as the day's close counts a trip the game
@@ -57,10 +69,6 @@ pub const REP_DROP: f64 = super::reputation::DROP;
 /// A short-turn skips at least and at most this share of the trip and of the next.
 const SHORT_TURN_MIN: f64 = 0.1;
 const SHORT_TURN_MAX: f64 = 0.5;
-/// Running out of service saves this share of the rest of a trip's running time (the stops).
-const EXPRESS_SAVES: f64 = 0.3;
-/// The kilometres a spare bus swapped in runs to the terminus and the late one back.
-const SWAP_KM: f64 = 12.0;
 
 // --- what is kept ----------------------------------------------------------------------------------
 
@@ -83,11 +91,16 @@ pub struct Control {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Act {
-    /// The trip turns back early: its last `part` and the next trip's first `part` are not run,
-    /// which saves `saved` minutes.
-    ShortTurn { part: f64, saved: i32 },
+    /// The trip turns back early: its last `part` and the next trip's first `next` (none: `part`)
+    /// are not run, which saves `saved` minutes.
+    ShortTurn {
+        part: f64,
+        saved: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<f64>,
+    },
     /// The rest of the trip (`part` of it) runs out of service to the terminus, `saved` minutes
-    /// quicker.
+    /// quicker (all of it: the bus runs dead to the opposite terminus, the whole trip lost).
     Express { part: f64, saved: i32 },
     /// The layover before the trip is cut by `saved` minutes.
     Layover { saved: i32 },
@@ -120,7 +133,7 @@ pub struct Watch {
     /// The buses running late then: their tour (`plan::tour_key`) and minutes.
     #[serde(default)]
     pub late: Vec<(String, i32)>,
-    /// The late drivers nobody covers then.
+    /// The late drivers nobody covers then, and the duties and tours nobody drives.
     #[serde(default)]
     pub drivers: usize,
     /// The tours told running late today (once a day each).
@@ -134,8 +147,8 @@ pub fn notice_minutes(c: &Company) -> u32 {
 }
 
 /// How many things service control has for the player now (the Operations page's badge): the
-/// buses more than the notice's minutes late, the late drivers nobody covers, the breakdowns not
-/// decided.
+/// buses more than the notice's minutes late, the late drivers nobody covers and the duties and
+/// tours nobody drives, the breakdowns not decided.
 pub fn waiting(c: &Company) -> usize {
     let Some(s) = c.clock.today.as_ref().filter(|s| s.date == c.date) else { return 0 };
     let n = notice_minutes(c).max(LATE_AT as u32 + 1) as i32;
@@ -209,11 +222,16 @@ pub struct TripDelay {
 /// the day's one delay model, on `dp`'s plan with the day's breakdowns and the controller's doing,
 /// and `extra` to see what one more would do): each tour's trips.
 pub fn delays(c: &Company, dp: &DayPlan, now: Option<i32>, extra: Option<&Control>) -> Vec<Vec<TripDelay>> {
+    delays_with(c, dp, now, extra, None)
+}
+
+/// `delays` with each trip's own minutes on the way by hand (tests: `lateness::model_with`'s `own`).
+fn delays_with(c: &Company, dp: &DayPlan, now: Option<i32>, extra: Option<&Control>, own: Option<lateness::Own>) -> Vec<Vec<TripDelay>> {
     let p = dp.to_plan();
     let cut = ck::breakdowns(c, &p, &dp.date, &[]);
     let mut all = of_day(c, &dp.date);
     all.extend(extra);
-    let m = lateness::model_with(c, &p, &dp.date, &cut, &all, now, None);
+    let m = lateness::model_with(c, &p, &dp.date, &cut, &all, now, own);
     m.iter().map(|t| of_model(t)).collect()
 }
 
@@ -292,6 +310,13 @@ fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
         if !x.runs || !trip.counts() {
             continue;
         }
+        // (run empty to the opposite terminus: lost, nobody on it to be late for)
+        if x.lost >= 0.999 {
+            e.parts += x.lost;
+            e.part_trips += 1;
+            e.parts_cost += part_penalty(c, t, trip, x.lost) + (super::income::expected(line, &c.date, trip.dep, trip.arr) * fare).round() as Cents;
+            continue;
+        }
         if x.lost > 0.0 {
             e.parts += x.lost;
             e.part_trips += 1;
@@ -316,6 +341,18 @@ fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
 
 // --- the live day ---------------------------------------------------------------------------------
 
+/// What a way out is about, for its words: the stop the bus turns back at or the terminus it runs
+/// to, the stops not served, the minutes the terminus's passengers take to board, and a spare
+/// bus's driver (a spare line standing by: paid already) and when it can be there.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Detail {
+    pub place: Option<String>,
+    pub stops: usize,
+    pub boarding: i32,
+    pub spare_line: bool,
+    pub there: Option<i32>,
+}
+
 /// A way to bring a late bus back on time, with what it comes to.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Opt {
@@ -327,6 +364,7 @@ pub struct Opt {
     pub gain: f64,
     /// The controller's suggestion (not on Realistic).
     pub best: bool,
+    pub detail: Detail,
 }
 
 /// A bus running late now.
@@ -342,6 +380,10 @@ pub struct LateBus {
     /// Left as it is.
     pub nothing: Effect,
     pub options: Vec<Opt>,
+    /// The timetable gives its trips ahead too little time: the minutes each is expected to lose
+    /// on the way (the hour's traffic, its driver, its bus) - a way out today brings it back for a
+    /// trip or two, more running time in the Timeplan for good.
+    pub tight: Option<i32>,
 }
 
 /// A way to cover a late driver's first trips.
@@ -357,7 +399,7 @@ pub struct DriverCover {
     pub best: bool,
 }
 
-/// A driver late for his first duty, nobody covering its first trips.
+/// A driver late for his first duty.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LateDriver {
     pub ti: usize,
@@ -368,6 +410,34 @@ pub struct LateDriver {
     pub until: i32,
     pub nothing: Effect,
     pub covers: Vec<DriverCover>,
+    /// Who covers his first trips already (an employee, `plan::AGENCY`, a spare line:
+    /// `plan::SPARE_COVER`); None: nobody, the ways are `covers`.
+    pub covered: Option<u32>,
+}
+
+/// A duty nobody drives today (`duty`), or a tour without a bus (None): its trips still to come
+/// are lost until service control covers it (the testers: "drivers late & non allocated so far
+/// hasn't shown up").
+#[derive(Clone, Debug, PartialEq)]
+pub struct Open {
+    pub ti: usize,
+    pub duty: Option<usize>,
+    /// Why it is open (sick, on holiday, nobody planned, the bus in the workshop...).
+    pub problem: Option<Problem>,
+    /// Its first trip still to come.
+    pub first: i32,
+    pub nothing: Effect,
+    pub ways: Vec<OpenWay>,
+}
+
+/// A way to cover what is open: a colleague, an agency driver; a spare bus, a rental bus; or
+/// dropping its trips today.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenWay {
+    pub fill: Fill,
+    pub standby: bool,
+    pub effect: Effect,
+    pub best: bool,
 }
 
 /// Service control's view of the company's day now.
@@ -376,6 +446,14 @@ pub struct Live {
     pub now: i32,
     pub buses: Vec<LateBus>,
     pub drivers: Vec<LateDriver>,
+    pub open: Vec<Open>,
+}
+
+impl Live {
+    /// The late drivers nobody covers yet, and what is open: the things for service control.
+    pub fn waiting_drivers(&self) -> usize {
+        self.drivers.iter().filter(|d| d.covered.is_none()).count() + self.open.len()
+    }
 }
 
 /// The block's index of the trip a bus is on now (or the last it ran), and whether it is still on it.
@@ -388,14 +466,30 @@ fn next_run(d: &[TripDelay], after: usize) -> Option<usize> {
     (after + 1..d.len()).find(|&j| d[j].runs)
 }
 
-/// The day of `dp` (the company's own) as service control sees it now: the buses running late with
-/// the ways to bring them back on time, the late drivers with who could cover them.
-pub fn live(c: &Company, dp: &DayPlan) -> Live {
+fn best_of(options: &mut [Opt]) {
+    if let Some(o) = options.iter_mut().filter(|o| o.gain > 0.0).max_by(|x, y| x.gain.partial_cmp(&y.gain).unwrap_or(std::cmp::Ordering::Equal)) {
+        o.best = true;
+    }
+}
+
+/// The day of `dp` (the company's own) as service control sees it now (`lines`: the timetable
+/// read, for the trips' stops - none: the ways are estimated): the buses running late with the
+/// ways to bring them back on time, the late drivers with who could cover them, the duties and
+/// tours nobody drives with who could.
+pub fn live(c: &Company, dp: &DayPlan, lines: &[LineInfo]) -> Live {
+    live_with(c, dp, lines, None)
+}
+
+/// `live` with each trip's own minutes on the way by hand (tests).
+fn live_with(c: &Company, dp: &DayPlan, lines: &[LineInfo], own: Option<lateness::Own>) -> Live {
     let Some(s) = script(c, &dp.date).filter(|_| dp.today) else { return Live::default() };
     let now = c.clock.minute as i32;
     let mut out = Live { now, ..Default::default() };
     let realistic = c.game_mode == GameMode::Realistic;
-    let day = delays(c, dp, Some(now), None);
+    let day = delays_with(c, dp, Some(now), None, own);
+    // (the day's blocks for RosterFlow's deadheads, and the lines meeting at each terminus)
+    let tours: Vec<TourOfDay> = dp.tours.iter().map(|t| t.tour.clone()).collect();
+    let termini = recovery::Termini::of(tours.iter());
     for (ti, t) in dp.tours.iter().enumerate() {
         if t.by_player || t.live || t.bus.is_none() {
             continue;
@@ -412,71 +506,126 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
         if minutes <= LATE_AT || (!running && next.is_none()) {
             continue;
         }
+        let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|x| same(&x.line, &t.tour.line)).flat_map(|x| x.trips.iter()).collect();
+        let duties: Vec<(usize, usize)> = t.duties.iter().map(|d| (d.start, d.end)).collect();
         let nothing = effect(c, &t.tour, &base, cur);
         let mut options = Vec::new();
-        let mut consider = |dep: i32, act: Act| {
+        let mut consider = |dep: i32, act: Act, detail: Detail, cost: Cents| {
             if mine.iter().any(|x| x.dep == dep && x.act.key() == act.key()) {
                 return;
             }
             let x = Control { line: t.tour.line.clone(), tour: t.tour.tour.clone(), dep, at: now, act, auto: false };
-            let d = delays(c, dp, Some(now), Some(&x)).swap_remove(ti);
+            let d = delays_with(c, dp, Some(now), Some(&x), own).swap_remove(ti);
             let mut e = effect(c, &t.tour, &d, cur);
-            if let Act::Swap { vehicle, .. } = act {
-                e.cost += swap_cost(c, vehicle);
-            }
+            e.cost += cost;
             let gain = nothing.score() - e.score();
-            options.push(Opt { dep, act, effect: e, gain, best: false });
+            options.push(Opt { dep, act, effect: e, gain, best: false, detail });
         };
-        // (where it is done: the trip it is on, or the next when it waits at the terminus)
+        // (where it is done: the trip it is on, or the next when it waits at the terminus; how far
+        // along it the bus is)
         let a = if running { cur } else { next.unwrap_or(cur) };
         let ta = &t.tour.trips[a];
         let dur_a = (ta.arr - ta.dep).max(1);
-        let rem = if running && a == cur { ((ta.arr + base[a].late - now) as f64 / dur_a as f64).clamp(0.0, 1.0) } else { 1.0 };
+        // (as it runs: it left `start` minutes late and takes `late - start` minutes longer)
+        let rem = if running && a == cur {
+            let took = (dur_a + base[a].late - base[a].start).max(1) as f64;
+            (1.0 - (now - ta.dep - base[a].start) as f64 / took).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let from = 1.0 - rem;
+        let sa = recovery::stops_of(lines, ta);
         if let Some(n) = next_run(&base, a) {
             let tn = &t.tour.trips[n];
             let need = base[n].start;
             if need > LATE_AT {
-                let dur_n = (tn.arr - tn.dep).max(1);
-                // a short-turn: the end of this trip and the start of the next skipped
-                if ta.counts() && tn.counts() && rem >= SHORT_TURN_MIN {
-                    let part = (need as f64 / (dur_a + dur_n) as f64).clamp(SHORT_TURN_MIN, SHORT_TURN_MAX.min(rem));
-                    consider(ta.dep, Act::ShortTurn { part, saved: (part * (dur_a + dur_n) as f64).round() as i32 });
+                let gap = (tn.dep - ta.arr).max(0);
+                let turn = recovery::turnaround(c, &t.tour.line, tn, termini.lines_at(&tn.from));
+                let kept = turn + recovery::DRIVER_REST;
+                // a short-turn: at the latest stop on the way the next trip calls at too, from
+                // which it is back on time - the bus straight on to the next trip, its driver not
+                // relieved at the terminus
+                if ta.counts() && tn.counts() && n == a + 1 && rem >= SHORT_TURN_MIN && !recovery::relieved_after(&duties, a) {
+                    match sa.as_ref().zip(recovery::stops_of(lines, tn)) {
+                        Some((sa, sn)) => {
+                            if let Some(x) = recovery::short_turn(sa, &sn, ta, tn, from, base[a].start, base[a].late, kept, economy::LATE_FROM) {
+                                // (the minutes off its arrival that make the next trip leave as
+                                // late as it rejoins it)
+                                let saved = base[a].late - x.late - gap + kept.min(gap);
+                                if saved > 0 {
+                                    let detail = Detail { place: Some(x.stop), stops: x.skipped, ..Default::default() };
+                                    consider(ta.dep, Act::ShortTurn { part: x.part, saved, next: Some(x.next) }, detail, 0);
+                                }
+                            }
+                        }
+                        // (its stops not known: a share of each estimated, the next trip back from
+                        // where this one ends)
+                        None if same(ta.end(), &tn.from) => {
+                            let dur_n = (tn.arr - tn.dep).max(1);
+                            let part = (need as f64 / (dur_a + dur_n) as f64).clamp(SHORT_TURN_MIN, SHORT_TURN_MAX.min(rem));
+                            consider(ta.dep, Act::ShortTurn { part, saved: (part * (dur_a + dur_n) as f64).round() as i32, next: None }, Detail::default(), 0);
+                        }
+                        None => {}
+                    }
                 }
-                // out of service to the terminus
-                if ta.counts() && rem >= 0.15 {
-                    let saved = (EXPRESS_SAVES * rem * dur_a as f64).round().max(1.0) as i32;
-                    consider(ta.dep, Act::Express { part: rem, saved });
+                // out of service to the terminus: the rest of the trip it is on without its stops
+                if running && a == cur && ta.counts() && (0.15..0.99).contains(&rem) {
+                    let stops = sa.as_ref().map_or((ta.stops as f64 * rem).round() as usize, |s| s.ahead(from));
+                    let saved = recovery::express_saves(ta, rem, stops);
+                    if saved >= 1 {
+                        consider(ta.dep, Act::Express { part: rem, saved }, Detail { place: Some(ta.end().to_string()), stops, ..Default::default() }, 0);
+                    }
                 }
-                // a shorter layover
-                let gap = tn.dep - ta.arr;
-                if gap >= 1 {
-                    consider(tn.dep, Act::Layover { saved: MIN_LAYOVER.min(gap) });
+                // a shorter layover: down to the terminus's turnaround - the boarding stays
+                let cut = kept.min(gap) - turn.min(gap);
+                if cut >= 1 {
+                    let detail = Detail { place: Some(tn.from.clone()), boarding: turn - recovery::TURN_MINUTES, ..Default::default() };
+                    consider(tn.dep, Act::Layover { saved: cut }, detail, 0);
                 }
             }
         }
-        // a spare bus at the terminus, for the first trip it can be there for
+        // running dead to the opposite terminus: the first trip not begun run empty in
+        // RosterFlow's deadhead time - a whole trip lost -, the bus there for the trip after
+        let first_ahead = if running { next } else { Some(a) };
+        if let Some(d) = first_ahead.filter(|&d| base[d].start > LATE_AT && !base[d].known) {
+            let x = &t.tour.trips[d];
+            if x.counts() && next_run(&base, d).is_some() {
+                let (_, _, saved) = recovery::dead_run(c, &tours, &line_trips, x);
+                if saved >= 2 {
+                    consider(x.dep, Act::Express { part: 1.0, saved }, Detail { place: Some(x.end().to_string()), stops: x.stops as usize, ..Default::default() }, 0);
+                }
+            }
+        }
+        // a spare bus at the terminus of the first trip it can be there for (out from the depot
+        // in RosterFlow's deadhead time): no trip lost, the fuel and the wages instead
         if let Some(late_bus) = bus {
-            let sw = (cur + 1..base.len()).find(|&j| base[j].runs && !base[j].known && t.tour.trips[j].dep >= now + ck::spare_minutes(c, &dp.date, now));
-            if let Some(j) = sw.filter(|&j| base[j].start > LATE_AT) {
-                let end = t.tour.to();
-                if let Some(sp) = ck::free_buses(c, s, late_bus, &t.tour.line, now, end, None).into_iter().find(|x| x.until.is_none()) {
-                    consider(t.tour.trips[j].dep, Act::Swap { vehicle: sp.vehicle, from_bus: late_bus });
+            let end = t.tour.to();
+            if let Some(sp) = ck::free_buses(c, s, late_bus, &t.tour.line, now, end, None).into_iter().find(|x| x.until.is_none()) {
+                let swap = (cur + 1..base.len()).filter(|&j| base[j].runs && !base[j].known && base[j].start > LATE_AT).find_map(|j| {
+                    let x = &t.tour.trips[j];
+                    let run = recovery::spare_run(c, &tours, &line_trips, sp.vehicle, late_bus, &x.from, now);
+                    (x.dep >= run.there).then_some((j, run))
+                });
+                if let Some((j, run)) = swap {
+                    let x = &t.tour.trips[j];
+                    let detail = Detail { place: Some(x.from.clone()), spare_line: run.spare_line, there: Some(run.there), ..Default::default() };
+                    consider(x.dep, Act::Swap { vehicle: sp.vehicle, from_bus: late_bus }, detail, run.cost());
                 }
             }
         }
         if !realistic {
-            if let Some(o) = options.iter_mut().filter(|o| o.gain > 0.0).max_by(|x, y| x.gain.partial_cmp(&y.gain).unwrap_or(std::cmp::Ordering::Equal)) {
-                o.best = true;
-            }
+            best_of(&mut options);
         }
-        out.buses.push(LateBus { ti, vehicle: bus, minutes, trip: a, running, nothing, options });
+        // (the trips ahead each expected to lose minutes on the way: the timetable is too tight)
+        let ahead: Vec<i32> = base.iter().skip(cur + 1).filter(|x| x.runs && !x.known).map(|x| x.late - x.start).collect();
+        let tight = (ahead.len() >= 2).then(|| ahead.iter().sum::<i32>() as f64 / ahead.len() as f64).filter(|m| *m >= 2.0).map(|m| m.round() as i32);
+        out.buses.push(LateBus { ti, vehicle: bus, minutes, trip: a, running, nothing, options, tight });
     }
     out.buses.sort_by_key(|x| std::cmp::Reverse(x.minutes));
-    // the late drivers nobody covers yet
+    // the late drivers (those covered already too)
     let hour = plan::agency_hour(c);
     // (the day's spare lines, and when each drives a late driver's first trips already)
     let spares = super::rosterflow::spare_lines(c, &dp.date);
-    let tours: Vec<TourOfDay> = if spares.is_empty() { Vec::new() } else { dp.tours.iter().map(|t| t.tour.clone()).collect() };
     let spare_busy: Vec<(u32, i32, i32)> = dp
         .tours
         .iter()
@@ -492,13 +641,21 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
         }
         for (k, d) in t.duties.iter().enumerate() {
             let (Some(l), Some(Who::Staff(employee))) = (d.late, d.who) else { continue };
-            if l.cover.is_some() || l.until <= now {
+            if l.until <= now {
                 continue;
             }
-            let minutes = dp.disruptions.iter().find_map(|x| match *x {
-                Disruption::Late { employee: e, minutes } if e == employee => Some(minutes),
-                _ => None,
-            });
+            let minutes = dp
+                .disruptions
+                .iter()
+                .find_map(|x| match *x {
+                    Disruption::Late { employee: e, minutes } if e == employee => Some(minutes),
+                    _ => None,
+                })
+                .unwrap_or(l.until - d.from);
+            if let Some(cover) = l.cover {
+                out.drivers.push(LateDriver { ti, duty: k, employee, minutes, until: l.until, nothing: Effect::default(), covers: Vec::new(), covered: Some(cover) });
+                continue;
+            }
             // (the trips still to come before he is there)
             let lost = |from: i32| -> Effect {
                 let mut e = Effect::default();
@@ -544,24 +701,91 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
                     x.best = true;
                 }
             }
-            out.drivers.push(LateDriver { ti, duty: k, employee, minutes: minutes.unwrap_or(l.until - d.from), until: l.until, nothing, covers });
+            out.drivers.push(LateDriver { ti, duty: k, employee, minutes, until: l.until, nothing, covers, covered: None });
         }
     }
+    out.open = open_of(c, dp, now, realistic);
     out
 }
 
-/// What a spare bus swapped in costs to bring out (its kilometres).
-fn swap_cost(c: &Company, vehicle: u32) -> Cents {
-    let Some(v) = c.vehicle(vehicle) else { return 0 };
-    let age = dates::years_between(&v.built, &c.date);
-    let level = super::econ_uk::Level::of(c);
-    (SWAP_KM * (economy::energy_per_km(v.kind, &level) + economy::maintenance_per_km(v.kind, age, &level))).round() as Cents
+/// The duties nobody drives today and the tours without a bus, with trips still to come (those
+/// the player chose to drop aside), and the ways to cover each.
+fn open_of(c: &Company, dp: &DayPlan, now: i32, realistic: bool) -> Vec<Open> {
+    let chosen = |key: &str| (c.planning.date == dp.date).then(|| c.planning.fills.iter().find(|f| f.key == key).map(|f| f.fill)).flatten();
+    let mut out = Vec::new();
+    for (ti, t) in dp.tours.iter().enumerate() {
+        if t.by_player || t.live {
+            continue;
+        }
+        let n = t.tour.trips.len();
+        // (its trips from `start` to `end` still to come, lost: the first of them)
+        let lost = |start: usize, end: usize| -> (Effect, Option<i32>) {
+            let mut e = Effect::default();
+            let mut first = None;
+            for trip in t.tour.trips[start.min(n)..end.min(n)].iter().filter(|x| x.counts() && x.dep >= now) {
+                e.lost_trips += 1;
+                e.penalty += drop_cost(c, &t.tour, trip);
+                first.get_or_insert(trip.dep);
+            }
+            e.rep = e.lost_trips as f64 * REP_DROP;
+            (e, first)
+        };
+        let pick = |ways: &mut Vec<OpenWay>| {
+            if !realistic {
+                if let Some(w) = ways.iter_mut().find(|w| w.fill != Fill::Drop) {
+                    w.best = true;
+                }
+            }
+        };
+        if t.bus.is_none() {
+            let key = plan::tour_key(&t.tour.line, &t.tour.tour);
+            if t.bus_problem.is_none() || chosen(&key) == Some(Fill::Drop) {
+                continue;
+            }
+            let (nothing, Some(first)) = lost(0, n) else { continue };
+            let mut ways: Vec<OpenWay> =
+                plan::spare_buses(c, dp, ti).into_iter().take(3).map(|id| OpenWay { fill: Fill::Bus { id }, standby: false, effect: Effect::default(), best: false }).collect();
+            let (rent, ok) = plan::rental_for(c, dp, ti);
+            if ok {
+                ways.push(OpenWay { fill: Fill::Rental, standby: false, effect: Effect { cost: rent, ..Default::default() }, best: false });
+            }
+            ways.push(OpenWay { fill: Fill::Drop, standby: false, effect: nothing, best: false });
+            pick(&mut ways);
+            out.push(Open { ti, duty: None, problem: t.bus_problem, first, nothing, ways });
+            continue;
+        }
+        for (k, d) in t.duties.iter().enumerate() {
+            let key = plan::duty_key(&t.tour.line, &t.tour.tour, k);
+            if d.who.is_some() || chosen(&key) == Some(Fill::Drop) {
+                continue;
+            }
+            let (nothing, Some(first)) = lost(d.start, d.end) else { continue };
+            let hours = (d.to - first.max(d.from)).max(0) as f64 / 60.0;
+            let mut ways: Vec<OpenWay> = Vec::new();
+            for cv in plan::covers_of_duty(c, dp, ti, k) {
+                match cv {
+                    plan::Cover::Colleague { id, standby, .. } if ways.len() < 3 => ways.push(OpenWay { fill: Fill::Colleague { id }, standby, effect: Effect::default(), best: false }),
+                    plan::Cover::Agency { .. } => {
+                        let cost = (hours * plan::agency_hour(c)).round() as Cents;
+                        ways.push(OpenWay { fill: Fill::Agency, standby: false, effect: Effect { cost, ..Default::default() }, best: false });
+                    }
+                    _ => {}
+                }
+            }
+            ways.push(OpenWay { fill: Fill::Drop, standby: false, effect: nothing, best: false });
+            pick(&mut ways);
+            out.push(Open { ti, duty: Some(k), problem: d.problem, first, nothing, ways });
+        }
+    }
+    out.sort_by_key(|o| o.first);
+    out
 }
 
 // --- doing it ------------------------------------------------------------------------------------
 
 const SHORT_TURNED: &str = "Bus %{bus} on line %{n} turns back early on the %{time} trip";
 const EXPRESSED: &str = "Bus %{bus} on line %{n} runs out of service to the terminus on the %{time} trip";
+const RAN_DEAD: &str = "Bus %{bus} on line %{n} runs the %{time} trip empty to the opposite terminus";
 const LAYOVER_CUT: &str = "Bus %{bus} on line %{n} takes a shorter layover before the %{time} trip";
 const SWAPPED: &str = "Bus %{spare} takes over from bus %{bus} on line %{n} from the %{time} trip";
 const COVERED: &str = "%{name} drives the first trips of line %{n} tour %{tour} from %{time}";
@@ -575,7 +799,26 @@ pub const LATE_TEXT: &str = "Line %{n} tour %{tour}: %{min} minutes behind. Left
 
 /// The words service control tells (for their translations).
 pub fn texts() -> Vec<&'static str> {
-    vec![SHORT_TURNED, EXPRESSED, LAYOVER_CUT, SWAPPED, COVERED, AGENCY_COVERS, SPARE_COVERS, BACK_ON_TIME, BY_CONTROLLER, LATE_FEED, LATE_TITLE, LATE_TEXT]
+    vec![
+        SHORT_TURNED,
+        EXPRESSED,
+        RAN_DEAD,
+        LAYOVER_CUT,
+        SWAPPED,
+        COVERED,
+        AGENCY_COVERS,
+        SPARE_COVERS,
+        BACK_ON_TIME,
+        BY_CONTROLLER,
+        LATE_FEED,
+        LATE_TITLE,
+        LATE_TEXT,
+        OPEN_DRIVER,
+        OPEN_AGENCY,
+        OPEN_BUS,
+        OPEN_RENTAL,
+        OPEN_DROPPED,
+    ]
 }
 
 fn number(c: &Company, id: Option<u32>) -> String {
@@ -599,6 +842,7 @@ pub fn apply(c: &mut Company, dp: &DayPlan, ti: usize, dep: i32, act: Act, auto:
     let time = |m: i32| ck::hhmm(ck::moment(&dp.date, m as i64));
     let (text, args) = match act {
         Act::ShortTurn { .. } => (SHORT_TURNED, vec![ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(dep))]),
+        Act::Express { part, .. } if part >= 0.999 => (RAN_DEAD, vec![ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(dep))]),
         Act::Express { .. } => (EXPRESSED, vec![ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(dep))]),
         Act::Layover { .. } => (LAYOVER_CUT, vec![ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(dep))]),
         Act::Swap { vehicle, .. } => (SWAPPED, vec![ck::arg("spare", number(c, Some(vehicle))), ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(dep))]),
@@ -650,6 +894,53 @@ pub fn cover(c: &mut Company, dp: &DayPlan, ti: usize, duty: usize, fill: Fill, 
     Some((text.to_string(), args))
 }
 
+const OPEN_DRIVER: &str = "%{name} drives duty %{duty} of line %{n} tour %{tour} today";
+const OPEN_AGENCY: &str = "An agency driver drives duty %{duty} of line %{n} tour %{tour} today";
+const OPEN_BUS: &str = "Bus %{bus} runs line %{n} tour %{tour} today";
+const OPEN_RENTAL: &str = "A rental bus runs line %{n} tour %{tour} today";
+const OPEN_DROPPED: &str = "The trips still to come of line %{n} tour %{tour} are dropped today";
+
+/// Cover what is open on the company's day (`Open`): duty `duty` of tour `ti` (None: the tour,
+/// without a bus) by `fill` - a colleague or an agency driver; a spare bus or a rental bus; or its
+/// trips dropped -, the dispatcher's choice for today (`plan::set_fill`). Returns the feed's line said.
+pub fn fill(c: &mut Company, dp: &DayPlan, ti: usize, duty: Option<usize>, fill: Fill, auto: bool, run: &mut Run) -> Option<(String, Vec<(String, String)>)> {
+    let t = dp.tours.get(ti)?;
+    if !dp.today || script(c, &dp.date).is_none() || t.by_player {
+        return None;
+    }
+    let key = match duty {
+        Some(k) => {
+            let d = t.duties.get(k)?;
+            if d.who.is_some() || !matches!(fill, Fill::Colleague { .. } | Fill::Agency | Fill::Drop) {
+                return None;
+            }
+            plan::duty_key(&t.tour.line, &t.tour.tour, k)
+        }
+        None => {
+            if t.bus.is_some() || !matches!(fill, Fill::Bus { .. } | Fill::Rental | Fill::Drop) {
+                return None;
+            }
+            plan::tour_key(&t.tour.line, &t.tour.tour)
+        }
+    };
+    plan::set_fill(c, &key, Some(fill));
+    let base = vec![ck::arg("n", &t.tour.number), ck::arg("tour", &t.tour.tour), ck::arg("duty", duty.map_or(1, |k| k + 1))];
+    let (text, mut args) = match fill {
+        Fill::Colleague { id } => (OPEN_DRIVER, vec![ck::arg("name", c.employee(id).map(|e| e.name.clone()).unwrap_or_default())]),
+        Fill::Agency => (OPEN_AGENCY, Vec::new()),
+        Fill::Bus { id } => (OPEN_BUS, vec![ck::arg("bus", number(c, Some(id)))]),
+        Fill::Rental => (OPEN_RENTAL, Vec::new()),
+        _ => (OPEN_DROPPED, Vec::new()),
+    };
+    args.extend(base);
+    let at = ck::moment(&c.date, c.clock.minute as i64);
+    ck::tell(c, run, at, text, args.clone(), if fill == Fill::Drop { Level::Warn } else { Level::Info });
+    if auto {
+        run.breaks.push(Message::new(Kind::Lines, BY_CONTROLLER, text).args_of(&args).level(Level::Info).dated(&dp.date));
+    }
+    Some((text.to_string(), args))
+}
+
 trait ArgsOf {
     fn args_of(self, args: &[(String, String)]) -> Self;
 }
@@ -682,7 +973,7 @@ pub fn watch_day(c: &mut Company, w: &mut dyn World, quick: bool, run: &mut Run)
     let lines = w.lines(c, &date)?;
     let tours = network::in_service_only(network::tours_of_day(c, &lines, &date));
     let dp = plan::day_plan(c, &date, tours, &[], &[], false);
-    watch(c, &dp, run);
+    watch(c, &dp, &lines, run);
     Ok(())
 }
 
@@ -690,11 +981,11 @@ pub fn watch_day(c: &mut Company, w: &mut dyn World, quick: bool, run: &mut Run)
 /// the best for each late bus and late driver by himself; the buses late more than the notice's
 /// minutes are told once a day (the feed, the inbox, the pages); what is late is kept for the
 /// Operations page's badge.
-pub fn watch(c: &mut Company, dp: &DayPlan, run: &mut Run) {
+pub fn watch(c: &mut Company, dp: &DayPlan, lines: &[LineInfo], run: &mut Run) {
     if script(c, &dp.date).is_none() || !dp.today {
         return;
     }
-    let mut lv = live(c, dp);
+    let mut lv = live(c, dp, lines);
     if super::autopilot::on(c) {
         let mut acted = false;
         for b in &lv.buses {
@@ -707,10 +998,16 @@ pub fn watch(c: &mut Company, dp: &DayPlan, run: &mut Run) {
                 cover(c, dp, d.ti, d.duty, x.fill, x.from, true, run);
             }
         }
+        for o in &lv.open {
+            if let Some(w) = o.ways.iter().find(|w| w.best) {
+                fill(c, dp, o.ti, o.duty, w.fill, true, run);
+            }
+        }
         if acted {
-            lv = live(c, dp);
+            lv = live(c, dp, lines);
         }
         lv.drivers.clear();
+        lv.open.clear();
     }
     let n = notice_minutes(c) as i32;
     let at = ck::moment(&c.date, lv.now as i64);
@@ -740,7 +1037,7 @@ pub fn watch(c: &mut Company, dp: &DayPlan, run: &mut Run) {
     if let Some(s) = c.clock.today.as_mut().filter(|s| s.date == dp.date) {
         s.watch.told.extend(told);
         s.watch.late = late;
-        s.watch.drivers = lv.drivers.len();
+        s.watch.drivers = lv.waiting_drivers();
         s.watch.at = Some(lv.now);
     }
 }
@@ -801,7 +1098,7 @@ mod tests {
         let t = &p.tours[0].tour;
         // (the line under a gross-cost contract: what a journey not paid costs)
         crate::company::bus_contracts::give(&mut c, &t.line);
-        let x = control(&p, 0, Act::ShortTurn { part: 0.2, saved: 20 });
+        let x = control(&p, 0, Act::ShortTurn { part: 0.2, saved: 20, next: None });
         let d = run(&c, &p, None, &[&x]);
         assert_eq!((d[0].late, d[1].start, d[2].start), (0, 0, 0));
         assert_eq!(d[0].recovered, 20);
@@ -895,7 +1192,7 @@ mod tests {
         // a spare line from 09:00, standing by where the duty begins: not on duty yet
         let id = add_spare(&mut c, slot, "Spare", 9 * 60, 17 * 60);
         spare_mut(&mut c, slot, id).unwrap().sign_on_at = Some(t.trips[0].from.clone());
-        let first = |c: &Company| live(c, &dp).drivers[0].covers[0].clone();
+        let first = |c: &Company| live(c, &dp, &[]).drivers[0].covers[0].clone();
         assert_ne!(first(&c).fill, Fill::Spare { id });
         // its hours moved to 06:00-14:00: the first cover offered, there at once, the best
         spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(6 * 60, 14 * 60);
@@ -919,6 +1216,109 @@ mod tests {
         assert_eq!(ck::spare_minutes(&c, &date, 7 * 60), ck::SPARE_LINE_MINUTES);
         assert_eq!(ck::spare_minutes(&c, &date, 11 * 60 + 50), ck::SPARE_MINUTES);
         assert_eq!(ck::spare_minutes(&c, &date, 5 * 60), ck::SPARE_MINUTES);
+    }
+
+    /// The timetable of `day`'s block: each trip over six stops ten minutes apart, S0 to S5 and
+    /// back the other way.
+    fn lines_of(p: &Plan) -> Vec<LineInfo> {
+        use crate::{StopInfo, TourInfo, TripInfo};
+        let trips = p.tours[0]
+            .tour
+            .trips
+            .iter()
+            .enumerate()
+            .map(|(k, x)| TripInfo {
+                name: x.name.clone(),
+                departure: x.dep as f64 * 60.0,
+                arrival: x.arr as f64 * 60.0,
+                stops: (0..6)
+                    .map(|s| {
+                        let at = (x.dep + 10 * s) as f64 * 60.0;
+                        StopInfo { name: format!("S{}", if k % 2 == 0 { s } else { 5 - s }), id: s as i64, arr: at, dep: at }
+                    })
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        vec![LineInfo { name: "Linie5".into(), tours: vec![TourInfo { trips, ..Default::default() }], ..Default::default() }]
+    }
+
+    #[test]
+    fn a_late_bus_turns_back_at_the_latest_stop_that_brings_it_back_on_time() {
+        let (mut c, p, bus, driver) = day();
+        c.game_mode = GameMode::Normal;
+        let t = p.tours[0].tour.clone();
+        // (under a gross-cost contract: a late journey and one run in part are not paid)
+        crate::company::bus_contracts::give(&mut c, &t.line);
+        let duty = plan::DayDuty { start: 0, end: 4, from: t.from(), to: t.to(), who: Some(Who::Staff(driver)), ..Default::default() };
+        let dp = DayPlan { date: c.date.clone(), today: true, tours: vec![DayTour { tour: t.clone(), bus: Some(BusOf::Own(bus)), duties: vec![duty], ..Default::default() }], ..Default::default() };
+        // 06:40: the first trip half an hour late on its way, the next two would leave late
+        // enough not to be paid (23 and 16 minutes)
+        let thirty = |_: usize, j: usize| if j == 0 { 30.0 } else { 0.0 };
+        c.clock.minute = 6 * 60 + 40;
+        let l = lines_of(&p);
+        let lv = live_with(&c, &dp, &l, Some(&thirty));
+        let b = &lv.buses[0];
+        assert_eq!((b.minutes, b.trip, b.running), (30, 0, true));
+        let way = |key: &str, whole: bool| b.options.iter().find(|o| o.act.key() == key && matches!(o.act, Act::Express { part, .. } if part >= 0.999) == whole).cloned();
+        // the short-turn: at S4, the latest stop ahead from which it rejoins the 07:00 trip on
+        // time - one stop of each trip not served -, the next trip on time, the controller's way
+        let turn = way("short_turn", false).unwrap();
+        assert_eq!((turn.detail.place.as_deref(), turn.detail.stops), (Some("S4"), 2));
+        let Act::ShortTurn { part, next, .. } = turn.act else { panic!() };
+        assert!((part - 0.2).abs() < 1e-9 && next.is_some_and(|n| (n - 0.2).abs() < 1e-9), "{:?}", turn.act);
+        assert_eq!((turn.effect.late_trips, turn.effect.on_time_from), (0, Some(t.trips[1].dep)));
+        assert!(b.nothing.late_trips >= 2, "{:#?}", b.nothing);
+        // (the controller's suggestion: the way that saves the most)
+        let best = b.options.iter().find(|o| o.best).unwrap();
+        assert!(b.options.iter().all(|o| o.gain <= best.gain));
+        // running the 07:00 trip dead to its terminus (its stops saved): the whole trip lost, not
+        // counted late, fewer late after it
+        let dead = way("express", true).unwrap();
+        assert_eq!((dead.dep, dead.effect.part_trips), (t.trips[1].dep, 1));
+        assert!(dead.effect.parts >= 0.999 && dead.effect.late_trips < b.nothing.late_trips, "{dead:#?}");
+        // (on a gross-cost contract a journey run only in part is not paid: the short-turn costs
+        // two journeys, running dead one)
+        assert!(dead.gain > turn.gain, "{dead:#?} {turn:#?}");
+        assert_eq!(turn.effect.parts_cost, 2 * dead.effect.parts_cost);
+        // a shorter layover: down to the quiet terminus's turnaround, two minutes
+        assert!(matches!(way("layover", false).unwrap().act, Act::Layover { saved: 2 }));
+        // with its driver relieved at the terminus, no short-turn
+        let mut split = dp.clone();
+        split.tours[0].duties = vec![
+            plan::DayDuty { start: 0, end: 1, from: t.from(), to: t.trips[0].arr, who: Some(Who::Staff(driver)), ..Default::default() },
+            plan::DayDuty { start: 1, end: 4, from: t.trips[1].dep, to: t.to(), who: Some(Who::Staff(driver)), ..Default::default() },
+        ];
+        assert!(live_with(&c, &split, &l, Some(&thirty)).buses[0].options.iter().all(|o| o.act.key() != "short_turn"));
+    }
+
+    #[test]
+    fn a_duty_nobody_drives_is_open_until_covered() {
+        let (mut c, p, bus, _) = day();
+        c.game_mode = GameMode::Normal;
+        let t = p.tours[0].tour.clone();
+        let duty = plan::DayDuty { start: 0, end: 4, from: t.from(), to: t.to(), who: None, problem: Some(Problem::Sick), ..Default::default() };
+        let dp = DayPlan { date: c.date.clone(), today: true, tours: vec![DayTour { tour: t.clone(), bus: Some(BusOf::Own(bus)), duties: vec![duty], ..Default::default() }], ..Default::default() };
+        c.clock.minute = 6 * 60 + 30;
+        let lv = live(&c, &dp, &[]);
+        let o = &lv.open[0];
+        // the trips still to come are lost; the free driver is the suggested way, an agency
+        // driver costs his hours
+        assert_eq!((o.duty, o.problem, o.first, o.nothing.lost_trips), (Some(0), Some(Problem::Sick), t.trips[1].dep, 3));
+        assert_eq!(lv.waiting_drivers(), 1);
+        assert!(matches!(o.ways[0].fill, Fill::Colleague { .. }) && o.ways[0].best);
+        let agency = o.ways.iter().find(|w| w.fill == Fill::Agency).unwrap();
+        assert!(!agency.best && agency.effect.cost > 0);
+        assert_eq!(o.ways.last().unwrap().fill, Fill::Drop);
+        // sent: the dispatcher's choice for today, told
+        let (text, _) = fill(&mut c, &dp, 0, Some(0), Fill::Agency, false, &mut Run::default()).unwrap();
+        assert_eq!(text, OPEN_AGENCY);
+        assert!(c.planning.fills.iter().any(|f| f.key == plan::duty_key(&t.line, &t.tour, 0) && f.fill == Fill::Agency));
+        // a bus is no way to cover a driver
+        assert!(fill(&mut c, &dp, 0, Some(0), Fill::Rental, false, &mut Run::default()).is_none());
+        // dropped by choice: decided, not open any more
+        plan::set_fill(&mut c, &plan::duty_key(&t.line, &t.tour, 0), Some(Fill::Drop));
+        assert!(live(&c, &dp, &[]).open.is_empty());
     }
 
     #[test]

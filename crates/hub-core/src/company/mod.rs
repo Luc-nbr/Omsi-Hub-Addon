@@ -77,6 +77,8 @@ pub mod pay;
 pub mod plan;
 pub mod plandays;
 pub mod rankings;
+// (service control's ways out worked out from the stops, the blocks and RosterFlow)
+pub mod recovery;
 pub mod registrations;
 pub mod remote;
 pub mod reputation;

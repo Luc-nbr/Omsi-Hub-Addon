@@ -72,7 +72,10 @@ fn option_words(date: &str, o: &Effect, base: &Effect) -> String {
     }
     let pt = o.part_trips.saturating_sub(base.part_trips);
     if pt > 0 {
-        parts.push(trf("%{n} part-trips lost (−%{amount})", &[("n", &pt.to_string()), ("amount", &eur(o.parts_cost - base.parts_cost))]));
+        // (a trip run empty is a whole trip lost, not a part)
+        let whole = o.parts - base.parts >= pt as f64 - 0.01;
+        let text = if whole { "%{n} trips run empty (−%{amount})" } else { "%{n} part-trips lost (−%{amount})" };
+        parts.push(trf(text, &[("n", &pt.to_string()), ("amount", &eur(o.parts_cost - base.parts_cost))]));
     }
     let avoided = base.late_trips.saturating_sub(o.late_trips);
     if avoided > 0 {
@@ -104,6 +107,7 @@ fn option_words(date: &str, o: &Effect, base: &Effect) -> String {
 fn act_short(c: &Company, act: &Act) -> String {
     match *act {
         Act::ShortTurn { .. } => tr("Short-turn"),
+        Act::Express { part, .. } if part >= 0.999 => tr("Run dead"),
         Act::Express { .. } => tr("Out of service"),
         Act::Layover { .. } => tr("Shorter layover"),
         Act::Swap { vehicle, .. } => trf("Spare bus %{bus}", &[("bus", &bus_number(c, Some(vehicle)))]),
@@ -111,16 +115,46 @@ fn act_short(c: &Company, act: &Act) -> String {
     }
 }
 
-fn act_label(c: &Company, dp: &DayPlan, act: &Act, dep: i32) -> (String, &'static str) {
+/// A way out of a late bus in words, with where it is done (`ctl::Detail`: the stop it turns at,
+/// the terminus it runs to, the stops not served, the boarding kept, who brings a spare bus).
+fn act_label(c: &Company, dp: &DayPlan, act: &Act, dep: i32, d: &ctl::Detail) -> (String, &'static str) {
     let time = hm(&dp.date, dep);
-    match act {
-        Act::ShortTurn { part, .. } => {
-            (trf("Short-turn on the %{time} trip (%{share} % of it and of the next skipped)", &[("time", &time), ("share", &((part * 100.0).round() as i64).to_string())]), "u_turn_left")
+    let pct = |x: f64| ((x * 100.0).round() as i64).to_string();
+    let place = d.place.clone().unwrap_or_default();
+    let stops = d.stops.to_string();
+    match (act, d.place.is_some()) {
+        (Act::ShortTurn { part, next, .. }, true) => (
+            trf(
+                "Short-turn at %{stop} on the %{time} trip: %{n} stops not served (the last %{share} % of it, the first %{next} % of the next)",
+                &[("stop", &place), ("time", &time), ("n", &stops), ("share", &pct(*part)), ("next", &pct(next.unwrap_or(*part)))],
+            ),
+            "u_turn_left",
+        ),
+        (Act::ShortTurn { part, .. }, false) => (trf("Short-turn on the %{time} trip (%{share} % of it and of the next skipped)", &[("time", &time), ("share", &pct(*part))]), "u_turn_left"),
+        (Act::Express { part, .. }, true) if *part >= 0.999 => {
+            (trf("Run the %{time} trip dead to %{stop}: the whole trip lost, the bus there on time for the next", &[("time", &time), ("stop", &place)]), "fast_forward")
         }
-        Act::Express { .. } => (trf("Run out of service to the terminus on the %{time} trip", &[("time", &time)]), "bolt"),
-        Act::Layover { saved } => (trf("Shorten the layover before the %{time} trip by %{min} min", &[("time", &time), ("min", &saved.to_string())]), "timer"),
-        Act::Swap { vehicle, .. } => (trf("Swap in spare bus %{bus} at the terminus for the %{time} trip", &[("bus", &bus_number(c, Some(*vehicle))), ("time", &time)]), "sync_alt"),
-        Act::Cover { .. } => (String::new(), "person"),
+        (Act::Express { .. }, true) => (trf("Run out of service to %{stop} on the %{time} trip: %{n} stops not served", &[("stop", &place), ("time", &time), ("n", &stops)]), "bolt"),
+        (Act::Express { .. }, false) => (trf("Run out of service to the terminus on the %{time} trip", &[("time", &time)]), "bolt"),
+        (Act::Layover { saved }, true) if d.boarding > 0 => (
+            trf(
+                "Shorten the layover at %{stop} before the %{time} trip by %{min} min (%{board} min kept for its passengers to board)",
+                &[("stop", &place), ("time", &time), ("min", &saved.to_string()), ("board", &d.boarding.to_string())],
+            ),
+            "timer",
+        ),
+        (Act::Layover { saved }, _) => (trf("Shorten the layover before the %{time} trip by %{min} min", &[("time", &time), ("min", &saved.to_string())]), "timer"),
+        (Act::Swap { vehicle, .. }, true) => {
+            let at = hm(&dp.date, d.there.unwrap_or(dep));
+            let text = if d.spare_line {
+                "Swap in spare bus %{bus} at %{stop} for the %{time} trip (the spare line's driver brings it out, there at %{at})"
+            } else {
+                "Swap in spare bus %{bus} at %{stop} for the %{time} trip (a driver called in brings it out, there at %{at})"
+            };
+            (trf(text, &[("bus", &bus_number(c, Some(*vehicle))), ("stop", &place), ("time", &time), ("at", &at)]), "sync_alt")
+        }
+        (Act::Swap { vehicle, .. }, false) => (trf("Swap in spare bus %{bus} at the terminus for the %{time} trip", &[("bus", &bus_number(c, Some(*vehicle))), ("time", &time)]), "sync_alt"),
+        (Act::Cover { .. }, _) => (String::new(), "person"),
     }
 }
 
@@ -168,7 +202,9 @@ pub fn view(s: &mut Session) -> Value {
     if c.clock.today.as_ref().is_none_or(|x| x.date != c.date) {
         out["idle"] = json!(tr("The company's day has not begun yet: run the clock and the buses go out."));
     }
-    let lv = ctl::live(&c, &dp);
+    // (the timetable read: the trips' stops for the short-turns, RosterFlow's deadheads)
+    let lines = super::lines_of(s, &c.date).unwrap_or_default();
+    let lv = ctl::live(&c, &dp, &lines);
     let begun = out.get("idle").is_none();
     let now = c.clock.minute as i32;
     let at = alert_minutes(&c);
@@ -182,7 +218,12 @@ pub fn view(s: &mut Session) -> Value {
     for (row, b) in buses.iter_mut().zip(&lv.buses) {
         let t = &dp.tours[b.ti];
         let trip = &t.tour.trips[b.trip];
-        let (cause, detail) = cause_of(&c, model.as_ref().and_then(|m| m.get(b.ti)).and_then(|x| x.get(b.trip)).and_then(Option::as_ref));
+        let (cause, mut detail) = cause_of(&c, model.as_ref().and_then(|m| m.get(b.ti)).and_then(|x| x.get(b.trip)).and_then(Option::as_ref));
+        // (the timetable too tight: a way out helps for a trip or two)
+        if let Some(m) = b.tight {
+            let tight = trf("Too little running time: each trip ahead loses about %{n} min (Timeplan)", &[("n", &m.to_string())]);
+            detail = if detail.is_empty() { tight } else { format!("{detail} · {tight}") };
+        }
         let stop = if b.running { trf("on the way to %{stop}", &[("stop", &trip.to)]) } else { trf("at %{stop}", &[("stop", &trip.from)]) };
         incident(row, &c, t, &bus_number(&c, b.vehicle), b.minutes, at, stop, cause, detail);
         row["kind"] = json!("bus");
@@ -221,7 +262,14 @@ pub fn view(s: &mut Session) -> Value {
         let stop = t.tour.trips.get(first).map(|x| trf("at %{stop}", &[("stop", &x.from)])).unwrap_or_default();
         incident(row, &c, t, &bus_number(&c, bus), d.minutes, at, stop, tr("Driver late"), trf("%{name} signs on at %{time}", &[("name", &name), ("time", &hm(&dp.date, d.until))]));
         row["kind"] = json!("driver");
+        // (covered already: the row says by whom)
+        if let Some(id) = d.covered {
+            row["sev"] = json!({ "key": "ok", "label": tr("Cover sent") });
+            row["done"] = json!(trf("%{who} drives the first trips until %{time}", &[("who", &cover_name(&c, id)), ("time", &hm(&dp.date, d.until))]));
+        }
     }
+    // the duties nobody drives and the tours without a bus: their trips lost until covered
+    let opens: Vec<Value> = lv.open.iter().map(|o| open_json(&c, &dp, o, at, now)).collect();
     let mut breaks = breaks_json(&c, &dp);
     let shown: Vec<&ck::Broken> = c.clock.today.as_ref().filter(|s| s.date == c.date).map(|s| s.breaks.iter().filter(|b| b.at <= now).collect()).unwrap_or_default();
     for (row, b) in breaks.iter_mut().zip(shown) {
@@ -260,17 +308,24 @@ pub fn view(s: &mut Session) -> Value {
     let in_service = dp.tours.iter().filter(|t| t.bus.is_some() && !t.by_player && t.tour.from() <= now && t.tour.trips.last().is_some_and(|x| x.arr >= now)).count();
     let on_duty = dp.tours.iter().flat_map(|t| t.duties.iter()).filter(|d| d.who.is_some() && d.from <= now && now <= d.to).count();
     let late_buses = lv.buses.len();
+    let no_driver = lv.open.iter().filter(|o| o.duty.is_some()).count();
+    let no_bus = lv.open.len() - no_driver;
+    let covered = lv.drivers.iter().filter(|d| d.covered.is_some()).count();
     let open_breaks = breaks.iter().filter(|b| b["sev"]["key"] == "high").count();
     let share = if trips > 0 { on_time as f64 / trips as f64 } else { 1.0 };
     out["kpis"] = json!({
         "on_time": { "label": tr("On time"), "frac": share, "pct": if trips > 0 { format!("{} %", (share * 100.0).round() as i64) } else { "—".to_string() },
             "under": trf("(within %{n} min)", &[("n", &at.to_string())]), "tone": if share >= 0.9 { "ok" } else if share >= 0.75 { "warn" } else { "danger" } },
-        "buses": { "label": tr("Buses running late"), "n": late_buses, "under": trf("of %{n} in service", &[("n", &in_service.max(late_buses).to_string())]) },
-        "drivers": { "label": tr("Drivers late"), "n": lv.drivers.len(), "under": trf("of %{n} on duty", &[("n", &(on_duty + lv.drivers.len()).to_string())]) },
+        "buses": { "label": tr("Buses running late"), "n": late_buses + no_bus,
+            "under": if no_bus > 0 { trf("%{n} tours without a bus", &[("n", &no_bus.to_string())]) } else { trf("of %{n} in service", &[("n", &in_service.max(late_buses).to_string())]) } },
+        "drivers": { "label": tr("Drivers late or missing"), "n": lv.drivers.len() + no_driver,
+            "under": if no_driver > 0 { trf("%{n} duties without a driver", &[("n", &no_driver.to_string())]) }
+                else if covered > 0 { trf("%{n} covered", &[("n", &covered.to_string())]) }
+                else { trf("of %{n} on duty", &[("n", &(on_duty + lv.drivers.len()).to_string())]) } },
         "breaks": { "label": tr("Breakdowns today"), "n": breaks.len(), "under": if breaks.is_empty() { tr("none reported") } else { trf("%{n} still to decide", &[("n", &open_breaks.to_string())]) } },
     });
     // the lines running normally, each with its last trip gone (the newest first)
-    let busy: Vec<String> = buses.iter().chain(&drivers).chain(&breaks).filter(|r| r["sev"]["key"] != "ok").filter_map(|r| r["line"].as_str().map(str::to_string)).collect();
+    let busy: Vec<String> = buses.iter().chain(&drivers).chain(&breaks).chain(&opens).filter(|r| r["sev"]["key"] != "ok").filter_map(|r| r["line"].as_str().map(str::to_string)).collect();
     let mut normal: Vec<(i32, Value)> = Vec::new();
     for t in dp.tours.iter().filter(|t| t.bus.is_some()) {
         let line = t.tour.line.to_lowercase();
@@ -296,6 +351,7 @@ pub fn view(s: &mut Session) -> Value {
     out["alert_at"] = json!(at);
     out["buses"] = json!(buses);
     out["drivers"] = json!(drivers);
+    out["open"] = json!(opens);
     out["breaks"] = json!(breaks);
     out["msgs"] = json!(msgs);
     out["done"] = json!(done_json(&c));
@@ -409,7 +465,7 @@ fn bus_json(c: &Company, dp: &DayPlan, b: &ctl::LateBus) -> Value {
         .options
         .iter()
         .map(|o| {
-            let (label, icon) = act_label(c, dp, &o.act, o.dep);
+            let (label, icon) = act_label(c, dp, &o.act, o.dep, &o.detail);
             json!({ "label": label, "short": act_short(c, &o.act), "icon": icon, "effect": option_words(&dp.date, &o.effect, &b.nothing), "best": o.best, "good": o.gain > 0.0,
                 "args": apply_args(&t.tour.line, &t.tour.tour, o.dep, &o.act) })
         })
@@ -471,6 +527,7 @@ fn mended_json(c: &Company, dp: &DayPlan, ti: usize) -> Value {
 fn what_of(c: &Company, act: &Act) -> String {
     match *act {
         Act::ShortTurn { .. } => tr("Short-turn"),
+        Act::Express { part, .. } if part >= 0.999 => tr("Ran dead to the opposite terminus"),
         Act::Express { .. } => tr("Out of service to the terminus"),
         Act::Layover { .. } => tr("Shorter layover"),
         Act::Swap { vehicle, .. } => trf("Spare bus %{bus} swapped in", &[("bus", &bus_number(c, Some(vehicle)))]),
@@ -519,6 +576,76 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
         "where": trf("Comes at %{time}: the first trips of the duty wait for him", &[("time", &hm(&dp.date, d.until))]),
         "nothing": nothing_words(&dp.date, &d.nothing), "options": covers,
     })
+}
+
+/// Who covers a late driver's first trips (`plan::LatePiece::cover`): a colleague, an agency
+/// driver, a spare line's driver.
+fn cover_name(c: &Company, id: u32) -> String {
+    if id == pl::AGENCY {
+        return tr("An agency driver");
+    }
+    if let Some(sp) = pl::spare_of_cover(id) {
+        return trf("The driver of spare line %{spare}", &[("spare", &co::rosterflow::spare_label(c, sp))]);
+    }
+    c.employee(id).map(|e| e.name.clone()).unwrap_or_default()
+}
+
+/// A duty nobody drives, or a tour without a bus (`ctl::Open`): a row of the incident table with
+/// the ways to cover it - a colleague, an agency driver; a spare bus, a rental bus; dropping its
+/// trips - each with what it comes to.
+fn open_json(c: &Company, dp: &DayPlan, o: &ctl::Open, at: u32, now: i32) -> Value {
+    let t = &dp.tours[o.ti];
+    let bus = match t.bus {
+        Some(BusOf::Own(id)) => bus_number(c, Some(id)),
+        Some(BusOf::Rental) => tr("Rental bus"),
+        None => "—".to_string(),
+    };
+    let ways: Vec<Value> = o
+        .ways
+        .iter()
+        .map(|w| {
+            let (label, short, icon) = match w.fill {
+                Fill::Colleague { id } => {
+                    let name = c
+                        .employee(id)
+                        .map(|e| if co::agency::is_booked(e.id) { trf("agency driver %{n} (booked)", &[("n", &co::agency::number_of(e).to_string())]) } else { e.name.clone() })
+                        .unwrap_or_default();
+                    let label = if w.standby { trf("%{name} drives it (standby: free all day)", &[("name", &name)]) } else { trf("%{name} drives it", &[("name", &name)]) };
+                    (label, name, "person")
+                }
+                Fill::Agency => (tr("The agency sends a driver for it"), tr("Agency driver"), "badge"),
+                Fill::Bus { id } => (trf("Spare bus %{bus} runs it", &[("bus", &bus_number(c, Some(id)))]), trf("Spare bus %{bus}", &[("bus", &bus_number(c, Some(id)))]), "directions_bus"),
+                Fill::Rental => (tr("A rental bus runs it"), tr("Rental bus"), "airport_shuttle"),
+                _ => (tr("Drop its trips still to come today"), tr("Drop trips"), "close"),
+            };
+            let effect = if w.fill == Fill::Drop { nothing_words(&dp.date, &o.nothing) } else { option_words(&dp.date, &w.effect, &o.nothing) };
+            json!({ "label": label, "short": short, "icon": icon, "effect": effect, "best": w.best, "good": w.fill != Fill::Drop,
+                "args": { "line": t.tour.line, "tour": t.tour.tour, "duty": o.duty, "fill": serde_json::to_value(w.fill).unwrap_or(Value::Null) } })
+        })
+        .collect();
+    let first = t.tour.trips.iter().find(|x| x.dep == o.first);
+    let why = o.problem.map(|p| tr(p.label())).unwrap_or_default();
+    let lost = trf("%{n} trips lost if nobody covers it", &[("n", &o.nothing.lost_trips.to_string())]);
+    let mut row = json!({
+        "kind": "open",
+        "title": match o.duty {
+            Some(k) => trf("Line %{n} tour %{tour} duty %{duty}: no driver", &[("n", &t.tour.number), ("tour", &t.tour.tour), ("duty", &(k + 1).to_string())]),
+            None => trf("Line %{n} tour %{tour}: no bus", &[("n", &t.tour.number), ("tour", &t.tour.tour)]),
+        },
+        "nothing": nothing_words(&dp.date, &o.nothing), "options": ways,
+    });
+    // (soon: high; later today: medium)
+    let soon = o.first <= now + 2 * at as i32 + 15;
+    row["sev"] = if soon { json!({ "key": "high", "label": tr("High") }) } else { json!({ "key": "medium", "label": tr("Medium") }) };
+    row["line"] = json!(t.tour.line.to_lowercase());
+    row["plate"] = plate(&t.tour.number, &hex(co::rosterflow::line_colour(c, &t.tour.line)));
+    row["bus"] = json!(bus);
+    row["delay"] = json!(trf("from %{time}", &[("time", &hm(&dp.date, o.first))]));
+    row["at"] = json!(first.map(|x| trf("at %{stop}", &[("stop", &x.from)])).unwrap_or_default());
+    row["cause"] = json!(if o.duty.is_some() { tr("No driver") } else { tr("No bus") });
+    row["detail"] = json!(if why.is_empty() { lost } else { format!("{why} · {lost}") });
+    row["map"] = json!(format!("{}|{}", t.tour.line, t.tour.tour));
+    row
 }
 
 /// Today's breakdowns and accidents: what was decided, or the choices with the trips each saves.
@@ -672,7 +799,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
             Ok(super::act(s, |c| if co::ontime::remove_diversion(c, id) { Ok(()) } else { Err("That cannot be done now.") }).map(|_| json!({})).unwrap_or_else(|p| json!({ "popup": p })))
         }
-        "ops_apply" | "ops_cover" | "ops_break" => match take(s, what, args) {
+        "ops_apply" | "ops_cover" | "ops_break" | "ops_fill" => match take(s, what, args) {
             Ok((said, to)) => {
                 super::changed(s);
                 s.say(said.clone(), false);
@@ -719,6 +846,23 @@ fn take(s: &mut Session, what: &str, args: &Value) -> Result<(String, Option<i64
     }
     let cover = what == "ops_cover";
     let Some(date) = s.company.as_ref().map(|c| c.date.clone()) else { return Err(tr("That cannot be done now.")) };
+    if what == "ops_fill" {
+        let dp = match super::plan_of(s, &date) {
+            Some(Ok(p)) => p,
+            Some(Err(e)) => return Err(e),
+            None => return Err(tr("Reading the timetable…")),
+        };
+        let line = args.get("line").and_then(Value::as_str).unwrap_or("");
+        let tour = args.get("tour").and_then(Value::as_str).unwrap_or("");
+        let Some(ti) = dp.tours.iter().position(|t| t.tour.line == line && t.tour.tour == tour) else { return Err(tr("That tour is not on today's plan any more.")) };
+        let duty = args.get("duty").and_then(Value::as_u64).map(|k| k as usize);
+        let fill: Fill = serde_json::from_value(args.get("fill").cloned().unwrap_or(Value::Null)).map_err(|_| tr("That cannot be done now."))?;
+        let Some(c) = s.company.as_mut() else { return Err(tr("That cannot be done now.")) };
+        let Some((text, a)) = ctl::fill(c, &dp, ti, duty, fill, false, &mut Run::default()) else { return Err(tr("That cannot be done now.")) };
+        s.plan = None;
+        s.plan_gen += 1;
+        return Ok((super::words::filled(&text, &a), None));
+    }
     let dp = match super::plan_of(s, &date) {
         Some(Ok(p)) => p,
         Some(Err(e)) => return Err(e),
@@ -825,7 +969,14 @@ mod tests {
                 terminus: b.into(),
                 departure: dep as f64 * 60.0,
                 arrival: (dep + 50) as f64 * 60.0,
-                stops: (0..6).map(|s| StopInfo { name: format!("S{s}"), id: s, arr: 0.0, dep: 0.0 }).collect(),
+                // (six stops ten minutes apart, S0 at A to S5 at B and back the other way)
+                stops: (0..6)
+                    .map(|s| {
+                        let name = if k % 2 == 0 { format!("S{s}") } else { format!("S{}", 5 - s) };
+                        let at = (dep + 10 * s as i32) as f64 * 60.0;
+                        StopInfo { name, id: s, arr: at, dep: at }
+                    })
+                    .collect(),
                 km: 20.0,
             }
         };
@@ -887,7 +1038,7 @@ mod tests {
         let spare = s.company.as_ref().unwrap().fleet.iter().map(|v| v.id).find(|id| *id != bus_of(0) && *id != bus_of(1)).unwrap();
         let (a, b) = (&dp.tours[0].tour, &dp.tours[1].tour);
         let ways = [
-            (a, a.trips[1].dep, Act::ShortTurn { part: 0.2, saved: 15 }),
+            (a, a.trips[1].dep, Act::ShortTurn { part: 0.2, saved: 15, next: None }),
             (a, a.trips[2].dep, Act::Express { part: 0.5, saved: 6 }),
             (b, b.trips[2].dep, Act::Layover { saved: 3 }),
             (b, b.trips[3].dep, Act::Swap { vehicle: spare, from_bus: bus_of(1) }),
@@ -945,6 +1096,98 @@ mod tests {
         assert_ne!(before["breaks"][0]["where"], after["breaks"][0]["where"]);
         // and the same again: refused, with the reason
         assert!(take(&mut s, "ops_break", &json!({ "index": 0, "choice": "rental" })).is_err());
+    }
+
+    /// Roadworks on line 5 today: every trip loses about twenty minutes on the way.
+    fn roadworks(s: &mut Session) {
+        let c = s.company.as_mut().unwrap();
+        let date = c.date.clone();
+        c.inbox.events.push(co::inbox::Event {
+            id: 900,
+            key: "roadworks".into(),
+            from: date.clone(),
+            until: date,
+            fuel: 1.0,
+            demand: 1.0,
+            late: 1.0,
+            line: Some("5".into()),
+            started: true,
+            ended: false,
+        });
+        s.plan_gen += 1;
+    }
+
+    #[test]
+    fn a_late_bus_is_brought_back_by_the_stops_the_deadheads_and_a_spare_with_its_driver() {
+        super::super::words::set_language("en");
+        let (mut s, _) = running_day();
+        roadworks(&mut s);
+        s.company.as_mut().unwrap().clock.minute = 7 * 60 + 25;
+        let v = view(&mut s);
+        let buses = v["buses"].as_array().unwrap();
+        assert!(!buses.is_empty(), "the roadworks make line 5 late: {v:#}");
+        let labels: Vec<String> = buses.iter().flat_map(|b| b["options"].as_array().unwrap().iter().map(|o| o["label"].as_str().unwrap().to_string())).collect();
+        let found = |what: &str| labels.iter().find(|l| l.contains(what)).cloned();
+        // a short-turn at a stop of the timetable the next trip calls at too, with the stops it leaves
+        let turn = found("Short-turn at S").unwrap_or_else(|| panic!("{labels:#?}"));
+        assert!(turn.contains("stops not served"), "{turn}");
+        // running the next trip dead to the opposite terminus: a whole trip lost
+        let dead = found("dead to").unwrap_or_else(|| panic!("{labels:#?}"));
+        assert!(dead.contains("the whole trip lost"), "{dead}");
+        // the third bus as a spare: a driver called in brings it out (no spare line), and it costs
+        let spare = buses.iter().flat_map(|b| b["options"].as_array().unwrap()).find(|o| o["label"].as_str().unwrap().contains("Swap in spare bus")).unwrap_or_else(|| panic!("{labels:#?}"));
+        assert!(spare["label"].as_str().unwrap().contains("a driver called in brings it out"), "{}", spare["label"]);
+        assert!(spare["effect"].as_str().unwrap().contains("costs"), "{}", spare["effect"]);
+        // the dead run's effect says the trip is run empty, not a part of it
+        let dead_effect = buses.iter().flat_map(|b| b["options"].as_array().unwrap()).find(|o| o["label"].as_str().unwrap().contains("dead to")).unwrap()["effect"].as_str().unwrap().to_string();
+        assert!(dead_effect.contains("trips run empty"), "{dead_effect}");
+        // the roadworks make every trip ahead late: the row says the time is too short
+        assert!(buses.iter().any(|b| b["detail"].as_str().unwrap_or("").contains("Too little running time")), "{buses:#?}");
+        // done: the dead run is said and listed as one
+        let args = buses.iter().flat_map(|b| b["options"].as_array().unwrap()).find(|o| o["short"] == "Run dead").unwrap()["args"].clone();
+        let (said, _) = take(&mut s, "ops_apply", &args).unwrap();
+        assert!(said.contains("empty to the opposite terminus"), "{said}");
+        let after = view(&mut s);
+        assert!(after["done"][0]["text"].as_str().unwrap().starts_with("Ran dead to the opposite terminus"), "{}", after["done"]);
+    }
+
+    #[test]
+    fn what_nobody_drives_is_a_row_with_the_ways_to_cover_it() {
+        super::super::words::set_language("en");
+        let (mut s, _) = running_day();
+        // (nothing planned, and the dispatcher not filling it: every tour without a bus)
+        s.company.as_mut().unwrap().planning.auto = false;
+        s.plan_gen += 1;
+        let v = view(&mut s);
+        let open = v["open"].as_array().unwrap();
+        assert_eq!(open.len(), 2, "{open:#?}");
+        assert_eq!((open[0]["kind"].as_str(), open[0]["cause"].as_str()), (Some("open"), Some("No bus")));
+        assert_eq!(v["kpis"]["buses"]["n"], 2);
+        assert_eq!(v["kpis"]["buses"]["under"], "2 tours without a bus");
+        // a spare bus first, suggested on Normal
+        let way = &open[0]["options"][0];
+        assert_eq!((way["best"].as_bool(), way["args"]["fill"]["kind"].as_str()), (Some(true), Some("bus")));
+        let (said, _) = take(&mut s, "ops_fill", &way["args"]).unwrap();
+        assert!(said.contains("runs line 5 tour"), "{said}");
+        // the tour has its bus: its duties nobody drives are rows now, a driver for each
+        let v = view(&mut s);
+        let duties: Vec<Value> = v["open"].as_array().unwrap().iter().filter(|r| r["cause"] == "No driver").cloned().collect();
+        assert!(!duties.is_empty(), "{:#?}", v["open"]);
+        assert!(v["kpis"]["drivers"]["n"].as_u64().unwrap() >= duties.len() as u64);
+        assert!(duties[0]["detail"].as_str().unwrap().contains("trips lost if nobody covers it"), "{}", duties[0]["detail"]);
+        let ways = duties[0]["options"].as_array().unwrap();
+        assert!(ways.iter().any(|o| o["args"]["fill"]["kind"] == "agency"), "{ways:#?}");
+        let colleague = ways.iter().find(|o| o["args"]["fill"]["kind"] == "colleague").expect("a free colleague");
+        let (said, _) = take(&mut s, "ops_fill", &colleague["args"]).unwrap();
+        assert!(said.contains("drives duty"), "{said}");
+        let after = view(&mut s);
+        assert_eq!(after["open"].as_array().unwrap().len(), v["open"].as_array().unwrap().len() - 1);
+        // dropped by choice: decided, its row goes
+        let other = after["open"][0]["options"].as_array().unwrap().iter().find(|o| o["args"]["fill"]["kind"] == "drop").unwrap()["args"].clone();
+        take(&mut s, "ops_fill", &other).unwrap();
+        assert_eq!(view(&mut s)["open"].as_array().unwrap().len(), after["open"].as_array().unwrap().len() - 1);
+        // and something that is not open cannot be filled
+        assert!(take(&mut s, "ops_fill", &colleague["args"]).is_err());
     }
 
     #[test]

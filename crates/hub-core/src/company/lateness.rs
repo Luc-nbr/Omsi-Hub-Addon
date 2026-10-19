@@ -258,6 +258,9 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
     // the start of the next trip too)
     let mut swapped: Vec<Option<u32>> = vec![None; plan.tours.len()];
     let mut last_run: Vec<Option<i32>> = vec![None; plan.tours.len()];
+    // (the termini and the lines meeting at each: what a bus coming in late keeps of its layover,
+    // `recovery::kept_rest` - the turnaround a busy terminus takes, and the driver's minutes)
+    let termini = super::recovery::Termini::of(plan.tours.iter().map(|t| &t.tour));
     for (ti, k) in order {
         let tp = &plan.tours[ti];
         let d = &tp.duties[k];
@@ -282,6 +285,7 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
         let mut first = true;
         for j in d.start..d.end {
             let x = &tp.tour.trips[j];
+            let kept = super::recovery::kept_rest(c, &tp.tour.line, x, termini.lines_at(&x.from));
             // (a trip's second part, cut at a relief point, runs as its whole trip does)
             let head = if x.is_second() && j > 0 { j - 1 } else { j };
             let hk = tp.duties.iter().position(|dd| dd.start <= head && head < dd.end).unwrap_or(k);
@@ -294,7 +298,7 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             // (what the bus swapped out would have brought late: the swap takes it off)
             let swap_saved = swap.and_then(|_| swapped[ti].or(tp.bus)).and_then(|old| buses.iter().find(|b| b.0 == old)).map_or(0.0, |&(_, free, pt, pj)| {
                 let p = &plan.tours[pt].tour.trips[pj];
-                (free + (x.dep - p.arr).clamp(0, control::MIN_LAYOVER) as f64 - x.dep as f64).max(0.0)
+                (free + (x.dep - p.arr).clamp(0, kept) as f64 - x.dep as f64).max(0.0)
             });
             if swap.is_some() {
                 swapped[ti] = swap;
@@ -303,15 +307,15 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             let by_spare = spare.is_some() && broken_at.is_some_and(|b| head_dep >= b.at && b.covered(head_dep));
             let Some(bus) = (if by_spare { spare } else { swapped[ti].or(tp.bus) }) else { continue };
             let v = c.vehicle(bus);
-            // when the bus, the driver and a spare are there (a bus coming in late keeps
-            // `control::MIN_LAYOVER` of its layover for the driver's rest)
+            // when the bus, the driver and a spare are there (a bus coming in late keeps the
+            // turnaround of its layover and the driver's rest: `kept`)
             let mut ready: Vec<(f64, Cause, Option<(usize, usize)>)> = Vec::new();
             if let Some(&(_, free, pt, pj)) = buses.iter().find(|b| b.0 == bus).filter(|_| swap.is_none()) {
                 let p = &plan.tours[pt].tour.trips[pj];
                 let late = free - p.arr as f64;
                 if late > 0.0 {
                     let stop = if p.last.is_empty() { p.to.clone() } else { p.last.clone() };
-                    let rest = (x.dep - p.arr).clamp(0, control::MIN_LAYOVER) as f64;
+                    let rest = (x.dep - p.arr).clamp(0, kept) as f64;
                     ready.push((free + rest, Cause::Carried { dep: p.dep, arr: p.arr, stop, late: late.round() as i32, layover: x.dep - p.arr, deadhead: !p.counts(), minutes: 0 }, Some((pt, pj))));
                 }
             }
@@ -363,7 +367,9 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
                         dep_delay -= r;
                         recovered += r;
                     }
-                    Act::ShortTurn { part, .. } if m.dep == x.dep || last_run[ti] == Some(m.dep) => lost = lost.max(part),
+                    Act::ShortTurn { part, .. } if m.dep == x.dep => lost = lost.max(part),
+                    // (the next trip's first stops, up to where the bus turned back)
+                    Act::ShortTurn { part, next, .. } if last_run[ti] == Some(m.dep) => lost = lost.max(next.unwrap_or(part)),
                     Act::Express { part, .. } if m.dep == x.dep => lost = lost.max(part),
                     _ => {}
                 }
@@ -406,7 +412,10 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             let mut rng = Rng::of(&[&c.id, "running", &tp.tour.line, &tp.tour.tour], day * 1440 + x.dep as i64);
             let (share, peak) = band(wd, x.dep);
             let traffic = run * share * factor * if counts { 1.0 } else { 0.6 };
-            let slow = if counts { run * ((60.0 - e.skills.punctuality) / 100.0 * 0.08 + (1.0 - e.experience / 100.0).max(0.0) * 0.02) * factor } else { 0.0 };
+            // (a new driver is as slow as a worn bus until his experience grows - the testers,
+            // 2026-10-19: "new inexperienced drivers could have the same impact until their
+            // ratings grow"; `staff::after_day` adds to it every day driven)
+            let slow = if counts { run * ((60.0 - e.skills.punctuality) / 100.0 * 0.08 + novice(e.experience) * NOVICE) * factor } else { 0.0 };
             let worn = v.map_or(0.0, |v| run * (1.0 - v.condition / 100.0).max(0.0) * 0.06 * factor);
             let events = run * event * 0.4;
             let chance = run * rng.range(-0.03, 0.05) * factor;
@@ -427,6 +436,16 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
                 ],
             };
             let mut arr_delay = dep_delay;
+            // (not begun yet: what it is expected to lose on the way - the hour's traffic, the
+            // driver, the bus, the day's events, not chance -, so that the trips ahead of a bus
+            // the timetable gives too little time do not look on time: service control weighs its
+            // ways on them)
+            if !known && own.is_none() {
+                for (m, cause) in &parts[..4] {
+                    arr_delay += m;
+                    add_root(&mut roots, cause.key(), *m);
+                }
+            }
             if known {
                 for (m, mut cause) in parts {
                     arr_delay += m;
@@ -470,6 +489,15 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
         }
     }
     out
+}
+
+/// How much slower than an old hand a newcomer drives: a share of the running time, as much as a
+/// bus in poor condition loses (`Cause::Bus`: 6 % at its worst).
+pub const NOVICE: f64 = 0.04;
+
+/// How much of `NOVICE` a driver of `experience` loses (1 a newcomer, 0 from 90 on).
+pub fn novice(experience: f64) -> f64 {
+    ((90.0 - experience.clamp(0.0, 100.0)) / 90.0).max(0.0).powf(1.5)
 }
 
 /// Trip `j` of tour `ti` as the close books it: with its second part when it was cut at a
