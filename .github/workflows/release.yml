@@ -4,7 +4,7 @@
 # the app's updater and the website read the releases there). Luc publishes the draft by hand
 # (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
 #
-# Writing there takes the secret RELEASES_TOKEN: a fine-grained token of Luc's with "Contents: Read
+# Writing there takes the secret OMSI_HUB_RELEASES: a fine-grained token of Luc's with "Contents: Read
 # and write" on Luc-nbr/Omsi-Hub-Releases only (this repository's own token cannot write to another).
 #
 # A pre-release (for testers) is the same draft with GitHub's pre-release mark: run by hand with
@@ -34,7 +34,7 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# (this repository is only read: the release goes to Omsi-Hub-Releases with RELEASES_TOKEN)
+# (this repository is only read: the release goes to Omsi-Hub-Releases with OMSI_HUB_RELEASES)
 permissions:
   contents: read
 
@@ -127,10 +127,10 @@ jobs:
       - name: Releases repository token
         shell: bash
         env:
-          TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::error::The secret RELEASES_TOKEN is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
+            echo "::error::The secret OMSI_HUB_RELEASES is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
             exit 1
           fi
 
@@ -153,7 +153,7 @@ jobs:
       - name: Build and upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:

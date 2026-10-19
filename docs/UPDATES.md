@@ -85,7 +85,7 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    - make a **fine-grained token** (GitHub → Settings → Developer settings → Fine-grained tokens):
      repository access "Only select repositories" → `Omsi-Hub-Releases`, permission
      "Contents: Read and write", nothing else;
-   - add it to **this** repository as the secret `RELEASES_TOKEN` (Settings → Secrets and
+   - add it to **this** repository as the secret `OMSI_HUB_RELEASES` (Settings → Secrets and
      variables → Actions). The release workflow stops with a clear error without it.
 
    The openOMSI fork Cargo fetches (`Luc-nbr/openOMSI`) is private: CI and the release read it
