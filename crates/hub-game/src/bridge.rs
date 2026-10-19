@@ -33,6 +33,9 @@
 //! * `data/traffic.json`: what is on the road, every few seconds ([`Traffic`]: the player's
 //!   bus, the AI vehicles, the timetable's buses, the other players), for the fleet map
 //!   (`lua/traffic.lua`).
+//! * `data/dash.json`: the live dashboard of every drive, every two seconds ([`Dash`]: the bus,
+//!   the duty and its trip's stops, what the drive came to so far) - what Omsi-Hub's window
+//!   shows while the game runs (`lua/dash.lua`).
 //!
 //! A game without `files.write` / `files.append` gets the same lines into its log instead
 //! (`omsi.log`, `[lua omsihub] OMSIHUB-HELLO {...}`, `OMSIHUB-REPORT {...}` and
@@ -60,6 +63,7 @@ pub const MESSAGES_FILE: &str = "messages.json";
 pub const REPLIES_FILE: &str = "replies.jsonl";
 pub const STATUS_FILE: &str = "status.json";
 pub const TRAFFIC_FILE: &str = "traffic.json";
+pub const DASH_FILE: &str = "dash.json";
 /// What the plugin's log lines start with when it cannot write files.
 pub const LOG_HELLO: &str = "OMSIHUB-HELLO ";
 pub const LOG_REPORT: &str = "OMSIHUB-REPORT ";
@@ -679,6 +683,94 @@ fn list<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(d: D) 
 /// What is on the road, as the plugin last wrote it.
 pub fn read_traffic(plugin_dir: &Path) -> Option<Traffic> {
     let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(TRAFFIC_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// The bus as the live dashboard has it (each where the game says it): its speed (km/h), where
+/// it is (the map's metres), its file, the passengers on board, the odometer (km) and the fuel
+/// (litres).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashBus {
+    pub speed: f64,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub file: String,
+    pub passengers: Option<f64>,
+    pub odometer: Option<f64>,
+    pub fuel: Option<f64>,
+}
+
+/// The duty under way, as the game has it (`omsi.duty.get`): its line and tour (the
+/// timetable's), the trip (from 1) of how many, its name, the line its displays show and where it
+/// goes, its departure and arrival (seconds of the day), how late it runs (s, early negative),
+/// the next station (an index into [`Dash::stops`]) and whether the bus stands at it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashDuty {
+    pub line: String,
+    pub tour: String,
+    pub trip: u32,
+    pub trips: u32,
+    pub trip_name: String,
+    pub number: String,
+    pub terminus: String,
+    pub departure: Option<f64>,
+    pub arrival: Option<f64>,
+    pub delay: f64,
+    pub next: usize,
+    pub at_stop: bool,
+}
+
+/// A station of the trip under way: when the bus is due and leaves (seconds of the day), and
+/// whether it stops there (false: it passes).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashStop {
+    pub name: String,
+    pub arrival: f64,
+    pub departure: f64,
+    pub stops: bool,
+}
+
+/// What the drive came to so far: seconds and metres driven, jolts and collisions, passengers
+/// who got on, the stops served on its trips and how many of them early, on time and late (as
+/// a trip's report judges them), and the metres since the bus left its last stop.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashDrive {
+    pub seconds: f64,
+    pub metres: f64,
+    pub jolts: u32,
+    pub crashes: u32,
+    pub boarded: u32,
+    pub served: u32,
+    pub early: u32,
+    pub on_time: u32,
+    pub late: u32,
+    pub since_stop: f64,
+}
+
+/// The live dashboard of a drive (`data/dash.json`), written by the plugin every two seconds
+/// while the player is in a bus, assignment or none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Dash {
+    /// The assignment it drives (0: none).
+    pub issued: u64,
+    /// The real time it was written (Unix seconds) and the game's clock (seconds of the day).
+    pub at: f64,
+    pub clock: Option<f64>,
+    pub bus: DashBus,
+    /// None: no duty under way (a free drive, or one not started yet).
+    pub duty: Option<DashDuty>,
+    pub stops: Vec<DashStop>,
+    pub drive: DashDrive,
+}
+
+/// The plugin's live dashboard, if it wrote one.
+pub fn read_dash(plugin_dir: &Path) -> Option<Dash> {
+    let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(DASH_FILE)).ok()?;
     serde_json::from_str(&text).ok()
 }
 

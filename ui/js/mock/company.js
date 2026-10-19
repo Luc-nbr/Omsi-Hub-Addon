@@ -19,7 +19,7 @@ const companies = [
   { id: 'ruhrau-verkehr', name: 'Ruhrau Verkehr', short: 'RV', colours: ['#43a047', '#f5f5f5'], map: 'maps/Ruhrau/global.cfg', map_name: 'Ruhrau', depot: 'Betriebshof Ruhrau', mode: 'casual', cash: 4210000, trophies: 3, reputation: 48, date: '2026-05-02', minute: 9 * 60, played: 60 * 26 },
 ];
 
-const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
+const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, friendsJoin: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
 const co = () => companies.find((c) => c.id === st.open) || null;
 const bump = () => (st.gen += 1);
 const say = (text, error = false) => st.notices.push({ text, error });
@@ -779,6 +779,7 @@ function settings(a) {
     buying: { caps: 'BUYING BUSES', mode: 1, modes: ['Simple', 'By contract'], say: 'Haggle with the dealer, agree on extras and sign a contract; new buses are delivered.' },
     currency: { caps: 'CURRENCY', value: 0, codes: ['EUR', 'GBP', 'PLN'], options: ['Euro (€)', 'Pound (£)', 'Złoty (zł)'], say: 'Money is shown in this currency.' },
     vehicles: null,
+    friends: { caps: 'MULTIPLAYER', on: st.friendsJoin, label: 'Friends can join without an invite', say: st.friendsJoin ? 'While you share the company, your Omsi-Hub friends see a Join button in their friends list: no session code needed.' : 'Off: friends join when you invite them from your friends list, or with the session code.' },
     date_caps: "THE COMPANY'S DATE", now: `${dayLabel(c.date)}  ·  ${hm()}`,
     realtime: { on: st.realtime, label: 'In step with the real clock', say: "The company's time goes on while Omsi-Hub is closed." },
     date: a.date || c.date, earliest: null, warn: 'Moving the date does not simulate the days between.',
@@ -1053,7 +1054,13 @@ function ops() {
     buses: [{ kind: 'bus', sev: { key: 'medium', label: 'Medium' }, plate: plate(l101), bus: '18', delay: '+7 min', at: 'Marktplatz', cause: 'Traffic', detail: 'Road works on the Hauptstraße', map: 'bus:2', to: { key: 'staff:2', label: 'Anke Müller' }, min: 7,
       options: [{ icon: 'fast_forward', short: 'Short turn', label: 'Turn short at the Kirche', effect: 'Back on time at the next trip; 2 stops not served', best: true, good: true, args: { bus: 2, way: 'short' } }, { icon: 'hourglass_empty', short: 'Wait', label: 'Let it run late', effect: 'About 7 minutes late until the end', best: false, good: false, args: { bus: 2, way: 'none' } }] }],
     breaks: [{ kind: 'break', sev: { key: 'high', label: 'High' }, plate: null, bus: '2571', delay: '—', at: 'Depot', cause: 'Breakdown', detail: 'Starter motor', done: 'Bus 31 runs in its place', none: null, options: [] }],
-    drivers: [], msgs: [],
+    // (a late driver someone covers, and a duty nobody drives: `ops::open_json`)
+    drivers: [{ kind: 'driver', sev: { key: 'ok', label: 'Cover sent' }, plate: plate(lineOf('205')), bus: '22', delay: '+30 min', at: 'at Bahnhof', cause: 'Driver late', detail: 'Jonas Weber signs on at 08:10', done: 'Anke Müller drives the first trips until 08:10', options: [] }],
+    open: [{ kind: 'open', sev: { key: 'high', label: 'High' }, plate: plate(lineOf('102')), bus: '31', delay: 'from 08:05', at: 'at Bahnhof', cause: 'No driver', detail: 'Ill · 6 trips lost if nobody covers it', map: 'bus:3', nothing: 'Left as it is: 6 trips dropped, €0.00 in penalties, −0.4 reputation.',
+      options: [{ icon: 'person', short: 'Tim Becker', label: 'Tim Becker drives it (standby: free all day)', effect: 'Saves 6 trips (−€0.00)', best: true, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'colleague', id: 7 } } },
+        { icon: 'badge', short: 'Agency driver', label: 'The agency sends a driver for it', effect: 'Saves 6 trips (−€0.00); costs €148.00', best: false, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'agency' } } },
+        { icon: 'close', short: 'Drop trips', label: 'Drop its trips still to come today', effect: 'Left as it is: 6 trips dropped', best: false, good: false, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'drop' } } }] }],
+    msgs: [],
     normal: [{ plate: plate(lineOf('102')), time: '07:31', age: 11 }, { plate: plate(lineOf('205')), time: '07:20', age: 22 }],
     map: { title: 'LIVE NETWORK MAP', sub: 'Every bus where it is', legend: [['ok', 'On time'], ['warn', 'Late'], ['danger', 'Very late'], ['dim', 'In the depot']], zoom_in: 'Zoom in', zoom_out: 'Zoom out', fit: 'Show all' },
     diversions: { title: 'DIVERSIONS AND ROADWORKS', sub: 'Planned diversions: the lines take the way round on those days.', events: ['Road works on the Hauptstraße: line 101 over the Kirchweg until Fri 23 Oct'], rows: [], none: 'No diversions planned.',
@@ -1587,6 +1594,10 @@ function doAct(a) {
       return {};
     case 'realtime':
       st.realtime = !!a.on;
+      bump();
+      return {};
+    case 'friends_join':
+      st.friendsJoin = !!a.on;
       bump();
       return {};
     case 'rosterflow':

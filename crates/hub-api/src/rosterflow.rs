@@ -415,7 +415,10 @@ fn board_json(c: &Company, board: &Board) -> Value {
                     if j > 0 {
                         let prev = &t.trips[j - 1];
                         if !prev.end().trim().eq_ignore_ascii_case(x.from.trim()) && !prev.empty && !x.empty {
-                            v["dh"] = json!(st::travel(&line_trips, prev.end(), &x.from));
+                            // (its time set in Preferences › Deadheads, else estimated: an orange dot)
+                            let d = rf::deadhead_between(c, tours, &line_trips, prev.end(), &x.from);
+                            v["dh"] = json!(d.minutes);
+                            v["dh_set"] = json!(d.set);
                         }
                     }
                     v

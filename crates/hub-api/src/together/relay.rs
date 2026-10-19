@@ -153,7 +153,7 @@ fn act_need(act: &str, what: &str) -> Need {
         "line_title" | "line_type" | "line_hof" | "line_colour" | "line_connections" | "add_line" | "remove_line" => LINES,
         "set_fare" | "set_cap" => Any(&[Perm::Lines, Perm::Spend]),
         "inbox_read" | "inbox_unread" | "inbox_delete" | "inbox_mark_all" | "inbox_delete_read" => SETTINGS,
-        "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" | "ops_diversion_add" | "ops_diversion_remove" => SERVICE,
+        "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" | "ops_fill" | "ops_diversion_add" | "ops_diversion_remove" => SERVICE,
         // (the control room's messages to the drivers: who runs the day's service sends them,
         // by his name)
         "ops_msg" | "ops_msg_ack" => SERVICE,
@@ -365,8 +365,9 @@ mod tests {
             ("ops", include_str!("../company/ops.rs")),
             ("sandbox", include_str!("../company/sandbox.rs")),
         ];
-        // (the boss's own: never from afar)
-        let own = ["logo", "move_date", "design_livery"];
+        // (the boss's own: never from afar - friends joining his company without an invite is his
+        // online profile's)
+        let own = ["logo", "move_date", "design_livery", "friends_join"];
         let mut missing = Vec::new();
         for (page, src) in pages {
             for a in acts_in(src) {

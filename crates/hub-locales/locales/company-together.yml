@@ -828,13 +828,36 @@ _version: 2
   pl: "Firma szefa jest właśnie zajęta swoim dniem: spróbuj za chwilę."
   ru: "Компания босса сейчас занята своим днём: попробуйте чуть позже."
   uk: "Компанія боса зараз зайнята своїм днем: спробуйте трохи згодом."
+# The company's settings: friends joining the shared company without an invite (Luc, 2026-10-19:
+# "invite my friends ... they don't have to enter the code anymore").
 "Multiplayer":
-  nl: "Multiplayer"
   de: "Mehrspieler"
   fr: "Multijoueur"
+  nl: "Multiplayer"
+  pl: "Tryb wieloosobowy"
   ru: "Мультиплеер"
   uk: "Мультиплеєр"
-  pl: "Gra wieloosobowa"
+"Friends can join without an invite":
+  de: "Freunde können ohne Einladung beitreten"
+  fr: "Les amis peuvent rejoindre sans invitation"
+  nl: "Vrienden kunnen zonder uitnodiging meedoen"
+  pl: "Znajomi mogą dołączyć bez zaproszenia"
+  ru: "Друзья могут присоединиться без приглашения"
+  uk: "Друзі можуть приєднатися без запрошення"
+"While you share the company, your Omsi-Hub friends see a Join button in their friends list: no session code needed.":
+  de: "Solange du den Betrieb teilst, sehen deine Omsi-Hub-Freunde in ihrer Freundesliste einen Beitreten-Knopf: kein Sitzungscode nötig."
+  fr: "Tant que tu partages l'entreprise, tes amis Omsi-Hub voient un bouton Rejoindre dans leur liste d'amis : pas besoin de code de session."
+  nl: "Zolang je het bedrijf deelt, zien je Omsi-Hub-vrienden een knop Meedoen in hun vriendenlijst: geen sessiecode nodig."
+  pl: "Gdy udostępniasz firmę, twoi znajomi z Omsi-Hub widzą przycisk Dołącz na swojej liście znajomych: kod sesji nie jest potrzebny."
+  ru: "Пока вы делитесь компанией, ваши друзья в Omsi-Hub видят кнопку «Присоединиться» в своём списке друзей: код сессии не нужен."
+  uk: "Поки ви ділитеся компанією, ваші друзі в Omsi-Hub бачать кнопку «Приєднатися» у своєму списку друзів: код сесії не потрібен."
+"Off: friends join when you invite them from your friends list, or with the session code.":
+  de: "Aus: Freunde treten bei, wenn du sie aus deiner Freundesliste einlädst, oder mit dem Sitzungscode."
+  fr: "Désactivé : les amis rejoignent quand tu les invites depuis ta liste d'amis, ou avec le code de session."
+  nl: "Uit: vrienden doen mee als je ze uitnodigt vanuit je vriendenlijst, of met de sessiecode."
+  pl: "Wyłączone: znajomi dołączają, gdy zaprosisz ich ze swojej listy znajomych, albo z kodem sesji."
+  ru: "Выкл.: друзья присоединяются, когда вы приглашаете их из своего списка друзей, или по коду сессии."
+  uk: "Вимк.: друзі приєднуються, коли ви запрошуєте їх зі свого списку друзів, або за кодом сесії."
 "Session code":
   nl: "Sessiecode"
   de: "Sitzungscode"

@@ -61,15 +61,25 @@ export function startDrive(boot) {
   loadContent();
 }
 
+function running(mode) {
+  set({ game: { running: true, mode: mode || S.game?.mode || null }, gameStarted: true, liveDash: { hidden: false }, poll: { ...S.poll, instances: [{ running: true }] } });
+}
+
 let listening = false;
 /** The game's end (hub-api's `game-ended`), and the clock the duty may follow. */
 export function watchGame() {
   if (listening) return;
   listening = true;
   on('game-ended', (p) => {
-    set({ game: { running: false, ended: p || null }, gameStarted: false, poll: { ...S.poll, instances: [] } });
+    set({ game: { running: false, ended: p || null }, gameStarted: false, live: null, poll: { ...S.poll, instances: [] } });
     loadSituations();
   });
+  // (any drive started - a shift, a tour, a free drive, a company's duty: its live dashboard,
+  // hub/dash.js; and one that runs already as the launcher opens)
+  on('game-started', (p) => running(p?.mode));
+  call('hub_game_state')
+    .then((g) => g?.running && !S.game?.running && running())
+    .catch(() => {});
   setInterval(followClock, 30000);
 }
 
@@ -345,7 +355,7 @@ export async function start(extra) {
   try {
     const d = await duty(extra);
     const r = await call('hub_drive', { duty: d });
-    set({ gameStarted: true, game: { running: true }, poll: { ...S.poll, instances: [{ running: true }] } });
+    running(r?.mode);
     toast(t('The game is starting…'), 'ok');
     return r;
   } catch (e) {

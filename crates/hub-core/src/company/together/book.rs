@@ -232,11 +232,15 @@ pub struct Together {
     /// else (the default) the AI drives all of it.
     #[serde(default)]
     pub left_open: bool,
+    /// The boss's Omsi-Hub friends see his session (its code) while he shares the company, and
+    /// join from their friends list; else (the default) only with an invite or the code.
+    #[serde(default)]
+    pub friends_join: bool,
 }
 
 impl Default for Together {
     fn default() -> Self {
-        Together { open_claims: true, guests: Vec::new(), claims: Vec::new(), trips: Vec::new(), left_open: false }
+        Together { open_claims: true, guests: Vec::new(), claims: Vec::new(), trips: Vec::new(), left_open: false, friends_join: false }
     }
 }
 

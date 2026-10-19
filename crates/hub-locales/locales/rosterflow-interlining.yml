@@ -31,13 +31,13 @@ _version: 2
   pl: "Najdłuższy przejazd techniczny między dwiema liniami"
   ru: "Самый длинный порожний перегон между двумя маршрутами"
   uk: "Найдовший порожній перегін між двома маршрутами"
-"Only where a trip of the day runs between the two places: Optimise makes no run empty whose time it does not know. Where one ends and the next begins at one stop or relief point, the bus needs none.":
-  de: "Nur wo eine Fahrt des Tages zwischen den beiden Orten fährt: Optimieren macht keine Leerfahrt, deren Zeit es nicht kennt. Wo die eine an derselben Haltestelle oder demselben Ablösepunkt endet, an dem die nächste beginnt, braucht der Bus keine."
-  fr: "Seulement là où une course du jour relie les deux endroits : Optimiser ne crée aucun haut-le-pied dont il ignore la durée. Là où l'une finit et la suivante commence au même arrêt ou point de relève, le bus n'en a pas besoin."
-  nl: "Alleen waar een rit van de dag tussen de twee plekken rijdt: Optimaliseren maakt geen leegrit waarvan het de tijd niet kent. Waar de ene eindigt en de volgende begint bij dezelfde halte of hetzelfde aflospunt, heeft de bus er geen nodig."
-  pl: "Tylko tam, gdzie kurs danego dnia jeździ między tymi dwoma miejscami: Optymalizacja nie tworzy przejazdu technicznego, którego czasu nie zna. Tam, gdzie jeden kurs kończy się, a następny zaczyna na tym samym przystanku lub punkcie zmiany, autobus go nie potrzebuje."
-  ru: "Только там, где рейс этого дня ходит между двумя местами: Оптимизация не делает порожний перегон, время которого не знает. Там, где один рейс заканчивается, а следующий начинается на одной остановке или пункте смены, автобусу он не нужен."
-  uk: "Лише там, де рейс цього дня ходить між двома місцями: Оптимізація не робить порожній перегін, час якого не знає. Там, де один рейс закінчується, а наступний починається на одній зупинці або пункті зміни, автобусу він не потрібен."
+"Only where Deadheads sets the run, or a trip of the day runs between the two places: Optimise makes no run empty whose time it does not know. Where one ends and the next begins at one stop or relief point, the bus needs none.":
+  de: "Nur wo Leerfahrten die Fahrt festlegt oder eine Fahrt des Tages zwischen den beiden Orten fährt: Optimieren macht keine Leerfahrt, deren Zeit es nicht kennt. Wo die eine an derselben Haltestelle oder demselben Ablösepunkt endet, an dem die nächste beginnt, braucht der Bus keine."
+  fr: "Seulement là où Haut-le-pied fixe le trajet, ou une course du jour relie les deux endroits : Optimiser ne crée aucun haut-le-pied dont il ignore la durée. Là où l'une finit et la suivante commence au même arrêt ou point de relève, le bus n'en a pas besoin."
+  nl: "Alleen waar Leegritten de rit vastlegt, of een rit van de dag tussen de twee plekken rijdt: Optimaliseren maakt geen leegrit waarvan het de tijd niet kent. Waar de ene eindigt en de volgende begint bij dezelfde halte of hetzelfde aflospunt, heeft de bus er geen nodig."
+  pl: "Tylko tam, gdzie Przejazdy techniczne ustalają przejazd albo kurs danego dnia jeździ między tymi dwoma miejscami: Optymalizacja nie tworzy przejazdu technicznego, którego czasu nie zna. Tam, gdzie jeden kurs kończy się, a następny zaczyna na tym samym przystanku lub punkcie zmiany, autobus go nie potrzebuje."
+  ru: "Только там, где перегон задан в разделе Нулевые рейсы или рейс этого дня ходит между двумя местами: Оптимизация не делает порожний перегон, время которого не знает. Там, где один рейс заканчивается, а следующий начинается на одной остановке или пункте смены, автобусу он не нужен."
+  uk: "Лише там, де перегін задано в розділі Нульові рейси або рейс цього дня ходить між двома місцями: Оптимізація не робить порожній перегін, час якого не знає. Там, де один рейс закінчується, а наступний починається на одній зупинці або пункті зміни, автобусу він не потрібен."
 "Lines that interline":
   de: "Linien, die verknüpft werden"
   fr: "Lignes en interlignage"

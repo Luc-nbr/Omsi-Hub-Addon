@@ -36,6 +36,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("company.lua", include_str!("../../../plugin/company.lua")),
     ("legs.lua", include_str!("../../../plugin/legs.lua")),
     ("traffic.lua", include_str!("../../../plugin/traffic.lua")),
+    ("dash.lua", include_str!("../../../plugin/dash.lua")),
 ];
 /// The texts the plugin shows (`tr` in `plugin/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).

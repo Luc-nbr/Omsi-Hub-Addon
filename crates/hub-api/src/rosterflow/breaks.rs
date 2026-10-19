@@ -134,7 +134,7 @@ enum Of {
 }
 
 /// The Preferences' items with a rule the day can break, the issues of each and what they are of.
-const RULES: [(&str, &[&str], Of); 10] = [
+const RULES: [(&str, &[&str], Of); 11] = [
     ("breaks", &[rf::I_MEAL, rf::I_MEAL_LATE], Of::Duties),
     ("continuous", &[rf::I_CONTINUOUS], Of::Duties),
     ("limits", &[rf::I_SPREAD], Of::Duties),
@@ -145,6 +145,8 @@ const RULES: [(&str, &[&str], Of); 10] = [
     ("types", &[rf::I_TYPE], Of::Duties),
     ("travel", &[rf::I_TRAVEL], Of::Duties),
     ("layover", &[rf::I_LAYOVER], Of::Vehicles),
+    // (no rule: the deadheads whose time is a guess, until Deadheads sets it)
+    ("deadheads", &[rf::I_DEADHEAD], Of::Vehicles),
     ("depot", &[rf::I_DEPOT], Of::Day),
 ];
 
@@ -160,6 +162,7 @@ fn rule_name(item: &str) -> &'static str {
         "types" => "Duty Types",
         "travel" => "Duty Travel",
         "layover" => "Layover",
+        "deadheads" => "Deadheads",
         _ => "Depot Setup",
     }
 }
@@ -205,6 +208,8 @@ fn count_words(item: &str, n: usize, saved: Option<usize>) -> String {
     let now = match (item, of(item), n) {
         ("split", _, 0) => tr("No duty has a split now."),
         ("split", _, _) => trf("%{n} duties have a split now.", &[("n", &n_text)]),
+        ("deadheads", _, 0) => tr("No deadhead's time is estimated now."),
+        ("deadheads", _, _) => trf("%{n} vehicles have a deadhead whose time is estimated now.", &[("n", &n_text)]),
         (_, _, 0) => tr("Nothing breaks this rule now."),
         (_, Of::Duties, _) => trf("%{n} duties break this rule now.", &[("n", &n_text)]),
         (_, Of::Vehicles, _) => trf("%{n} vehicles break this rule now.", &[("n", &n_text)]),
@@ -244,7 +249,7 @@ pub(crate) fn offer(was: &Prefs, now: &Prefs, before: Option<&[(&'static str, us
     let changed = changed(was, now);
     let broken: Vec<(&str, usize)> = rule_counts(board)
         .into_iter()
-        .filter(|(item, n)| *item != "split" && *n > 0)
+        .filter(|(item, n)| *item != "split" && *item != "deadheads" && *n > 0)
         .filter(|(item, n)| changed.contains(item) || before.is_some_and(|b| b.iter().any(|x| x.0 == *item && x.1 < *n)))
         .collect();
     if broken.is_empty() {

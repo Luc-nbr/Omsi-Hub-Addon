@@ -34,6 +34,7 @@ pub mod lak;
 pub mod lan;
 pub mod launcher;
 pub mod lineeditor;
+pub mod live;
 pub mod online;
 pub mod privacy;
 pub mod rosterflow;

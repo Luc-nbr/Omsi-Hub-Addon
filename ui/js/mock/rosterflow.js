@@ -129,6 +129,9 @@ function defaultPrefs() {
     layover: lim(true, 3, false, 2000),
     pre_trip: 5,
     post_trip: 5,
+    deadhead_min: 5,
+    deadhead_km: 3,
+    deadheads: [],
     depot_capacity: lim(false, 20, false),
     sign_on: 10,
     sign_off: 5,
@@ -697,7 +700,7 @@ function reliefRows() {
       else rows.push({ stop: s, name: s, kind: 1, lines: l.number });
     }
   }
-  return rows.map((r) => ({ ...r, point: { stop: r.stop, added: false, line: '', sign: true, relief: true, breaks: true, travel: null, walk: null, public: null, car: null, ...(prefs.points.find((x) => eq(x.stop, r.stop)) || {}) } }));
+  return rows.map((r) => ({ ...r, point: { stop: r.stop, added: false, line: '', sign: true, relief: true, breaks: true, travel: null, walk: null, public: null, car: null, deadhead_min: null, deadhead_km: null, ...(prefs.points.find((x) => eq(x.stop, r.stop)) || {}) } }));
 }
 
 function dutyView(d, row) {

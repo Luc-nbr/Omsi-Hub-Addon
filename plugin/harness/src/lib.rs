@@ -81,8 +81,9 @@ pub struct GameState {
     pub vehicle: Option<String>,
     pub bus_file: String,
     pub map: String,
-    /// km/h.
+    /// km/h; the passengers on board (where the bus is: `position`).
     pub speed: f64,
+    pub passengers: i64,
     pub duty: Option<Duty>,
     pub trips: Vec<Trip>,
     /// What the plugin did: duties started (line, tour, trip, stop), lines of text, log lines,
@@ -120,6 +121,7 @@ impl Default for GameState {
             bus_file: "Vehicles/MAN_SD202/SD202.bus".into(),
             map: "maps/Grundorf/global.cfg".into(),
             speed: 0.0,
+            passengers: 0,
             duty: None,
             trips: Vec::new(),
             started: Vec::new(),
@@ -232,7 +234,7 @@ fn from_lua(lua: &Lua, v: LuaValue) -> mlua::Result<Value> {
 }
 
 fn stops_json(stops: &[Stop]) -> Value {
-    Value::Array(stops.iter().map(|s| json!({ "id": s.id, "name": s.name, "arr": s.arr, "dep": s.dep, "stops": true })).collect())
+    Value::Array(stops.iter().enumerate().map(|(k, s)| json!({ "id": s.id, "number": k + 1, "name": s.name, "arr": s.arr, "dep": s.dep, "stops": true })).collect())
 }
 
 impl Harness {
@@ -479,7 +481,7 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     // the bus
     let bus = lua.create_table()?;
     f!(bus, "file", |_l, s, _a: ()| Ok(s.borrow().bus_file.clone()));
-    f!(bus, "passengers", |_l, _s, _a: ()| Ok(0));
+    f!(bus, "passengers", |_l, s, _a: ()| Ok(s.borrow().passengers));
     f!(bus, "set_display_font", |_l, s, font: String| {
         s.borrow_mut().fonts.push(font);
         Ok(1)

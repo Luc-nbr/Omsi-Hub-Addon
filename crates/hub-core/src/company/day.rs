@@ -1004,7 +1004,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 // (its minutes late, worked out from the plan: `lateness::model`; on a bus contract a
                 // journey late enough is not paid, `bus_contracts`)
                 timed += 1;
-                let t = super::lateness::whole(&late_model, ti, j, rest.is_some());
+                // (a trip service control had run empty to the opposite terminus carried nobody to
+                // be late for: `control::Act::Express` of all of it)
+                let t = super::lateness::whole(&late_model, ti, j, rest.is_some()).filter(|_| cut_short < 0.999);
                 let minutes = t.as_ref().map_or(0, |t| t.minutes());
                 lat.count(&tp.tour.number, &tp.tour.tour, k, e.id, trip.dep, minutes);
                 journeys.ran(&of, &tp.tour.tour, minutes, cut_short > 0.0, Some(v.id), Some(e.id), super::ownline::wanted(c, &tp.tour));

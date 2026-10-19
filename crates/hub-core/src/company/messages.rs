@@ -181,8 +181,14 @@ impl State {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum What {
-    /// Turn back early: the last `part` of the trip and the first of the next are not run.
-    ShortTurn { part: f64, saved: i32 },
+    /// Turn back early: the last `part` of the trip and the first `next` of the next (none:
+    /// `part`) are not run.
+    ShortTurn {
+        part: f64,
+        saved: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<f64>,
+    },
     /// The rest of the trip (`part` of it) out of service to the terminus.
     OutOfService { part: f64, saved: i32 },
     /// A shorter layover before the trip.
@@ -233,7 +239,7 @@ impl Action {
     /// Service control's way out it is (None: one the driver alone carries out).
     pub fn act(&self) -> Option<Act> {
         Some(match self.what {
-            What::ShortTurn { part, saved } => Act::ShortTurn { part, saved },
+            What::ShortTurn { part, saved, next } => Act::ShortTurn { part, saved, next },
             What::OutOfService { part, saved } => Act::Express { part, saved },
             What::Layover { saved } => Act::Layover { saved },
             What::Swap { vehicle, from_bus } => Act::Swap { vehicle, from_bus },
@@ -244,7 +250,7 @@ impl Action {
     /// The action of service control's way out `act` for a tour at its trip at `dep`.
     pub fn of(line: &str, tour: &str, dep: i32, act: Act) -> Option<Action> {
         let what = match act {
-            Act::ShortTurn { part, saved } => What::ShortTurn { part, saved },
+            Act::ShortTurn { part, saved, next } => What::ShortTurn { part, saved, next },
             Act::Express { part, saved } => What::OutOfService { part, saved },
             Act::Layover { saved } => What::Layover { saved },
             Act::Swap { vehicle, from_bus } => What::Swap { vehicle, from_bus },
@@ -949,7 +955,7 @@ pub fn dispatch(c: &mut Company, d: &Driving) -> Vec<u64> {
                 let dur = ((d.arr - d.dep).max(1) + (d.next_arr.unwrap_or(next + d.arr - d.dep) - next).max(1)) as f64;
                 let what = if d.left >= 0.1 {
                     let part = (need as f64 / dur).clamp(0.1, 0.5_f64.min(d.left));
-                    Some(What::ShortTurn { part, saved: (part * dur).round() as i32 })
+                    Some(What::ShortTurn { part, saved: (part * dur).round() as i32, next: None })
                 } else if d.left >= 0.05 {
                     Some(What::OutOfService { part: d.left, saved: (0.3 * d.left * (d.arr - d.dep) as f64).round().max(1.0) as i32 })
                 } else {

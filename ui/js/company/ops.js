@@ -13,6 +13,11 @@
 // map small, every bus coloured by its delay, a row clicked centring its bus. Under the map at a
 // narrow width. The advice against late running below, folded.
 //
+// The testers (2026-10-19): the ways out worked out from the stops, the blocks and RosterFlow (a
+// short-turn at a stop, running dead to the opposite terminus, a spare bus with its driver and
+// fuel), and the duties nobody drives and the tours without a bus as rows of their own
+// (`ops_fill`), the late drivers someone covers shown covered.
+//
 // The control room's messages (docs/omsihub/MESSAGES.md, `messages.js`): a "Message" button on
 // every row writes to its driver, a driver's own message is a row of its own, the day's messages
 // are listed under the incidents.
@@ -35,7 +40,7 @@ if (!document.querySelector('link[data-co-ops-css]')) {
 }
 
 /** The ways out's actions, by the kind of row. */
-const WHAT = { bus: 'ops_apply', driver: 'ops_cover', break: 'ops_break', msg: 'ops_msg_ack' };
+const WHAT = { bus: 'ops_apply', driver: 'ops_cover', break: 'ops_break', msg: 'ops_msg_ack', open: 'ops_fill' };
 
 /** A way out as a compact button: its icon and a word or two, the controller's suggestion filled
  * in the accent, its long words and what it comes to as the tooltip. Held while it runs (what it
@@ -164,7 +169,8 @@ export function OpsPage() {
   if (!v?.title) return html`<div class="co-pgb"></div>`;
   const busy = v.reading || v.error || v.idle;
   const k = v.kpis;
-  const rows = [...(v.breaks || []), ...(v.buses || []), ...(v.drivers || []), ...(v.msgs || [])];
+  // (the duties nobody drives and the tours without a bus too: their trips are lost until covered)
+  const rows = [...(v.breaks || []), ...(v.open || []), ...(v.buses || []), ...(v.drivers || []), ...(v.msgs || [])];
   const order = { high: 0, medium: 1, low: 2, ok: 3 };
   rows.sort((a, b) => (order[a.sev?.key] ?? 2) - (order[b.sev?.key] ?? 2));
   const focus = (key) => ctl.current?.focus(key);

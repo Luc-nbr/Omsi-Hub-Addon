@@ -919,3 +919,6 @@ button.tp-cell:hover { background: var(--tp-cell-hover); }
 .rf-eventcard .rf-evbtns { display: flex; gap: 10px; flex: none; }
 .rf-duty .rf-spareline { gap: 8px; }
 .rf-duty .rf-spareline > span { flex: none; }
+/* (a table's heading with the tabs that say what it edits, beside it: Duty Travel's ways, Deadheads' minutes or kilometres) */
+.pf-subrow { margin-top: 10px; gap: 16px; }
+.pf-subrow > .pf-sub { margin-top: 0; }

@@ -269,3 +269,39 @@ fn an_openomsi_without_the_traffic_functions_writes_none() {
     }
     assert!(bridge::read_traffic(&dir).is_none());
 }
+
+#[test]
+fn every_drive_writes_the_live_dashboard() {
+    // a drive of the player's own, no assignment: the bus alone
+    let dir = installed("dash-free");
+    let mut h = Harness::load(&dir, GameState { speed: 37.5, position: Some((1200.0, -340.0, 0.0)), passengers: 14, ..game() }).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    assert_eq!((d.issued, d.bus.speed, d.bus.x, d.bus.y, d.bus.passengers), (0, 37.5, Some(1200.0), Some(-340.0), Some(14.0)));
+    assert_eq!(d.bus.file, "Vehicles/MAN_SD202/SD202.bus");
+    assert_eq!(d.clock, Some(28_800.0));
+    assert!(d.duty.is_none() && d.stops.is_empty(), "{d:?}");
+    assert!(d.drive.seconds >= 2.0 && d.drive.metres > 0.0, "{:?}", d.drive);
+
+    // a company's duty: the duty, its trip and its stops
+    let dir = installed("dash-duty");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let stop = |id: i64, name: &str, at: f64| hub_plugin_harness::Stop { id, name: name.into(), arr: at, dep: at };
+    let mut g = game();
+    g.trips[0].stops = vec![stop(1, "Zoo", 28_800.0), stop(2, "Markt", 29_100.0), stop(3, "Hbf", 29_400.0)];
+    g.trips[0].terminus = "Hbf".into();
+    let mut h = Harness::load(&dir, g).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    assert_eq!(d.issued, issued());
+    let duty = d.duty.expect("the duty under way");
+    assert_eq!((duty.line.as_str(), duty.tour.as_str(), duty.trip, duty.trips, duty.delay), ("10", "2", 1, 2, 42.0));
+    assert_eq!((duty.trip_name.as_str(), duty.number.as_str(), duty.terminus.as_str()), ("Zoo - Hbf", "10", "Hbf"));
+    let names: Vec<&str> = d.stops.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["Zoo", "Markt", "Hbf"]);
+    assert_eq!((d.stops[1].arrival, d.stops[1].stops), (29_100.0, true));
+}

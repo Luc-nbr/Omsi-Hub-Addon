@@ -617,7 +617,7 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
     // the gap before it: a deadhead where the places differ, the layover's minutes
     if (j > 0) {
       const prev = t.trips[j - 1];
-      if (x.dh != null) D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, true);
+      if (x.dh != null) D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, !x.dh_set);
       else if (r.layers.breaks && x.dep - prev.arr > 0 && xOf(x.dep) - xOf(prev.arr) > 18) D.textAt(ctx, `${x.dep - prev.arr}m`, (xOf(prev.arr) + a) / 2, cy + 3.5, 9.5, 500, p.dim, 'center');
     }
     if (x.empty || !x.counts) {
@@ -785,7 +785,7 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       const bb = Math.max(xOf(x.arr), a + 4);
       if (j > rs && x.dh != null) {
         const prev = t.trips[j - 1];
-        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, true);
+        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, !x.dh_set);
       }
       if (x.empty || !x.counts) {
         // (the block's first and last: drawn with the checks above)

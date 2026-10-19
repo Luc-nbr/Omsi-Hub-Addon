@@ -836,6 +836,19 @@ fn a_player_leaving_before_his_first_trip_leaves_all_of_it_to_the_ai_or_open_as_
     assert!(!back.together.left_open);
 }
 
+/// Friends joining without an invite: off until the boss turns it on, kept with the company, and
+/// a saved company of before reads with it off.
+#[test]
+fn friends_join_only_when_the_boss_says_so() {
+    let mut b = boss();
+    assert!(!b.c.together.friends_join);
+    b.c.together.friends_join = true;
+    let mut v = serde_json::to_value(&b.c).unwrap();
+    assert!(serde_json::from_value::<Company>(v.clone()).unwrap().together.friends_join);
+    v["together"].as_object_mut().unwrap().remove("friends_join");
+    assert!(!serde_json::from_value::<Company>(v).unwrap().together.friends_join);
+}
+
 #[test]
 fn two_players_leaving_at_once_each_leave_theirs_to_the_ai_whatever_the_companys_clock() {
     let mut b = boss();
