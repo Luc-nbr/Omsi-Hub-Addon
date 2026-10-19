@@ -25,12 +25,14 @@ crates/
   hub-game      the player's openOMSI: found, checked, started; the plugin installed; the bridge
   hub-locales   the texts (ported as they were)
   hub-online    the account, friends, leaderboard, cloud saves (ported as they were)
+  hub-companion the phone and tablet companion's server (docs/COMPANION.md)
 plugin/         the Lua plugin that runs inside openOMSI; harness/ tests it on mlua
 fixtures/       fake openOMSI and OMSI 2 folders for the setup's tests
 ```
 
 Dependencies go one way: `app → hub-api → hub-core → hub-omsi`, and `hub-api → hub-game,
-hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
+hub-locales, hub-online, hub-companion`; `hub-companion → hub-game`. `hub-omsi` and `hub-game`
+depend on nothing of ours.
 
 ## The contracts
 
@@ -168,6 +170,7 @@ installed here):
 |---|---|---|
 | `hub_` | `hub`, `drive`, `live`, `content` | Boot, texts, first-run setup, migration, drives and their live dashboard; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
+| `hub_companion_` | `companion` | The phone and tablet companion: on/off, the pairing code and QR code, the paired devices; started with the app when on |
 | `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: kept by `co_photo_save`, taken by the page from the 3D model (`ui/js/hub/photos.js`) |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
@@ -189,6 +192,17 @@ installed here):
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
 - `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).
+
+**`hub-companion`** (the phone and tablet companion, docs/COMPANION.md):
+
+- `Companion::start(Config, Arc<dyn Source>)`, `status()`, `forget(id)`, `new_code()`; dropping it
+  stops it. `Source` is what the add-on knows: the plugin's folder, the last assignment, and the
+  map's routes and roads (hub-api's `companion`, on `content::mapview::{route_line, roads_near,
+  world_of}`).
+- `http` (requests, routes, the commands a device may send), `pairing` (six-digit codes, device
+  keys kept as SHA-256 in `companion-devices.json`), `heard` (the plugin's datagrams, paged lists
+  put together), `queue` (`data/companion.json`), `state` (the state a device sees, the break
+  between trips), `nav` (the next turn on the trip's route), `server` (the threads).
 
 ## The data folder
 

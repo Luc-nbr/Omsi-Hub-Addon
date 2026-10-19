@@ -10,6 +10,13 @@ never changes their files.
 
 ### In it
 
+- **Phone and tablet**: the Omsi-Hub Companion app (iPhone, iPad, Android) pairs with Omsi-Hub
+  in your own network - switched on in Settings › General › Phone & tablet, then its QR code
+  scanned, or the address and the six-digit code typed. While you drive it shows your duty and
+  its trips, the trip's stops with their delays, the route on the map with the next turn, your
+  break between trips and the control room's messages (answered there too); you sign on there,
+  sign the duty order or drive without a duty, and work the bus's IBIS and ticket printer as
+  in the cab. Off by default; only paired devices of your network get in (docs/COMPANION.md).
 - **Omsi-Hub is no longer open source**: from this version it is proprietary software, free to
   download and use (`LICENSE`); the code up to 19 October 2026 was MIT. The releases and the
   updates come from the public `Luc-nbr/Omsi-Hub-Releases`, and the libraries' licences travel
