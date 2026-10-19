@@ -16,6 +16,9 @@
 //! new version. Without a public key there, the plugin is not used and the offer links to the
 //! release's page (docs/UPDATES.md).
 //!
+//! The phone and tablet companion's server (`hub_api::companion`) starts with the app when the
+//! player has it on.
+//!
 //! `OMSIHUB_SELFTEST=1` runs the page's selftests and ends with their report (exit code 0 when
 //! all passed, 1 when one failed, 2 when the page gave none within a minute);
 //! `OMSIHUB_SELFTEST_FIXTURES=<the repository's fixtures/>` adds the first-run setup, filled in
@@ -323,6 +326,8 @@ fn main() {
                 hub_api::update::set_installer(Arc::new(Updates(app.handle().clone())));
             }
             hub_core::log_line(&format!("app {} started", env!("CARGO_PKG_VERSION")));
+            // (the phone and tablet companion, when the player has it on)
+            hub_api::companion::start_if_on();
             let _ = app.get_webview_window("main");
             Ok(())
         })
