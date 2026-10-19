@@ -14,6 +14,7 @@
 
 local career = require("career")
 local company = require("company")
+local layout = require("layout")
 
 local M = {}
 
@@ -200,7 +201,7 @@ function M.update(on, parts, assignment, boarded)
   local d = on and omsi.duty.get() or nil
   if not d then
     if shown then
-      omsi.ui.remove(PANEL)
+      layout.remove(PANEL)
       shown = false
     end
     return
@@ -223,9 +224,9 @@ function M.update(on, parts, assignment, boarded)
   local children = M.rows(d, trips, omsi.duty.stops(), clock, fit, not docks)
   if docks then
     for _, x in ipairs(company.elements(parts or {}, assignment, d, trips, clock, boarded, fit > 1)) do children[#children + 1] = x end
-    omsi.ui.set(PANEL, { anchor = "navigator", padding = 11, gap = 5, children = children })
+    layout.set(PANEL, { anchor = "navigator", padding = 11, gap = 5, children = children })
   else
-    omsi.ui.set(PANEL, { anchor = "left", x = 16, y = 0, width = 340, background = "#141A26F2", accent = ACCENT, draggable = true, children = children })
+    layout.set(PANEL, { anchor = "left", x = 16, y = 0, width = 340, background = "#141A26F2", accent = ACCENT, draggable = true, children = children })
   end
   shown = true
 end

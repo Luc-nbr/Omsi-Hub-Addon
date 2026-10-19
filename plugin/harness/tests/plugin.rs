@@ -305,3 +305,60 @@ fn every_drive_writes_the_live_dashboard() {
     assert_eq!(names, ["Zoo", "Markt", "Hbf"]);
     assert_eq!((d.stops[1].arrival, d.stops[1].stops), (29_100.0, true));
 }
+
+/// The panel `id` as the game has it now.
+fn panel(h: &Harness, id: &str) -> serde_json::Value {
+    h.state.borrow().panels.get(id).cloned().unwrap_or_else(|| panic!("no panel {id}"))
+}
+
+/// A Lua expression of the plugin's state, as JSON.
+fn eval(h: &Harness, lua: &str) -> serde_json::Value {
+    let v: mlua::Value = h.lua.load(lua).eval().unwrap();
+    serde_json::to_value(&v).unwrap()
+}
+
+#[test]
+fn the_driver_sizes_and_moves_the_panels_and_they_stay_so() {
+    let dir = installed("layout");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    h.frame().unwrap();
+    let before = panel(&h, "omsihub");
+    assert_eq!((before["width"].as_f64(), before["x"].as_f64(), before["y"].as_f64()), (Some(300.0), Some(16.0), Some(0.0)));
+    assert!(!before.to_string().contains("hub_size_up"), "no size row without the mouse");
+
+    // F10: the size row under the panel; two clicks on "larger"
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    assert!(panel(&h, "omsihub").to_string().contains("hub_size_up"));
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_up")]).unwrap();
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_up")]).unwrap();
+    let big = panel(&h, "omsihub");
+    assert_eq!(big["width"].as_f64().map(f64::round), Some(360.0));
+    assert!(big.to_string().contains("120 %"), "{big}");
+    // (its texts grow with it; the padding the game would give it, too)
+    assert_eq!(big["children"][1]["size"].as_f64().map(|s| (s * 10.0).round() / 10.0), Some(16.8));
+    assert_eq!(big["padding"].as_f64().map(|s| (s * 10.0).round() / 10.0), Some(14.4));
+
+    // dragged 40 to the left and 25 down (the panel sits on the right: x grows leftwards)
+    h.state.borrow_mut().moved.insert("omsihub".into(), (-40.0, 25.0));
+    h.frame().unwrap();
+    h.frame().unwrap();
+    assert_eq!(eval(&h, "{ omsi.data.layout.omsihub.dx, omsi.data.layout.omsihub.dy, omsi.data.layout.omsihub.scale }"), json!([-40.0, 25.0, 1.2]));
+    // (the panels give the mouse back: the size row goes)
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    assert!(!panel(&h, "omsihub").to_string().contains("hub_size_up"));
+
+    // the next drive: the panel comes where it was left, at its size
+    let kept = eval(&h, "omsi.data.layout");
+    let mut h = Harness::load_with(&dir, game(), &format!("omsi.data.layout = omsi.json.decode('{kept}')")).unwrap();
+    h.frame().unwrap();
+    let again = panel(&h, "omsihub");
+    assert_eq!((again["x"].as_f64(), again["y"].as_f64()), (Some(56.0), Some(25.0)));
+    assert_eq!(again["width"].as_f64().map(f64::round), Some(360.0));
+
+    // back to how it came
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_reset")]).unwrap();
+    let reset = panel(&h, "omsihub");
+    assert_eq!((reset["x"].as_f64(), reset["y"].as_f64(), reset["width"].as_f64()), (Some(16.0), Some(0.0), Some(300.0)));
+}

@@ -18,6 +18,7 @@
 -- take the mouse with F10 (main.lua).
 
 local json = require("hubjson")
+local layout = require("layout")
 
 local M = {}
 
@@ -313,11 +314,11 @@ local function panel()
   if not fn("ui.set") then return end
   local want = (open or any_waiting() or hold ~= nil) and inbox ~= nil
   if not want then
-    if shown and fn("ui.remove") then omsi.ui.remove(PANEL) end
+    if shown and fn("ui.remove") then layout.remove(PANEL) end
     shown = false
     return
   end
-  omsi.ui.set(PANEL, { anchor = "bottom_right", x = 16, y = 96, width = 340, accent = "#F47F30", draggable = true, children = children() })
+  layout.set(PANEL, { anchor = "bottom_right", x = 16, y = 96, width = 340, accent = "#F47F30", draggable = true, children = children() })
   shown = true
 end
 
