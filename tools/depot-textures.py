@@ -4,8 +4,8 @@
 `MATERIALS` in ui/js/company/depot3d/palette.js.
 
 Run:  python3 tools/depot-textures.py <folder>
-The folder holds a picture per material named after it (`asphalt.png`, `cracks.png`, ...): the
-ones made for Omsi-Hub with Higgsfield (Luc's account; the prompts are in docs/DEPOT-TEXTURES.md).
+The folder holds a picture per material named after it (`asphalt.png`, `cracks.webp`, ...): the
+ones made for Omsi-Hub with Higgsfield. A material without its picture gets a neutral layer.
 
 Each is made a greyscale picture that tints the colour it lies on rather than replacing it:
 * a surface ("plane"): its light evened out (what is broader than an eighth of it taken away),
@@ -98,13 +98,19 @@ def decal(img):
 def main(folder):
     src = pathlib.Path(folder)
     layers = []
+    missing = []
     for name, kind in materials():
         path = next((p for p in sorted(src.glob(name + ".*"))), None)
         if path is None:
-            print(f"missing: {name}", file=sys.stderr)
-            return 1
+            # (a layer without its picture changes nothing: grey for a surface, white for paint
+            # and marks)
+            missing.append(name)
+            layers.append(Image.new("L", (SIDE, SIDE), 128 if kind == "plane" else 255))
+            continue
         img = Image.open(path)
         layers.append(decal(img) if kind == "decal" else plane(img, flat=kind == "plane"))
+    if missing:
+        print(f"without a picture (neutral): {', '.join(missing)}", file=sys.stderr)
     out = Image.new("L", (SIDE, SIDE * len(layers)))
     for k, layer in enumerate(layers):
         out.paste(layer, (0, k * SIDE))
