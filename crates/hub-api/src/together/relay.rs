@@ -142,7 +142,7 @@ fn act_need(act: &str, what: &str) -> Need {
         "ask_spare" | "ask_rental" | "ask_drop" | "ask_on" | "ask_dispatcher" => SERVICE,
         "morning_fill" => PLANS,
         // the fleet
-        "bus_livery" | "bus_service" | "new_take" | "bus_age" | "advert_end" => SPEND,
+        "bus_livery" | "bus_service" | "new_take" | "bus_age" | "bus_number" | "advert_end" => SPEND,
         // the dealer
         "buying_mode" | "open_model" | "open_offer" | "open_contract" | "open_loan" | "open_repay" | "open_loan_contract" | "open_advert" => SPEND,
         a if a.starts_with("sheet_") => SPEND,

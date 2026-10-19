@@ -5,8 +5,8 @@
 // the drivers, the money, the company's livery and depot, and today's shifts.
 
 import { S } from '../store.js';
-import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, handOver, goKey, Icon, Btn, Chips, Plate, IconBtn, Tag, Slider, Meter, fill, rgbOf, CASUAL } from './kit.js';
-import { BusTile, initials } from './fleet.js';
+import { html, useState, setCo, setUi, ui, act, useView, useSize, handOver, goKey, Icon, Btn, Chips, Plate, IconBtn, Tag, Slider, Meter, fill, rgbOf, CASUAL } from './kit.js';
+import { BusTile, FleetNumber, initials } from './fleet.js';
 import { Portrait } from './people.js';
 import { ComingRows } from './agenda.js';
 import { money, fare as fareText } from '../hub/money.js';
@@ -132,12 +132,12 @@ function Buses({ v }) {
       ${size.w > 0 &&
       v.cards.map((b, k) => {
         const r = { x: (k % g.cols) * (g.cw + GAP), y: Math.floor(k / g.cols) * (g.ch + GAP), w: g.cw, h: g.ch };
-        return html`<${BusTile} name=${b.name} file=${b.file} paint=${b.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: b.id } })} attrs=${{ 'data-bus': b.id }}
-          over=${html`<span class="numb" style=${`width:${textW(b.number, 15, 900) + 20}px`}>${b.number}</span>`}>
+        return html`<${BusTile} name=${b.name} file=${b.file} paint=${b.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: b.id } })} attrs=${{ 'data-bus': b.id }}>
           <b class="cut" style="font-size:12.7px">${b.name}</b><span class="sub cut">${b.age}</span>
           <div style="margin-top:8px"><${Meter} frac=${b.cond} tone=${b.cond_tone} h=${8} field /></div>
           <span class="casualstate"><span class="cut">${b.word}</span><b class=${'t-' + b.tone}>${b.doing}</b></span>
-        </${BusTile}>`;
+        </${BusTile}>
+        <${FleetNumber} bus=${b} x=${r.x + 10} y=${r.y + 10} most=${r.w / 2} tip=${v.number_tip} />`;
       })}
     </div></div>
   </div>`;
