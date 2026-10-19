@@ -10,14 +10,15 @@ add-on is the server, on the player's computer; the app is a client on the same 
                  └──── data/companion.json (commands) ───┘
 ```
 
-* The **plugin** (`plugin/companion.lua`) reads the game twice a second and sends it to the
-  add-on as small JSON datagrams (`omsi.send`, at most 8 KB each). It reads the commands
-  the add-on writes into its data folder (`data/companion.json`) four times a second and carries
-  them out in the game (IBIS keys, the ticket printer, signing on, taking a duty).
+* The **plugin** (`plugin/companion.lua`) reads the game twice a second (the devices' screens
+  ten times) and sends it to the add-on as small JSON datagrams (`omsi.send`, at most 8 KB
+  each). It reads the commands the add-on writes into its data folder (`data/companion.json`)
+  four times a second and carries them out in the game (IBIS keys, the ticket printer, the
+  devices' taps, signing on, taking a duty).
 * The **add-on** (`crates/hub-companion`, run by `crates/hub-api/src/companion.rs`) keeps the
   latest state, adds what only it knows (the company's duty, the driver's pass, the control
-  room's messages, the map's roads and the trip's route, the next turn) and serves it to the
-  paired devices.
+  room's messages, the map's roads and the trip's route, the next turn, the bus's devices read
+  from its own files by `crates/hub-devices`) and serves it to the paired devices.
 * The **app** shows it and sends commands.
 
 Everything is JSON, UTF-8, `snake_case`. Times of day are **seconds since midnight** of the game's
@@ -164,6 +165,111 @@ app shows what it has and hides the rest.
 
 The app fetches roads in tiles of 1000 m and keeps them; `w` is the road's width in metres.
 
+## The bus's devices, drawn as the game draws them
+
+Every device of the bus the player drives - its IBIS, its ticket printer or ALMEX, any other
+screen with keys or touch fields - is read from the bus's own files by the add-on (its
+`model.cfg` and the `.o3d` parts and textures beside it, the way Luc's career add-on for OMSI 2
+did, github.com/Luc-nbr/Omsi-career-addon: `core/busmodule.ts`, `core/schermvorm.ts`; the
+add-on's `crates/hub-devices` is a port of it) and sent to the app as a **form**: the pictures of
+the screen's pages laid flat as triangles, the text fields with the bus's own fonts, and the
+touch fields with the trigger each one fires. The app draws the form with the screen's
+**stand** of this moment (the strings and numbers it shows) and a tap fires the touch field's
+trigger in the game (`omsi.trigger`). Nothing is drawn by hand per bus.
+
+`state.devices` lists the devices of the bus now (empty on foot):
+
+```jsonc
+"devices": [
+  { "id": "17_almex",                 // stable per bus and device
+    "name": "ALMEX",                  // as the bus names it (the parts' names), else the kind
+    "role": "printer",                // "ibis" | "printer" | "other"
+    "kind": "touch",                  // "touch" (its screen is the keys) | "screen_keys" |
+                                      // "keys" (keys only) | "screen" (a display only)
+    "form": "a1b2c3d4e5f60718293a",   // the form's id (20 hex), null: no screen could be drawn
+    "keys": [ { "trigger": "almex_riegel", "label": "RIEGEL", "digit": null, "row": 2,
+                "loose": true } ]
+                                      // keys of the device off its screen (keypads, the change
+                                      // dispenser), as rows under the screen: "row" from the top,
+                                      // as the keys lie on the device; "loose" (only when true):
+                                      // of a touch device, a key that sits apart from it (the
+                                      // ALMEX's latch, its change) - shown after, folded away
+  }
+]
+```
+
+| Request | Answer |
+| --- | --- |
+| `GET /api/device/<form>` | the form (below); it does not change while the bus is the same, the app keeps it by id |
+| `GET /api/texture/<id>` | a picture of the form as `image/png` (ids of 20 hex characters, never a path) |
+| `GET /api/screen/<form>?after=<v>` | the stand (below), long polled: at once when newer than `v`, else within 2 s |
+
+The form (the career add-on's `shared/scherm.ts` `Schermvorm`, in English):
+
+```jsonc
+{
+  "version": 1, "id": "a1b2c3d4e5f60718293a", "device": "17_almex",
+  "aspect": 1.381,                    // width / height in the real world
+  "blank": "#000000",                 // the colour behind everything
+  "parts": [                          // in drawing order
+    { "kind": "image",                // "image" | "color" | "text" | "script" (not drawable: blank)
+      "mesh": 12,                     // the mesh's place in the model, or -1
+      "visible": [ { "num": 0, "value": 3 } ],   // all true = shown; num: index into "nums";
+                                      // shown when Delphi-round(value of nums[num]) == value; a
+                                      // variable the bus lacks counts as true, NaN as false
+      "tris": [ /* s t u v, three points a triangle, twelve numbers each */ ],
+                                      // s, t: 0..1 across and down the screen as the driver sees it;
+                                      // u, v: 0..1 in the picture (v down), wrapping per "address"
+      "depth": 0.4,                   // mm towards the driver; drawn from small to large
+      "alpha": 0,                     // [matl_alpha]: 0 opaque, 1 alpha test, 2 blended
+      "address": "wrap",              // "wrap" | "clamp" | "border"
+      "texture": "0f…",               // image: the picture's id
+      "freetex": 3,                   // image with [matl_freetex]: index into "strs" whose value is
+                                      // a file; the stand's "f" gives its picture id
+      "choice": { "num": 2, "items": ["0e…", null] },   // [matl_change]: 0 the texture, k item k
+      "color": [0.1, 0.2, 0.3, 1],    // color, and for alpha 2 the image's opacity: 0..1
+      "text": {                       // text: a [texttexture] / [texttexture_enh]
+        "str": 4,                     // index into "strs"
+        "w": 256, "h": 32,            // the texture's pixels the game writes the text into
+        "font": "HH20_HHAschedule",   // key into "fonts"
+        "fc": 0,                      // field 5: bit 0 colour from the bitmap, (fc & 3) == 2 opaque only
+        "color": [255, 160, 0],       // the letters' colour, 0..255
+        "align": 0,                   // _enh field 9: 0 centre, 1 left, 2 right, 3/4/5 on a gap
+        "grid": 1                     // _enh field 10: x rounded down to a multiple of this
+      } }
+  ],
+  "taps": [                           // the front one last
+    { "trigger": "almex_clickN7", "label": "7", "mesh": 40, "visible": [],
+      "x": 0.1, "y": 0.8, "w": 0.08, "h": 0.1,   // a rectangle in shares of the screen
+      "depth": 0.6 }
+  ],
+  "fonts": { "HH20_HHAschedule": { "name": "…", "height": 9, "sep": 1,
+    "glyphs": [ { "ch": "A", "width": 6, "alpha": "<base64: max(0,width) x height bytes>",
+                  "rgb": "<base64 r g b per pixel, fonts with colour>" } ] } },
+                                      // glyph 0 is the fallback; file order, doubles kept
+  "strs": [ "almex_display_hst" ],    // the string variables the stand sends ("t", "f")
+  "nums": [ "almex_menu" ],           // the number variables the conditions use ("g")
+  "incomplete": [ "17_almex_s_bg: \\S:2 script texture" ]  // what could not be drawn
+}
+```
+
+The stand, ten times a second while a device is on screen:
+
+```jsonc
+{ "v": 811, "form": "a1b2c3d4e5f60718293a",
+  "t": ["    LEE", "04:13:07"],          // per "strs", as the bus has it (not trimmed)
+  "g": [3, 0, null],                    // per "nums"; null: the bus has it but it is no number
+  "o": [5],                             // indexes into "nums" the bus does not have (always true;
+                                        // missing when none)
+  "f": [null, "0c…"] }                  // per "strs": the picture id of a freetex value, or null
+                                        // (missing when the form has no freetex part)
+```
+
+Taps go through `POST /api/do`: `{do: "press", trigger}` presses and lets go (`omsi.trigger`);
+`{do: "press", trigger, down: true}` holds it and `{..., down: false}` lets it go
+(`omsi.press` / `omsi.release`, for keys a script times). Only the triggers of the current
+bus's devices' taps and keys are pressed; anything else is `unknown_key`.
+
 ## Commands
 
 `POST /api/do` with one command; answered when the game has done it (at most 4 s):
@@ -184,6 +290,7 @@ The app fetches roads in tiles of 1000 m and keeps them; `w` is the road's width
 | `msg_answer` | `id`, `key` | Answers a message with one of its `answers` (`read`, `accept`, `decline` or a canned reply's key) |
 | `msg_quick` | `key` | A quick button to control |
 | `pause_end` | | Ends the break early |
+| `press` | `trigger`, `down?` | Presses a tap or key of one of `devices` (above) |
 
 Only the keys the state lists can be pressed: the plugin refuses any other trigger.
 
@@ -199,17 +306,21 @@ To `127.0.0.1:47812` (`companion_udp_port`), each one JSON object with `t`:
 
 | `t` | Every | Holds |
 | --- | --- | --- |
-| `live` | 0.5 s | `clock`, `paused`, `bus`, `duty` (line, tour, trip n, delay, next stop index, at_stop, trip_done), the plugin's `signon` stage |
+| `live` | 0.5 s | `clock`, `paused`, `bus`, `bus_file` (the bus's `.bus`, relative to the game folder), `duty` (line, tour, trip n, delay, next stop index, at_stop, trip_done), the plugin's `signon` stage |
 | `trip` | on change | the trip's stops (paged: `page`, `pages`, ≤ 25 stops a page) |
 | `trips` | on change | the duty's trips |
 | `dev` | 0.5 s | the IBIS and printer variables and strings, `ticket_request`, `sales` |
 | `keys` | 5 s | the bus's triggers that belong to the IBIS, the printer and the change dispenser, and the map's tickets |
 | `lines` | 10 s | the map's lines and tours (paged) |
+| `scr` | 0.1 s | what the devices' screens show (paged under 8 KB, a new `v` when it changes): `items` of `["n", name, value]` (no value: not a number), `["o", name]` (the bus lacks it) and `["s", name, text]` |
 | `ack` | per command | `seq`, `ok`, `error` |
 
 And the add-on writes `data/companion.json` in the plugin's data folder:
 `{sid, port, seq: 12, cmds: [{seq: 11, do: "key", key: "IBIS_7"}, …], probe: [x, y]}` (the
 last 20 commands of the server's session `sid`, the port for the datagrams, and the place whose
-street name the plugin reports in `live.probe`); the plugin carries out each `seq` of the session
-it has not done yet and acks it. Commands already in the file when the plugin starts count as
-done. The plugin talks to the companion only while the file is there.
+street name the plugin reports in `live.probe`), and for the bus's devices `want: {nums, strs}`
+(the variables `scr` reads) and `press: [trigger, …]` (the taps and keys of the devices: a
+`{do: "press", key, down}` command presses only one of these that the bus really has). The
+plugin carries out each `seq` of the session it has not done yet and acks it. Commands already
+in the file when the plugin starts count as done. The plugin talks to the companion only while
+the file is there.
