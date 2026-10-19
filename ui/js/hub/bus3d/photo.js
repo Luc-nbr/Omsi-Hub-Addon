@@ -4,6 +4,9 @@
 // picture - 640 x 400, transparent, from the front corner of the door side, 215° round and
 // 8° up, the bus 88 % of the width a little above the middle, a soft contact shadow under it.
 // The renderer goes 60 s after the last photo.
+//
+// The same renderer bakes the buses' depot models (`bake.js`, the 3D depot): five flat views and
+// a hull, kept by the launcher (`b3d_depot_put`), in the same queue as the photos.
 
 import { call } from '../../api.js';
 import { Link } from './link.js';
@@ -49,7 +52,15 @@ export function takePhoto(bus, paint) {
   return job;
 }
 
-async function take(bus, paint) {
+/** Bake the depot model of `bus` in `paint` and keep it (`b3d_depot_put`); resolves with
+ * `{ png, model }`, rejects as `takePhoto` does. */
+export function bakeDepot(bus, paint) {
+  const job = queue.then(() => take(bus, paint, 'bake'));
+  queue = job.catch(() => {});
+  return job;
+}
+
+async function take(bus, paint, what = 'photo') {
   const l = photoLink();
   const ready = await l.ready;
   if (!ready.webgl) {
@@ -67,6 +78,12 @@ async function take(bus, paint) {
     h.load(r.manifest, r.look, r.cache ? 'cache' : 'new', performance.timeOrigin + performance.now());
     const why = await Promise.race([done, new Promise((ok) => setTimeout(() => ok('late'), 25000))]);
     if (String(why).startsWith('error:')) throw new Error(why.slice(6));
+    if (what === 'bake') {
+      const baked = await h.shot({ bake: true });
+      if (!baked?.png || !baked.model) throw new Error(baked?.error || 'no depot model');
+      await call('b3d_depot_put', { bus, paint: paint || '', png: base64(baked.png), model: baked.model });
+      return baked;
+    }
     const shot = await h.shot({ photo: true, w: PHOTO_W, h: PHOTO_H });
     if (!shot?.png) throw new Error(shot?.error || 'no picture');
     await call('b3d_photo_put', { bus, paint: paint || '', png: base64(shot.png) });

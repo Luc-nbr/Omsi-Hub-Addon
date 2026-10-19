@@ -10,6 +10,7 @@ use super::super::{act as apply, Session};
 use super::{popup_answer, str_arg, u32_arg};
 use crate::Answer;
 use hub_core::company::depot::{self as dp, Area, JobKind};
+use hub_core::company::yard;
 use hub_core::company::{self as co, Company};
 use serde_json::{json, Value};
 
@@ -48,13 +49,16 @@ fn building(c: &Company, area: Area, title: &str) -> Value {
     json!({ "built": built, "head": head, "works": works })
 }
 
-/// A bus where it stands: its number, and its card in the tooltip.
+/// A bus where it stands: its number, its size (the 3D yard draws it as long), its bus file and
+/// livery (its depot model), and its card in the tooltip.
 fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     let mut tip = format!("{} {}  ·  {} {:.0} %", v.number, v.name, tr("condition"), v.condition);
     if v.in_workshop(&c.date) {
         tip.push_str(&format!("  ·  {}", trf("in the workshop until %{date}", &[("date", &day_label(v.workshop_until.as_deref().unwrap_or("")))])));
     }
-    json!({ "id": v.id, "number": v.number, "tip": tip })
+    // (the livery it wears: the house livery once the studio made one, as the game gets it)
+    let paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
+    json!({ "id": v.id, "number": v.number, "size": v.kind.size, "file": v.bus, "paint": paint, "tip": tip })
 }
 
 /// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.
@@ -90,6 +94,44 @@ fn plan(c: &Company) -> Value {
         "offices": offices, "hall": hall, "wash": wash, "fuel": fuel, "parking": parking,
         "in_ws": in_ws.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
         "parked": parked.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
+        "layout": layout(c),
+    })
+}
+
+/// The yard laid out (`yard`), as the 3D depot draws it and its build mode puts modules down:
+/// the land (in cells of `cell` metres), the gate's lane, each module with its cells, its aprons
+/// and what it is, the modules being built where they will stand, the shapes of the modules to
+/// put down, and the land to buy.
+fn layout(c: &Company) -> Value {
+    let mut site = c.site.clone();
+    yard::reconcile(&mut site);
+    let land = yard::owned(&site);
+    let module = |p: &yard::Placed, building: bool, works: Option<String>| {
+        let r = p.rect();
+        json!({
+            "id": p.id, "area": p.area.key(), "x": r.x, "y": r.y, "w": r.w, "h": r.h, "rot": p.rot, "aprons": p.aprons(),
+            "building": building, "works": works,
+            "title": tr(p.area.label()), "what": effect(c, p.area),
+        })
+    };
+    let mut modules: Vec<Value> = site
+        .layout
+        .iter()
+        .map(|p| module(p, false, site.works.iter().find(|w| w.area == p.area && w.at.is_none()).map(|w| trf("Building until %{date}", &[("date", &day_label(&w.until))]))))
+        .collect();
+    for w in &site.works {
+        if let Some(at) = &w.at {
+            modules.push(module(at, true, Some(trf("Building until %{date}", &[("date", &day_label(&w.until))]))));
+        }
+    }
+    let shapes: serde_json::Map<String, Value> =
+        Area::ALL.iter().filter_map(|a| yard::shape(*a).map(|(w, h, front, back)| (a.key().to_string(), json!({ "w": w, "h": h, "front": front, "back": back })))).collect();
+    let more = yard::land_cost(c).map(|cost| {
+        json!({ "cost": eur(cost), "can": c.can_pay(cost), "tip": trf("%{m} m more land beside the yard, yours at once", &[("m", &((yard::LAND_COLS as f64 * yard::CELL_M) as i64).to_string())]) })
+    });
+    json!({
+        "cell": yard::CELL_M, "cols": land.w, "rows": land.h, "max_cols": yard::LOT_COLS + yard::LAND_COLS * yard::LAND_MAX as i32,
+        "gate": yard::GATE, "modules": modules, "shapes": shapes, "land": more,
     })
 }
 
@@ -111,6 +153,8 @@ fn effect(c: &Company, a: Area) -> String {
 /// The areas to build (`depot::buildings`): each with its level, what it does, and the next
 /// level's price, the building work under way, or complete.
 fn buildings(c: &Company) -> Value {
+    let mut site = c.site.clone();
+    yard::reconcile(&mut site);
     let rows: Vec<Value> = Area::ALL
         .iter()
         .map(|a| {
@@ -118,6 +162,7 @@ fn buildings(c: &Company) -> Value {
             let mut row = json!({
                 "key": a.key(), "icon": a.icon(), "label": tr(a.label()),
                 "level": trf("level %{n} of %{max}", &[("n", &lv.to_string()), ("max", &a.max().to_string())]),
+                "lv": lv, "max": a.max(),
                 "effect": effect(c, *a),
             });
             if let Some(w) = c.site.works_on(*a) {
@@ -126,6 +171,8 @@ fn buildings(c: &Company) -> Value {
                 let up = dp::step(*a, lv + 1).upkeep as f64 * c.price_index;
                 row["cost"] = json!(eur(cost));
                 row["locked"] = json!(!dp::area_allowed(c, *a));
+                // (a module more, put down where the player wants it: the build mode)
+                row["place"] = json!(yard::needs_place(&site, *a));
                 row["tip"] = json!(trf("Build the next level: %{days} days of work, then %{amount} a month", &[("days", &days.to_string()), ("amount", &eur(up.round() as i64))]));
             } else {
                 row["complete"] = json!(tr("Complete"));
@@ -192,20 +239,81 @@ fn workshop(c: &Company, selected: Option<u32>) -> Value {
     json!({ "title": tr("Workshop"), "jobs": jobs, "buses": rows, "empty": empty, "cancel_tip": tr("Take the job back") })
 }
 
+/// What stands in the way of building an area before its rules are asked: the level that
+/// opens it, or the money.
+fn first_refusal(c: &Company, a: Area) -> Option<Answer> {
+    let (cost, _) = dp::next_cost(c, a)?;
+    let casual = c.game_mode.casual();
+    if !dp::area_allowed(c, a) {
+        let f = if a == Area::Workshop { co::levels::Feature::Workshop } else { co::levels::Feature::ElectricBuses };
+        return Some(popup_answer(kit::locked(c, f).json(casual)));
+    }
+    if !c.can_pay(cost) {
+        return Some(popup_answer(kit::no_cash(c, cost).json(casual)));
+    }
+    None
+}
+
+fn i32_arg(args: &Value, name: &str) -> i32 {
+    args.get(name).and_then(Value::as_i64).unwrap_or(0) as i32
+}
+
 pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
     Some(match what {
+        "depot_build_at" => {
+            let Some(a) = Area::from_key(&str_arg(args, "area")) else { return Some(Ok(json!({}))) };
+            let Some(c) = s.company.clone() else { return Some(Ok(json!({}))) };
+            if let Some(no) = first_refusal(&c, a) {
+                return Some(no);
+            }
+            let (x, y, rot) = (i32_arg(args, "x"), i32_arg(args, "y"), u32_arg(args, "rot") as u8);
+            match apply(s, |c| yard::build_at(c, a, x, y, rot)) {
+                Ok(()) => {
+                    s.say(trf("Building work has begun: %{what}.", &[("what", &tr(a.label()))]), false);
+                    Ok(json!({ "ok": true }))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_move" => {
+            let (id, x, y, rot) = (u32_arg(args, "id"), i32_arg(args, "x"), i32_arg(args, "y"), u32_arg(args, "rot") as u8);
+            match apply(s, |c| yard::move_module(c, id, x, y, rot)) {
+                Ok(()) => Ok(json!({ "ok": true })),
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_demolish" => {
+            let id = u32_arg(args, "id");
+            match apply(s, |c| yard::demolish(c, id)) {
+                Ok(()) => {
+                    s.say(tr("It has been pulled down."), false);
+                    Ok(json!({ "ok": true }))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_land" => {
+            let Some(c) = s.company.clone() else { return Some(Ok(json!({}))) };
+            if let Some(cost) = yard::land_cost(&c).filter(|cost| !c.can_pay(*cost)) {
+                return Some(popup_answer(kit::no_cash(&c, cost).json(c.game_mode.casual())));
+            }
+            match apply(s, yard::buy_land) {
+                Ok(()) => {
+                    s.say(tr("The land is yours: the yard is bigger."), false);
+                    Ok(json!({ "ok": true }))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
         "depot_build" => {
             let Some(a) = Area::from_key(&str_arg(args, "area")) else { return Some(Ok(json!({}))) };
             let Some(c) = s.company.clone() else { return Some(Ok(json!({}))) };
-            let Some((cost, _)) = dp::next_cost(&c, a) else { return Some(Ok(json!({}))) };
-            let casual = c.game_mode.casual();
-            // (what is in the way is said first: the level that opens it, or the money)
-            if !dp::area_allowed(&c, a) {
-                let f = if a == Area::Workshop { co::levels::Feature::Workshop } else { co::levels::Feature::ElectricBuses };
-                return Some(popup_answer(kit::locked(&c, f).json(casual)));
+            if dp::next_cost(&c, a).is_none() {
+                return Some(Ok(json!({})));
             }
-            if !c.can_pay(cost) {
-                return Some(popup_answer(kit::no_cash(&c, cost).json(casual)));
+            // (what is in the way is said first: the level that opens it, or the money)
+            if let Some(no) = first_refusal(&c, a) {
+                return Some(no);
             }
             match apply(s, |c| dp::build(c, a)) {
                 Ok(()) => {

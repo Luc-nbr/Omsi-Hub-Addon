@@ -15,6 +15,7 @@
 import { Camera } from './camera.js';
 import { LIGHT, Painter } from './draw.js';
 import { fetchBytes } from './urls.js';
+import { ATLAS, bakeViews, composeView, hullFrom, packModel } from './bake.js';
 
 const now = () => performance.timeOrigin + performance.now();
 const TURNTABLE_WAIT = 6000;
@@ -310,6 +311,7 @@ export class Engine {
     this.shooting = true;
     try {
       if (a.photo) return { png: await this.photo(v, a) };
+      if (a.bake) return await this.bake(v);
       this.size(a.w, a.h);
       const cam = v.camera.view(a.w / a.h, a.stand ? { stand: a.stand } : undefined);
       p.draw(cam, a.w, a.h);
@@ -349,6 +351,29 @@ export class Engine {
     flat.getContext('2d').putImageData(new ImageData(out, a.w, a.h), 0, 0);
     const blob = await (flat.convertToBlob ? flat.convertToBlob({ type: 'image/png' }) : new Promise((k) => flat.toBlob(k, 'image/png')));
     return blob.arrayBuffer();
+  }
+
+  /** The depot model (`bake.js`): the five flat views lit evenly and their masks, put into
+   * one atlas (a PNG), and the hull from the masks. */
+  async bake(v) {
+    const p = this.painter;
+    if (p.view !== 'outside') p.setView('outside');
+    const views = bakeViews(v.camera.box);
+    const flat = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(ATLAS, ATLAS) : Object.assign(document.createElement('canvas'), { width: ATLAS, height: ATLAS });
+    const ctx = flat.getContext('2d');
+    const masks = {};
+    for (const view of views) {
+      const { w, h } = view.rect;
+      const colour = p.readBake(view.cam, w, h, false);
+      const mask = p.readBake(view.cam, w, h, true);
+      const c = composeView(colour, mask, w, h);
+      masks[view.name] = c.mask;
+      ctx.putImageData(new ImageData(c.rgba, w, h), view.rect.x, view.rect.y);
+    }
+    const hull = hullFrom(v.camera.box, views, masks);
+    if (!hull) throw new Error('the bus is not in its pictures');
+    const blob = await (flat.convertToBlob ? flat.convertToBlob({ type: 'image/png' }) : new Promise((k) => flat.toBlob(k, 'image/png')));
+    return { png: await blob.arrayBuffer(), model: packModel(hull) };
   }
 
   /** Frame times while turning round once (the self-check, the report). */

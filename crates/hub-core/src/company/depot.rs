@@ -153,12 +153,15 @@ fn cost_factor(d: GameMode) -> f64 {
     super::econ_uk::mode(d).costs
 }
 
-/// Building work under way: the level it brings and its last day.
+/// Building work under way: the level it brings and its last day; a module more of the yard
+/// where it is put down (`yard`; None: built up where it stands).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Works {
     pub area: Area,
     pub level: u32,
     pub until: String,
+    #[serde(default)]
+    pub at: Option<super::yard::Placed>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -246,6 +249,14 @@ pub struct Site {
     pub clean: f64,
     #[serde(default)]
     pub job_counter: u32,
+    /// Where the modules stand (`yard`; empty in a file of before: laid out as it is built).
+    #[serde(default)]
+    pub layout: Vec<super::yard::Placed>,
+    /// The plots of land bought beside the yard.
+    #[serde(default)]
+    pub land: u32,
+    #[serde(default)]
+    pub placed_counter: u32,
 }
 
 fn clean_start() -> f64 {
@@ -265,6 +276,9 @@ impl Default for Site {
             jobs: Vec::new(),
             clean: clean_start(),
             job_counter: 0,
+            layout: Vec::new(),
+            land: 0,
+            placed_counter: 0,
         }
     }
 }
@@ -373,8 +387,22 @@ pub fn upkeep_month(c: &Company) -> Cents {
     (sum as f64 * c.price_index).round() as Cents
 }
 
-/// Build the next level of an area: paid now, in use once the work is done.
+/// Build the next level of an area: paid now, in use once the work is done. A module more of
+/// the yard goes on its first free spot (`yard::build_at` puts it where the player wants it).
 pub fn build(c: &mut Company, area: Area) -> Result<(), &'static str> {
+    super::yard::reconcile(&mut c.site);
+    if !super::yard::needs_place(&c.site, area) {
+        return build_placed(c, area, None);
+    }
+    let Some((x, y, rot)) = super::yard::spot(&c.site, area) else { return Err("There is no room for it on the yard: buy more land.") };
+    let id = c.site.placed_counter + 1;
+    build_placed(c, area, Some(super::yard::Placed { id, area, x, y, rot }))?;
+    c.site.placed_counter = id;
+    Ok(())
+}
+
+/// `build`, the module put down at `at` (None: built up where it stands).
+pub(super) fn build_placed(c: &mut Company, area: Area, at: Option<super::yard::Placed>) -> Result<(), &'static str> {
     if !area_allowed(c, area) {
         return Err("Your company cannot build this yet.");
     }
@@ -388,7 +416,7 @@ pub fn build(c: &mut Company, area: Area) -> Result<(), &'static str> {
     let level = c.site.level(area) + 1;
     c.book(BookingKind::Construction, -cost, format!("{} {}", area.label(), level), false);
     let until = dates::add(&c.date, days - 1);
-    c.site.works.push(Works { area, level, until });
+    c.site.works.push(Works { area, level, until, at });
     Ok(())
 }
 
@@ -614,7 +642,7 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
     let done: Vec<Works> = c.site.works.iter().filter(|w| dates::between(&w.until, date) >= 0).cloned().collect();
     c.site.works.retain(|w| dates::between(&w.until, date) < 0);
     for w in done {
-        c.site.set_level(w.area, w.level);
+        super::yard::finish(&mut c.site, &w);
         night.built.push(w.area);
     }
 

@@ -4,6 +4,8 @@
 // choose. The shapes follow the old Rust views (`serde_json::json!` there), the words come ready
 // in English. A little state is kept so that the clock runs, messages are read and actions show.
 
+import { moduleAt, spot, whyNot } from '../company/depot3d/yard.js';
+
 // --- what the company is ----------------------------------------------------------------------
 
 const PALETTE = ['#f28c28', '#e03c31', '#c2185b', '#7b1fa2', '#283593', '#1e88e5', '#00897b', '#43a047', '#fdd835', '#6d4c41', '#455a64', '#f5f5f5'];
@@ -922,7 +924,7 @@ function sidePanel(sel, arm, today) {
  * tools, a line's sheet opened -, the research's, the workshop's and the sheet's. */
 function moreAct(a) {
   if (String(a.act || '').startsWith('pe_')) return planEditAct(a);
-  const other = researchAct(a) || workshopAct(a);
+  const other = researchAct(a) || workshopAct(a) || depotAct(a);
   if (other) {
     bump();
     return other;
@@ -1155,10 +1157,83 @@ function contracts() {
   };
 }
 
+// (the yard laid out, as `hub_core::company::yard` keeps it: its levels, the modules where they
+// stand, the land bought; the build mode's actions change them)
+const SITE = { parking: 1, workshop: 2, wash: 1, fuel: 1, offices: 1, land: 0, next: 0, modules: [] };
+const SHAPES = { parking: { w: 24, h: 10, front: 5, back: 0 }, workshop: { w: 4, h: 14, front: 6, back: 0 }, wash: { w: 6, h: 14, front: 4, back: 3 }, fuel: { w: 10, h: 10, front: 4, back: 2 }, offices: { w: 10, h: 12, front: 2, back: 0 } };
+const TITLES = { parking: ['Parking spaces', '12 spaces'], workshop: ['Workshop bays', 'A bay: one bus worked on at once'], wash: ['Washing bay', 'Washes 10 buses a night'], fuel: ['Diesel station', 'Fills 15 diesel buses a night'], offices: ['Offices and rest rooms', 'Room for 20 people'] };
+const wantedOf = (lv, a) => (a === 'parking' || a === 'workshop' ? lv[a] : lv[a] > 0 ? 1 : 0);
+const yardNow = () => ({ cell: 2, cols: 48 + 20 * SITE.land, rows: 64, max_cols: 88, gate: { x: 20, y: 54, w: 8, h: 10 }, shapes: SHAPES, modules: SITE.modules });
+
+function yardOf(lv) {
+  for (const a of Object.keys(SHAPES)) {
+    while (SITE.modules.filter((m) => m.area === a).length > wantedOf(lv, a)) SITE.modules.splice(SITE.modules.map((m) => m.area).lastIndexOf(a), 1);
+  }
+  for (const a of ['offices', 'workshop', 'wash', 'fuel', 'parking']) {
+    while (SITE.modules.filter((m) => m.area === a).length < wantedOf(lv, a)) {
+      const at = spot(yardNow(), a);
+      if (!at) {
+        if (SITE.land < 2) SITE.land++;
+        else break;
+        continue;
+      }
+      SITE.modules.push(moduleAt(yardNow(), ++SITE.next, a, at.x, at.y, at.rot, { title: TITLES[a][0], what: TITLES[a][1] }));
+    }
+  }
+  return { ...yardNow(), land: SITE.land < 2 ? { cost: SITE.land ? '€216,000' : '€162,000', can: true, tip: '40 m more land beside the yard, yours at once' } : null };
+}
+
+function depotAct(a) {
+  const L = yardNow();
+  switch (a.act) {
+    case 'depot_build_at': {
+      if (whyNot(L, a.area, a.x, a.y, a.rot)) return {};
+      SITE[a.area] += 1;
+      SITE.modules.push(moduleAt(L, ++SITE.next, a.area, a.x, a.y, a.rot, { title: TITLES[a.area][0], what: TITLES[a.area][1] }));
+      return { ok: true };
+    }
+    case 'depot_move': {
+      const m = SITE.modules.find((x) => x.id === a.id);
+      if (!m || whyNot(L, m.area, a.x, a.y, a.rot, m.id)) return {};
+      Object.assign(m, moduleAt(L, m.id, m.area, a.x, a.y, a.rot, { title: m.title, what: m.what }));
+      return { ok: true };
+    }
+    case 'depot_demolish': {
+      const k = SITE.modules.findIndex((x) => x.id === a.id);
+      if (k < 0) return {};
+      const [m] = SITE.modules.splice(k, 1);
+      SITE[m.area] = m.area === 'parking' || m.area === 'workshop' ? SITE[m.area] - 1 : 0;
+      return { ok: true };
+    }
+    case 'depot_land':
+      if (SITE.land < 2) SITE.land++;
+      return { ok: true };
+    default:
+      return null;
+  }
+}
+
 function depot() {
   const c = co();
-  const busAt = (b) => ({ id: b.id, number: b.number, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
+  const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', file: b.file, paint: b.livery, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
   const bld = (head, works = null) => ({ built: true, head, works });
+  // (`?mock&buses=120`: a full yard, for the 3D depot's speed)
+  const many = Number(new URLSearchParams(location.search).get('buses')) || 0;
+  if (many && !depot.inner) {
+    depot.inner = true;
+    const kinds = [['Vehicles/MAN_NL_NG/NL202.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Weiss'], ['Vehicles/MAN_NG/NG272.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'BVG'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Hamburg']];
+    const fleet = Array.from({ length: many }, (_, k) => {
+      const [file, paint] = kinds[k % 7 === 0 ? 2 : k % 5 === 0 ? 3 : k % 3 === 0 ? 1 : k % 11 === 0 ? 4 : 0];
+      return { id: 1000 + k, number: String(100 + k), size: /NG272/.test(file) ? 'articulated' : 'solo', file, paint, tip: `${100 + k} MAN  ·  ${paint}` };
+    });
+    if (!depot.full) {
+      depot.full = true;
+      Object.assign(SITE, { parking: 8, workshop: 6, offices: 3 });
+    }
+    const v = depot();
+    depot.inner = false;
+    return { ...v, plan: { ...v.plan, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8) } };
+  }
   return {
     figures: [
       { label: 'Parking', value: '3 / 12', under: '9 spaces free', tone: 'text' },
@@ -1168,17 +1243,18 @@ function depot() {
     ],
     plan: {
       title: 'The depot from above', colour: c.colours[0],
-      offices: { ...bld('OFFICES'), floors: 1, room: 'room for 8' }, hall: { ...bld('WORKSHOP'), bays: 2, max: 4 }, wash: { ...bld('WASHING BAY'), gates: false }, fuel: { ...bld('DIESEL STATION'), pumps: 2 },
-      parking: { label: 'PARKING', works: null, blocks: 4, built: 1, building: false, per: 12, chargers: 0 },
+      offices: { ...bld('OFFICES'), floors: 1, room: 'room for 8' }, hall: { ...bld('WORKSHOP'), bays: SITE.workshop, max: 6 }, wash: { ...bld('WASHING BAY'), gates: false }, fuel: { ...bld('DIESEL STATION'), pumps: 2 },
+      parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: 0 },
+      layout: yardOf(SITE),
       in_ws: BUSES.filter((b) => b.workshop).map(busAt), parked: BUSES.filter((b) => !b.workshop).map(busAt),
     },
     build: {
       title: 'Build',
       rows: [
-        { key: 'parking', icon: 'local_parking', label: 'Parking', level: 'level 1 of 4', effect: '12 spaces', cost: '€45,000', locked: false, tip: 'Build the next level: 30 days of work, then €300 a month' },
-        { key: 'workshop', icon: 'construction', label: 'Workshop', level: 'level 1 of 4', effect: '2 bays', cost: '€80,000', locked: false, tip: 'Build the next level: 45 days of work, then €500 a month' },
-        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
-        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', effect: 'Diesel 4 % cheaper', complete: 'Complete' },
+        { key: 'parking', icon: 'local_parking', label: 'Parking', level: `level ${SITE.parking} of 8`, lv: SITE.parking, max: 8, effect: `${SITE.parking * 12} spaces`, cost: '€45,000', locked: false, place: true, tip: 'Build the next level: 30 days of work, then €300 a month' },
+        { key: 'workshop', icon: 'construction', label: 'Workshop', level: `level ${SITE.workshop} of 6`, lv: SITE.workshop, max: 6, effect: `${SITE.workshop} bays`, cost: '€80,000', locked: false, place: true, tip: 'Build the next level: 45 days of work, then €500 a month' },
+        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', lv: 1, max: 2, effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
+        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', lv: 2, max: 2, effect: 'Diesel 4 % cheaper', complete: 'Complete' },
       ],
     },
     workshop: {
