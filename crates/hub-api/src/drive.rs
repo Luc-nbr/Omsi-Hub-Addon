@@ -49,7 +49,10 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         return s;
     }
     // (the driver whose personnel file the game writes, as the old launcher started it)
+    #[cfg(feature = "native")]
     let driver = crate::drivers::launch_driver(d.profile.as_deref());
+    #[cfg(not(feature = "native"))]
+    let driver: Option<String> = None;
     s.driver = driver.as_ref().map(|n| format!("Drivers/{n}.odr"));
     if let Some(sit) = some(&d.situation) {
         s.situation = Some(sit);
@@ -151,7 +154,11 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
     let issued = assignment.as_ref().map(|a| a.issued);
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
     let g = process::start(&checked.install.exe, &spec).map_err(|e| match e {
+        #[cfg(feature = "native")]
         process::StartError::Blocked => crate::online::tr(process::BLOCKED),
+        // (the website starts no game)
+        #[cfg(not(feature = "native"))]
+        process::StartError::Blocked => crate::company::words::tr(process::BLOCKED),
         e => e.to_string(),
     })?;
     let pid = g.pid();

@@ -10,6 +10,8 @@ members = [
     "crates/hub-livery",
     "plugin/harness",
     "app",
+    # (the website's bus company: built for wasm32-wasip1, `crates/hub-web`)
+    "crates/hub-web",
 ]
 # (the app builds with `cargo build -p omsi-hub`; plain `cargo build` builds the libraries)
 default-members = [
@@ -33,8 +35,9 @@ rust-version = "1.90"
 
 [workspace.dependencies]
 hub-omsi = { path = "crates/hub-omsi" }
-hub-core = { path = "crates/hub-core" }
-hub-api = { path = "crates/hub-api" }
+# (without "native": the company and RosterFlow as plain logic, as the website runs them in the browser)
+hub-core = { path = "crates/hub-core", default-features = false }
+hub-api = { path = "crates/hub-api", default-features = false }
 hub-game = { path = "crates/hub-game" }
 hub-locales = { path = "crates/hub-locales" }
 hub-online = { path = "crates/hub-online" }
@@ -89,3 +92,12 @@ debug = false
 lto = "thin"
 codegen-units = 4
 strip = "debuginfo"
+
+# (the website's bus company, `crates/hub-web`: small rather than fast - the browser downloads it)
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

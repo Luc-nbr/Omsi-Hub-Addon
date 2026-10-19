@@ -123,7 +123,7 @@ impl CompanyCode {
         let t = text.trim().to_ascii_uppercase();
         match Self::read(&t) {
             // (the game's code pasted instead: said so)
-            Err(_) if !t.starts_with("HUB") && (t.starts_with("OMSI") || omsi_net::looks_like_code(&t)) => Err(GAME_CODE),
+            Err(_) if !t.starts_with("HUB") && (t.starts_with("OMSI") || looks_like_game_code(&t)) => Err(GAME_CODE),
             r => r,
         }
     }
@@ -177,6 +177,16 @@ impl CompanyCode {
 /// Whether `text` looks like a company code (the join field says so as it is typed).
 pub fn looks_like(text: &str) -> bool {
     CompanyCode::decode(text).is_ok()
+}
+
+/// The game's own session code (openOMSI's), pasted instead of a company's.
+#[cfg(feature = "native")]
+fn looks_like_game_code(t: &str) -> bool {
+    omsi_net::looks_like_code(t)
+}
+#[cfg(not(feature = "native"))]
+fn looks_like_game_code(_: &str) -> bool {
+    false
 }
 
 #[cfg(test)]

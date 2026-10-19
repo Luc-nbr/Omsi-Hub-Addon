@@ -411,7 +411,12 @@ fn game_road(m: &mut MapState, c: &Company, in_game: bool) {
     }
     m.road_at = Some(Instant::now());
     let read = crate::addon::plugins_dir().ok().map(|d| hub_game::install::plugin_dir(&d)).and_then(|d| hub_game::bridge::read_traffic(&d));
-    m.road = read.and_then(|t| traffic_of(&t, &c.map, origin, omsi_map::tile_size(), real_secs()));
+    #[cfg(feature = "native")]
+    let edge = omsi_map::tile_size();
+    // (the website: never in the game, so not reached)
+    #[cfg(not(feature = "native"))]
+    let edge = 300.0;
+    m.road = read.and_then(|t| traffic_of(&t, &c.map, origin, edge, real_secs()));
 }
 
 /// The same map, however the game names it (its global.cfg, from the game's folder or not).
