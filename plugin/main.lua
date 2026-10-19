@@ -20,7 +20,7 @@
 --                         the game to Omsi-Hub's companion server by UDP)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.10.0"
+local VERSION = "1.11.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -641,6 +641,7 @@ traffic.setup(has)
 omsi.every(1, function() traffic.tick(1, now(), clock()) end)
 omsi.every(5, live_notices)
 omsi.every(0.25, function() companion.tick(0.25) end)
+omsi.every(0.1, companion.screen)
 omsi.every(2, messages.read)
 omsi.every(5, messages.status)
 

@@ -3,6 +3,10 @@
 //! server (`hub-companion`) serves it to the app as the launcher would. Pair the app with the
 //! address and the code this prints.
 //!
+//! The bus is `hub-devices`' synthetic test bus, written into a game folder of its own: an IBIS
+//! with a touch screen (its menu key shows the menu page, OK goes back) and a keypad, and a
+//! ticket printer of six keys - drawn in the app as the add-on reads them from the bus's files.
+//!
 //! ```text
 //! cargo run -p hub-plugin-harness --example fakegame
 //! ```
@@ -22,6 +26,7 @@ const ROUTE: [[f64; 2]; 4] = [[0.0, 0.0], [0.0, 900.0], [700.0, 900.0], [700.0, 
 
 struct Game {
     dir: PathBuf,
+    omsi: PathBuf,
 }
 
 impl Source for Game {
@@ -53,6 +58,10 @@ impl Source for Game {
     fn world_of(&self, _map: &str, tile: [i64; 2], local: [f64; 2]) -> Option<[f64; 2]> {
         Some([tile[0] as f64 * 300.0 + local[0], tile[1] as f64 * 300.0 + local[1]])
     }
+    fn bus_model(&self, bus_file: &str) -> Option<(PathBuf, PathBuf)> {
+        let bus = bus_file.split(['\\', '/']).fold(self.omsi.clone(), |d, p| d.join(p));
+        Some((hub_companion::devices::model_of_bus(&bus)?, self.omsi.clone()))
+    }
 }
 
 /// Where the bus is `d` metres along the route, and its heading.
@@ -78,10 +87,12 @@ fn main() {
     std::fs::create_dir_all(&plugins).unwrap();
     install::install(&plugins).unwrap();
     let plugin = install::plugin_dir(&plugins);
+    let omsi = dir.join("OMSI 2");
+    hub_devices::testbus::write(&omsi).expect("the test bus");
 
     let cfg =
         Config { port: hub_companion::DEFAULT_PORT, udp_port: hub_companion::UDP_PORT, name: "Fake game".into(), version: env!("CARGO_PKG_VERSION").into(), devices_file: dir.join("devices.json") };
-    let companion = Companion::start(cfg, Arc::new(Game { dir: plugin.clone() })).expect("the companion's ports are free");
+    let companion = Companion::start(cfg, Arc::new(Game { dir: plugin.clone(), omsi: omsi.clone() })).expect("the companion's ports are free");
     let status = companion.status();
     println!("companion on port {}, pairing code {}", companion.port(), status["code"].as_str().unwrap_or("?"));
     println!("{}", status["pair_url"].as_str().unwrap_or(""));
@@ -101,15 +112,23 @@ fn main() {
         ],
         position: Some((0.0, 0.0, 0.0)),
         clock: clock0,
-        vehicle: Some("MAN Lion's City".into()),
+        vehicle: Some("Test bus".into()),
+        bus_file: hub_devices::testbus::BUS.into(),
         ..GameState::default()
     };
     let mut triggers: Vec<String> = (0..10).map(|d| format!("IBIS_{d}")).collect();
-    triggers.extend(["IBIS_eingabe", "IBIS_loeschen", "IBIS_setmode_linie_kurs", "IBIS_setmode_ziel", "IBIS_vor", "ticketprinter_button_ticket_1", "ticketprinter_button_ticket_2"].map(String::from));
+    triggers.extend(["IBIS_eingabe", "IBIS_loeschen", "IBIS_setmode_linie_kurs", "IBIS_setmode_ziel", "IBIS_vor", "IBIS_menu", "IBIS_ok"].map(String::from));
+    triggers.extend((1..=6).map(|k| format!("ticketprinter_button_ticket_{k}")));
     game.triggers = triggers;
     game.vars.insert("IBIS_LinieKurs".into(), 29.0);
     game.vars.insert("IBIS_TerminusCode".into(), 145.0);
     game.strs.insert("IBIS_terminus_name".into(), "Markgraf-Berthold-Platz".into());
+    // the test bus's IBIS: its pages, its icon, and what its script set at the start
+    game.vars.insert("IBIS_mode".into(), 0.0);
+    game.vars.insert("IBIS_stop".into(), 0.0);
+    game.vars.insert("trans_dauer".into(), 1.0);
+    game.strs.insert("IBIS_line_text".into(), "29/03  145".into());
+    game.strs.insert("IBIS_dest_text".into(), "MARKGRAF-BERTHOLD-PL.".into());
     game.tickets = vec![("Einzelfahrschein".into(), 2.9), ("Tageskarte".into(), 7.0)];
     game.ticket_request = Some(("Einzelfahrschein".into(), 2.9));
     game.lines = json!([{ "name": "29", "user_allowed": true, "tours": [{ "number": 3, "today": true }] }]);
@@ -134,8 +153,27 @@ fn main() {
             let _ = udp.send_to(text.as_bytes(), ("127.0.0.1", port as u16));
         }
         let pressed: Vec<String> = std::mem::take(&mut h.state.borrow_mut().pressed);
-        for p in pressed {
+        let held: Vec<(String, bool)> = std::mem::take(&mut h.state.borrow_mut().held);
+        for p in pressed.iter().cloned().chain(held.iter().filter(|h| h.1).map(|h| h.0.clone())) {
             println!("the bus's key: {p}");
+            // (the test bus's script, as far as the demo goes: the menu page and back)
+            let mut s = h.state.borrow_mut();
+            match p.as_str() {
+                "IBIS_menu" => {
+                    s.vars.insert("IBIS_mode".into(), 1.0);
+                }
+                "IBIS_ok" => {
+                    s.vars.insert("IBIS_mode".into(), 0.0);
+                }
+                _ => {}
+            }
+        }
+        {
+            let mut s = h.state.borrow_mut();
+            let stop = if (s.clock as i64 / 20) % 2 == 0 { 1.0 } else { 0.0 };
+            s.vars.insert("IBIS_stop".into(), stop);
+            let t = s.clock as i64;
+            s.strs.insert("IBIS_line_text".into(), format!("29/03 {:02}:{:02}", t / 3600 % 24, t / 60 % 60));
         }
         std::thread::sleep(Duration::from_millis(500));
     }

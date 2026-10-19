@@ -191,3 +191,62 @@ fn a_message_is_answered_from_the_phone_as_from_the_panel() {
     let replies = bridge::ReplyReader::default().read_new(&dir);
     assert_eq!(replies.iter().map(|r| (r.kind.as_str(), r.id)).collect::<Vec<_>>(), [("read", 77)]);
 }
+
+#[test]
+fn the_devices_screens_are_read_ten_times_a_second_and_only_their_triggers_pressed() {
+    let dir = installed("screens");
+    let mut g = game();
+    g.bus_file = "Vehicles\\TestBus\\TestBus.bus".into();
+    g.triggers.extend(["IBIS_menu", "IBIS_menu_off"].map(String::from));
+    g.vars.insert("IBIS_mode".into(), 1.0);
+    g.vars.insert("IBIS_broken".into(), f64::NAN);
+    g.strs.insert("IBIS_line_text".into(), "  29/03".into());
+    let write = |cmds: Value| {
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        let seq = cmds.as_array().and_then(|c| c.last()).and_then(|c| c["seq"].as_u64()).unwrap_or(0);
+        let q = json!({
+            "sid": 9, "port": PORT, "seq": seq, "cmds": cmds,
+            "want": { "nums": ["IBIS_mode", "IBIS_stop", "IBIS_broken"], "strs": ["IBIS_line_text", "IBIS_dest_text"] },
+            // (`door_1` is no device's: Omsi-Hub would not list it, and `IBIS_ghost` the bus lacks)
+            "press": ["IBIS_menu", "IBIS_7", "IBIS_ghost"],
+        });
+        std::fs::write(dir.join("data/companion.json"), q.to_string()).unwrap();
+    };
+    write(json!([]));
+    let mut h = Harness::load(&dir, g).unwrap();
+    h.frame().unwrap();
+    let live = sent(&h, "live");
+    assert_eq!(live.last().unwrap()["bus_file"], "Vehicles\\TestBus\\TestBus.bus");
+    let scr = sent(&h, "scr");
+    assert!(!scr.is_empty(), "the screens' values");
+    let items = &scr.last().unwrap()["items"];
+    assert_eq!(items[0], json!(["n", "IBIS_mode", 1]));
+    assert_eq!(items[1], json!(["o", "IBIS_stop"]), "a number the bus does not have");
+    assert_eq!(items[2], json!(["n", "IBIS_broken"]), "no number: none");
+    assert_eq!(items[3], json!(["s", "IBIS_line_text", "  29/03"]), "as the bus has it, not trimmed");
+    assert_eq!(items[4], json!(["s", "IBIS_dest_text", ""]));
+    assert_eq!((scr.last().unwrap()["page"].as_i64(), scr.last().unwrap()["pages"].as_i64()), (Some(1), Some(1)));
+    // the same values: the same version; a change: the next
+    let v = scr.last().unwrap()["v"].as_i64().unwrap();
+    h.frame().unwrap();
+    assert_eq!(sent(&h, "scr").last().unwrap()["v"].as_i64(), Some(v));
+    h.state.borrow_mut().strs.insert("IBIS_line_text".into(), "  29/04".into());
+    h.frame().unwrap();
+    assert_eq!(sent(&h, "scr").last().unwrap()["v"].as_i64(), Some(v + 1));
+
+    // the taps: pressed and let go, held, let go; nothing the devices do not have
+    write(json!([
+        { "seq": 1, "do": "press", "key": "IBIS_menu" },
+        { "seq": 2, "do": "press", "key": "IBIS_7", "down": true },
+        { "seq": 3, "do": "press", "key": "IBIS_7", "down": false },
+        { "seq": 4, "do": "press", "key": "door_1" },
+        { "seq": 5, "do": "press", "key": "IBIS_ghost" },
+    ]));
+    h.frame().unwrap();
+    let a = acks(&h);
+    assert_eq!(a.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), [(1, true), (2, true), (3, true), (4, false), (5, false)]);
+    assert_eq!(a[3].2, "unknown_key");
+    let st = h.state.borrow();
+    assert_eq!(st.pressed, ["IBIS_menu"]);
+    assert_eq!(st.held, [("IBIS_7".to_string(), true), ("IBIS_7".to_string(), false)]);
+}

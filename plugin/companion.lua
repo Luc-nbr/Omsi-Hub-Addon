@@ -11,6 +11,12 @@
 --
 -- The phone presses only keys of the bus's IBIS, its ticket printer and its change dispenser
 -- (the triggers this module found on the bus and told Omsi-Hub of); anything else is refused.
+--
+-- The bus's devices drawn as the game draws them (Omsi-Hub reads their screens from the bus's
+-- own files): Omsi-Hub says in the file which number and string variables their screens show
+-- (`want`), and this module reads them ten times a second and sends them (`scr`, in pages);
+-- a tap on such a screen presses its trigger (`press`), but only one of the triggers Omsi-Hub
+-- listed for the bus's devices (`press`) that this bus really has.
 
 local json = require("hubjson")
 
@@ -47,6 +53,11 @@ local left_at = {}
 local left_trip = nil
 local probe = nil
 local wait = { live = 0, lists = 0, look = 0, keys = 0 }
+-- what the devices' screens show ({nums, strs}), and the devices' triggers that may be pressed
+local want = nil
+local press_allowed, press_for = {}, nil
+-- (a screen's variables at most, and a string's length)
+local MAX_NUMS, MAX_STRS, MAX_TEXT = 512, 256, 256
 
 local function fn(name)
   local t = omsi
@@ -231,6 +242,7 @@ local function send_live()
     t = "live", issued = hook.issued and hook.issued() or 0, clock = clock(),
     paused = fn("world.paused") and omsi.world.paused() or false,
     map = map_path(), date = date(), bus = b, ref = reference(b), duty = d,
+    bus_file = fn("bus.file") and omsi.bus.file() or "",
     signon = signon and signon.stage or "work", signon_wrong = signon and signon.wrong and signon.wrong() or false,
   }
   -- the street at the place Omsi-Hub asked for (the road after the next turn)
@@ -272,6 +284,59 @@ local function send_dev()
   send(dev)
 end
 
+-- the devices' screens: the variables Omsi-Hub wants, as the bus has them now
+local function send_screen()
+  if not (want and on) then return end
+  if fn("has_vehicle") and not omsi.has_vehicle() then return end
+  local items = {}
+  local nums = {}
+  for i, n in ipairs(type(want.nums) == "table" and want.nums or {}) do
+    if i > MAX_NUMS then break end
+    if type(n) == "string" then nums[#nums + 1] = n end
+  end
+  local strs = {}
+  for i, n in ipairs(type(want.strs) == "table" and want.strs or {}) do
+    if i > MAX_STRS then break end
+    if type(n) == "string" then strs[#strs + 1] = n end
+  end
+  if #nums == 0 and #strs == 0 then return end
+  local got = {}
+  if #nums > 0 and fn("bus.get_vars") then got = omsi.bus.get_vars(nums) or {} end
+  for _, n in ipairs(nums) do
+    local v = got[n]
+    if v == nil and not fn("bus.get_vars") and fn("var") then v = omsi.var(n) end
+    -- (a name the bus does not have: "o", always shown; a value that is no number: none)
+    if v == nil then items[#items + 1] = { "o", n } else items[#items + 1] = { "n", n, num(v) } end
+  end
+  local texts = {}
+  if #strs > 0 and fn("bus.get_strings") then texts = omsi.bus.get_strings(strs) or {} end
+  for _, n in ipairs(strs) do
+    local s = texts[n]
+    if s == nil and fn("str") then s = omsi.str(n) end
+    items[#items + 1] = { "s", n, type(s) == "string" and s:sub(1, MAX_TEXT) or "" }
+  end
+  send_list("scr", "items", items)
+end
+
+-- the triggers the phone may press for the bus's devices: what Omsi-Hub listed that the bus has
+local function set_press(list)
+  local text = json.encode(list or {}) .. "\n" .. tostring(keys_for)
+  if text == press_for then return end
+  press_for = text
+  press_allowed = {}
+  local has = nil
+  if fn("bus.triggers") then
+    has = {}
+    for _, t in ipairs(omsi.bus.triggers() or {}) do
+      if type(t) == "string" then has[t] = true end
+    end
+  end
+  for i, t in ipairs(type(list) == "table" and list or {}) do
+    if i > 400 then break end
+    if type(t) == "string" and (has == nil or has[t]) then press_allowed[t] = true end
+  end
+end
+
 -- --- the commands -------------------------------------------------------------------------------
 
 local function press(key)
@@ -287,6 +352,14 @@ local function carry_out(c)
   local what = c["do"]
   if what == "key" then
     return press(tostring(c.key or ""))
+  elseif what == "press" then
+    -- a tap or key of a device: pressed and let go, or held (down) and let go (not down)
+    local key = tostring(c.key or "")
+    if not press_allowed[key] then return false, "unknown_key" end
+    local name = c.down == true and "press" or c.down == false and "release" or "trigger"
+    if not fn(name) then return false, "not_supported" end
+    omsi[name](key)
+    return true
   elseif what == "ticket" then
     local i = math.tointeger(tonumber(c.i)) or 0
     local key = "ticketprinter_button_ticket_" .. i
@@ -339,6 +412,8 @@ local function look()
   local ok, q = pcall(omsi.json.decode, text)
   if not ok or type(q) ~= "table" then return end
   port = math.tointeger(tonumber(q.port)) or M.PORT
+  want = type(q.want) == "table" and q.want or nil
+  set_press(q.press)
   probe = type(q.probe) == "table" and num(q.probe[1]) and num(q.probe[2]) and { num(q.probe[1]), num(q.probe[2]) } or nil
   -- (a session seen the first time, when the plugin starts: what is in the file is old)
   if sid == nil then
@@ -368,6 +443,11 @@ end
 -- the bus changed: its keys found again
 function M.vehicle()
   keys_for = nil
+end
+
+-- ten times a second (main.lua): the devices' screens
+function M.screen()
+  send_screen()
 end
 
 -- every quarter of a second (main.lua)

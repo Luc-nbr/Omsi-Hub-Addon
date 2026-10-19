@@ -20,7 +20,9 @@
 //! * the bus's triggers, script variables and strings, tickets and sales are
 //!   [`GameState::triggers`], [`GameState::vars`], [`GameState::strs`], [`GameState::tickets`]
 //!   and [`GameState::sales`]; `omsi.trigger`, `omsi.bus.action` and `omsi.bus.set_line` are
-//!   kept in [`GameState::pressed`], [`GameState::bus_actions`] and [`GameState::lines_typed`].
+//!   kept in [`GameState::pressed`], [`GameState::bus_actions`] and [`GameState::lines_typed`],
+//!   `omsi.press` and `omsi.release` in [`GameState::held`]; `omsi.bus.get_vars` and
+//!   `omsi.bus.get_strings` give only the names the bus has, as the API does.
 //!
 //! A test can take functions away before the plugin runs ([`Harness::load_with`]), as an older
 //! openOMSI would not have them.
@@ -116,6 +118,8 @@ pub struct GameState {
     /// its key actions done (`omsi.bus.action`) and the lines typed (`omsi.bus.set_line`).
     pub triggers: Vec<String>,
     pub pressed: Vec<String>,
+    /// The keys held down (`omsi.press`: true) and let go (`omsi.release`: false), in order.
+    pub held: Vec<(String, bool)>,
     pub bus_actions: Vec<String>,
     pub lines_typed: Vec<String>,
     /// Its script variables and strings (`omsi.bus.get_vars`, `omsi.vars`, `omsi.str`).
@@ -165,6 +169,7 @@ impl Default for GameState {
             tile: 300.0,
             triggers: Vec::new(),
             pressed: Vec::new(),
+            held: Vec::new(),
             bus_actions: Vec::new(),
             lines_typed: Vec::new(),
             vars: BTreeMap::new(),
@@ -229,6 +234,8 @@ pub const FUNCTIONS: &[&str] = &[
     "timetable.buses",
     "timetable.lines",
     "trigger",
+    "press",
+    "release",
     "vars",
     "str",
     "vehicle",
@@ -237,6 +244,7 @@ pub const FUNCTIONS: &[&str] = &[
     "bus.ticket_request",
     "bus.sales",
     "bus.get_vars",
+    "bus.get_strings",
     "bus.action",
     "bus.set_line",
     "map.lane",
@@ -413,6 +421,14 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
         s.borrow_mut().pressed.push(name);
         Ok(())
     });
+    f!(omsi, "press", |_l, s, name: String| {
+        s.borrow_mut().held.push((name, true));
+        Ok(())
+    });
+    f!(omsi, "release", |_l, s, name: String| {
+        s.borrow_mut().held.push((name, false));
+        Ok(())
+    });
     f!(omsi, "vars", |l, s, kind: Option<String>| {
         let g = s.borrow();
         let names: Vec<String> = if kind.as_deref() == Some("str") { g.strs.keys().cloned().collect() } else { g.vars.keys().cloned().collect() };
@@ -565,8 +581,16 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     });
     f!(bus, "sales", |_l, s, _a: ()| Ok(s.borrow().sales));
     f!(bus, "get_vars", |l, s, names: Option<Vec<String>>| {
+        // (as Lua numbers: a NaN stays one, as the game gives it)
+        let out = l.create_table()?;
+        for (k, v) in s.borrow().vars.iter().filter(|(k, _)| names.as_ref().is_none_or(|n| n.contains(k))) {
+            out.set(k.as_str(), *v)?;
+        }
+        Ok(out)
+    });
+    f!(bus, "get_strings", |l, s, names: Option<Vec<String>>| {
         let g = s.borrow();
-        let out: serde_json::Map<String, Value> = g.vars.iter().filter(|(k, _)| names.as_ref().is_none_or(|n| n.contains(k))).map(|(k, v)| (k.clone(), json!(v))).collect();
+        let out: serde_json::Map<String, Value> = g.strs.iter().filter(|(k, _)| names.as_ref().is_none_or(|n| n.contains(k))).map(|(k, v)| (k.clone(), json!(v))).collect();
         to_lua(l, &Value::Object(out))
     });
     f!(bus, "action", |_l, s, a: (String, Option<bool>)| {
