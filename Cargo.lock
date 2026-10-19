@@ -1938,6 +1938,7 @@ dependencies = [
  "chrono",
  "glam",
  "hashbrown 0.17.1",
+ "hub-companion",
  "hub-core",
  "hub-game",
  "hub-livery",
@@ -1965,6 +1966,17 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "ureq",
+]
+
+[[package]]
+name = "hub-companion"
+version = "0.1.0"
+dependencies = [
+ "hub-game",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
 ]
 
 [[package]]

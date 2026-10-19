@@ -8,6 +8,7 @@ members = [
     "crates/hub-locales",
     "crates/hub-online",
     "crates/hub-livery",
+    "crates/hub-companion",
     "plugin/harness",
     "app",
     # (the website's bus company: built for wasm32-wasip1, `crates/hub-web`)
@@ -22,6 +23,7 @@ default-members = [
     "crates/hub-locales",
     "crates/hub-online",
     "crates/hub-livery",
+    "crates/hub-companion",
     "plugin/harness",
 ]
 
@@ -42,6 +44,7 @@ hub-game = { path = "crates/hub-game" }
 hub-locales = { path = "crates/hub-locales" }
 hub-online = { path = "crates/hub-online" }
 hub-livery = { path = "crates/hub-livery" }
+hub-companion = { path = "crates/hub-companion" }
 
 # openOMSI's readers and its vehicle simulation, as Luc's fork of openOMSI has them: the code of
 # openOMSI from before it became AGPL (2026-10-14), under its MIT licence, with Luc's own changes
