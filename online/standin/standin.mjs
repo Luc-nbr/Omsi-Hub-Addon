@@ -17,7 +17,7 @@
 // - The database (`/rest/v1`): the functions of online/supabase/schema.sql with the same checks and
 //   answers (the privacy statement's `accept_privacy` and `my_privacy` among them), and the tables' reads with the same row-level rules (profiles, invites).
 // - Storage (`/storage/v1`): the private bucket `saves`, each player only in users/<own id>/, only
-//   slot1 and slot2 written, 25 MB a file.
+//   slot1 written (one cloud save; a slot2 of before is still read and deleted), 25 MB a file.
 //
 // Every request needs the `apikey` header (STANDIN_KEY, default `sb_publishable_standin`). Access
 // tokens are HS256 JWTs signed with a key made at start, valid STANDIN_TTL seconds (default 3600; a
@@ -454,7 +454,8 @@ function storage(req, res, path, body, raw) {
   if (req.headers.authorization && !who) return storageError(res, 403, 'InvalidJWT', 'jwt expired');
   if (!who) return storageError(res, 403, 'Unauthorized', 'new row violates row-level security policy');
   const own = (p) => p.split('/')[0] === 'users' && p.split('/')[1] === who.user.id;
-  const slot = (p) => ['slot1', 'slot2'].includes(p.split('/')[2]);
+  // (one cloud save: only slot1 is written; a slot2 of before is still read and deleted)
+  const slot = (p) => p.split('/')[2] === 'slot1';
   let m;
   if ((m = path.match(/^\/object\/authenticated\/saves\/(.+)$/)) && req.method === 'GET') {
     const f = own(m[1]) && files.get(m[1]);

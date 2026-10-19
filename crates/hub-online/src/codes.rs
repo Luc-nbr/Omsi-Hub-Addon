@@ -77,7 +77,8 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("not_allowed", "That is not allowed."),
     ("no_session", "Share your company first (Multiplayer): then there is a session to invite to."),
     // (the cloud saves': their texts are in cloud-saves.yml)
-    ("limit", "Both cloud slots are taken: keep this company local, or replace one of your 2 cloud companies."),
+    ("limit", "Your cloud save is taken: keep this company local, or replace the company in the cloud."),
+    ("read_only", "This cloud save is from before the limit of one: it can be downloaded or deleted, no longer updated."),
     ("conflict", "This company changed on this PC and in the cloud since it was last synced."),
     ("too_large", "This company is too large for the cloud (at most 25 MB compressed). It stays local."),
     ("no_cloud_save", "This cloud save is not there any more."),

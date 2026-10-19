@@ -25,7 +25,7 @@ import { call, openUrl } from '../api.js';
 import { language } from '../i18n.js';
 import { get, set, useStore } from '../store.js';
 import { Btn, Icon, loadSheet, Sure, Switch, toast, tr } from './bits.js';
-// (the account's cloud saves: the 2 slots - `cloud.js`)
+// (the account's cloud save: its one slot - `cloud.js`)
 import { CloudSaves } from './cloud.js';
 import { AGE, askPrivacy, PrivacyLink, Statement } from '../privacy.js';
 // (the profile photo, the same on the website: `avatar.js`)

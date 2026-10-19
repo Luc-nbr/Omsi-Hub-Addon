@@ -170,7 +170,7 @@ const answers = {
   ol_refresh: () => ({ ok: true }),
   ol_seen: () => ({ ok: true }),
   ol_presence: () => ({ ok: true }),
-  cs_state: () => ({ companies: {}, slots: 2, used: 0, local_label: 'Local save', cloud_label: 'Cloud save' }),
+  cs_state: () => ({ signed_in: false, offline: false, listed: false, max_slots: 1, slots: [], companies: {}, local_label: 'Local save', cloud_label: 'Cloud save', notices: [] }),
   cs_open: () => ({}),
   addon_state: () => ({ folder: settings.openomsi_folder, game: checkOpenomsi(settings.openomsi_folder), plugin: { state: addonPlugin }, plugin_version: '1.7.0', hello: null, checked: false, assigned: null }),
   addon_enable: (a) => ((addonPlugin = a.on ? 'on' : 'off'), { state: addonPlugin, version: '1.7.0' }),

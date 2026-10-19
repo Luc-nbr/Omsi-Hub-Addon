@@ -1,5 +1,5 @@
 //! The cloud saves against the tests' server: a fake of Supabase Storage's bucket `saves`
-//! (`storage`), as docs/ONLINE.md describes it - two slots, `limit`, `conflict` on another
+//! (`storage`), as docs/ONLINE.md describes it - one slot (a second of before read only), `limit`, `conflict` on another
 //! base version, `meta.json` written after the file, the last 3 versions kept, downloads checked
 //! against their sha256. No test reaches the real project.
 
@@ -44,6 +44,8 @@ pub(crate) fn storage(files: &Files, r: &Req) -> Option<Raw> {
         return Some(no("403", "InvalidJWT"));
     }
     let own = |p: &str| p.starts_with("users/me/slot1/") || p.starts_with("users/me/slot2/");
+    // (written: the one slot only, as the bucket's policy has it; a slot2 of before is read and deleted)
+    let writable = |p: &str| p.starts_with("users/me/slot1/");
     if let Some(p) = path.strip_prefix("/object/authenticated/saves/") {
         return Some(match b.files.get(p) {
             Some(bytes) if own(p) => (200, vec![], Body::Raw(bytes.clone())),
@@ -63,7 +65,7 @@ pub(crate) fn storage(files: &Files, r: &Req) -> Option<Raw> {
     }
     if let Some(p) = path.strip_prefix("/object/saves/") {
         if r.method == "POST" {
-            if !own(p) {
+            if !writable(p) {
                 return Some(no("403", "Unauthorized"));
             }
             if r.header("x-upsert") != Some("true") && b.files.contains_key(p) {
@@ -130,9 +132,8 @@ fn a_save_goes_up_compressed_with_its_meta_after_it_and_comes_back_the_same() {
     assert_eq!(c.download_save(1, None).unwrap().1, b);
     assert_eq!(c.download_save(1, Some(1)).unwrap().1, a, "a kept version");
     let list = c.saves_list().unwrap();
-    assert_eq!((list.max_slots, list.max_bytes, list.slots.len(), list.free()), (2, saves::MAX_BYTES, 2, Some(2)));
+    assert_eq!((list.max_slots, list.max_bytes, list.slots.len(), list.free()), (1, saves::MAX_BYTES, 1, None));
     assert_eq!((list.slot(1).unwrap().version, list.slot(1).unwrap().versions.clone()), (2, vec![1, 2]));
-    assert!(list.slots[1].empty);
 }
 
 #[test]
@@ -199,8 +200,8 @@ fn another_base_version_is_a_conflict_with_the_slot_as_it_is_now() {
     }
     // (a company not in the cloud yet is base 0: into a taken slot, a conflict too)
     assert!(matches!(c.upload_save(Some(1), "Other", "Desktop", 0, &archive("d")), Err(SaveError::Conflict(_))));
-    // (a slot emptied on another computer: the conflict says so)
-    assert!(matches!(c.upload_save(Some(2), "Gone", "Desktop", 3, &archive("e")), Err(SaveError::Conflict(ref s)) if s.empty && s.slot == 2));
+    // (a slot of before is never written)
+    assert_eq!(c.upload_save(Some(2), "Gone", "Desktop", 3, &archive("e")), Err(SaveError::Failed(Error::Code("read_only"))));
     assert_eq!(SaveError::Conflict(Default::default()).error(), Error::Code("conflict"));
     // (another computer committed between this one's begin and its commit)
     let packed = compress(&archive("late")).unwrap();
@@ -213,23 +214,56 @@ fn another_base_version_is_a_conflict_with_the_slot_as_it_is_now() {
 }
 
 #[test]
-fn the_third_company_meets_the_limit_and_a_slot_can_be_emptied_for_it() {
+fn the_second_company_meets_the_limit_and_the_slot_can_be_emptied_for_it() {
     let (_m, files, mut c) = cloud();
     c.upload_save(None, "One", "PC", 0, &archive("1")).unwrap();
-    assert_eq!(c.upload_save(None, "Two", "PC", 0, &archive("2")).unwrap().slot, 2);
-    let e = c.upload_save(None, "Three", "PC", 0, &archive("3")).unwrap_err();
+    let e = c.upload_save(None, "Two", "PC", 0, &archive("2")).unwrap_err();
     assert_eq!(e, SaveError::Failed(Error::Code("limit")));
     assert!(e.error().text().contains("keep this company local"));
     assert_eq!(c.saves_list().unwrap().free(), None);
-    // (replace one: its slot emptied, then the third goes into it)
-    assert_eq!(c.saves_delete(2), Ok(2));
-    let s = c.upload_save(Some(2), "Three", "PC", 0, &archive("3")).unwrap();
-    assert_eq!((s.slot, s.name.as_str()), (2, "Three"));
-    assert_eq!(c.saves_delete(3), Err(Error::Code("bad_input")), "slot 1 or 2 only, checked here");
+    assert!(!names(&files).iter().any(|n| n.contains("slot2")), "never a second slot");
+    // (replace it: the slot emptied, then the second goes into it)
+    assert_eq!(c.saves_delete(1), Ok(2));
+    let s = c.upload_save(Some(1), "Two", "PC", 0, &archive("2")).unwrap();
+    assert_eq!((s.slot, s.name.as_str(), s.read_only), (1, "Two", false));
+    assert_eq!(c.saves_delete(3), Err(Error::Code("bad_input")), "slot 1 (or 2 of before) only, checked here");
     files.lock().unwrap().files.insert("users/other/slot1/v1.omsave".into(), b"x".to_vec());
-    assert_eq!(c.saves_delete_all(), Ok(4));
+    assert_eq!(c.saves_delete_all(), Ok(2));
     assert_eq!(names(&files), ["users/other/slot1/v1.omsave"], "the player's own files only");
     assert_eq!(c.saves_list().unwrap().free(), Some(1));
+}
+
+#[test]
+fn a_second_save_of_before_is_listed_downloaded_and_deleted_but_never_written() {
+    let (_m, files, mut c) = cloud();
+    // (the account had two slots: a save in the second, as the app of before put it there)
+    let a = archive("old");
+    let packed = compress(&a).unwrap();
+    let meta = json!({ "slot": 2, "name": "Old Bus", "device": "PC", "versions": [{ "version": 4, "size": packed.bytes.len(), "sha256": packed.sha256, "at": 1_700_000_000 }] });
+    files.lock().unwrap().files.insert("users/me/slot2/v4.omsave".into(), packed.bytes.clone());
+    files.lock().unwrap().files.insert("users/me/slot2/meta.json".into(), serde_json::to_vec(&meta).unwrap());
+    let list = c.saves_list().unwrap();
+    assert_eq!((list.max_slots, list.slots.len(), list.free()), (1, 2, Some(1)));
+    let old = list.slot(2).unwrap();
+    assert_eq!((old.name.as_str(), old.version, old.read_only), ("Old Bus", 4, true));
+    assert!(!list.slot(1).is_some_and(|s| s.read_only));
+    // (it comes down as it is)
+    assert_eq!(c.download_save(2, None).unwrap().1, a);
+    // (nothing goes into it: not a new version, not by a commit, not the website's content)
+    let next = compress(&archive("new")).unwrap();
+    assert_eq!(c.saves_upload_begin(Some(2), "Old Bus", &next, 4, "PC"), Err(SaveError::Failed(Error::Code("read_only"))));
+    assert_eq!(c.content_file(2, "content.json", false), Err(Error::Code("read_only")));
+    assert!(c.content_file(2, "content.json", true).is_ok());
+    assert_eq!(c.content_remove(2, &["content.json".into()]), Err(Error::Code("read_only")));
+    // (a new company goes into the one slot)
+    assert_eq!(c.upload_save(None, "New", "PC", 0, &archive("new")).unwrap().slot, 1);
+    assert_eq!(c.upload_save(None, "Third", "PC", 0, &archive("3")), Err(SaveError::Failed(Error::Code("limit"))));
+    // (deleted, it is no longer listed; every file of both goes with the account)
+    assert_eq!(c.saves_delete(2), Ok(2));
+    assert_eq!(c.saves_list().unwrap().slots.len(), 1);
+    files.lock().unwrap().files.insert("users/me/slot2/meta.json".into(), serde_json::to_vec(&meta).unwrap());
+    assert_eq!(c.saves_delete_all(), Ok(3));
+    assert!(names(&files).is_empty());
 }
 
 #[test]
@@ -243,7 +277,7 @@ fn every_refusal_of_the_storage_is_one_of_our_codes_with_a_text() {
         assert_eq!(e, Error::Code(ours), "{status}");
         assert_eq!(codes::known(e.code()), Some(ours));
     }
-    for ours in ["limit", "conflict", "too_large", "no_cloud_save", "upload_failed", "bad_save"] {
+    for ours in ["limit", "read_only", "conflict", "too_large", "no_cloud_save", "upload_failed", "bad_save"] {
         assert_ne!(codes::text(ours), codes::text("server"), "{ours} has a text of its own");
     }
     // (the file refused by the storage: `upload_failed`; too large: `too_large`)

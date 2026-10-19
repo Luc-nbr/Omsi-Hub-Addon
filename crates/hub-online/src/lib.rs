@@ -7,8 +7,8 @@
 //!   account deleted; the access token renewed with the refresh token a minute before it expires
 //!   and once more on a 401 (a second 401 signs out). An account is made on the website
 //!   (`sign_up_page`), not here;
-//! * `saves` - the player's two cloud save slots in Storage, a save compressed with zstd and its
-//!   sha256 checked both ways;
+//! * `saves` - the player's cloud save slot in Storage (a second of before read only), a save
+//!   compressed with zstd and its sha256 checked both ways;
 //! * `avatar` - the profile photo, one small picture in the public bucket `avatars`, the same on
 //!   the website;
 //! * `store` - the refresh token in the OS's credential store, nowhere else;

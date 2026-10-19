@@ -87,8 +87,9 @@ never changes their files.
 - **The editors**: the timetable editor (a map's lines and tours) and the depot editor (depot files
   of your own, for the IBIS and the destination displays). What they write goes into openOMSI's
   content folder or Omsi-Hub's own data folder, never into the OMSI 2 folder.
-- **Online, optional**: an account (email or Google) for friends, the leaderboard and up to two
-  cloud saves. Without one, everything works offline.
+- **Online, optional**: an account (email or Google) for friends, the leaderboard and a cloud
+  save: one company kept online (a second one saved before stays there read only, to download or
+  remove). Without one, everything works offline.
 - **Windows, macOS (Apple silicon and Intel) and Linux** (an AppImage, or a `.deb` / `.rpm`).
 - **English and six translations**: Dutch, German, French, Russian, Ukrainian and Polish, as the old
   Omsi-Hub had them.
