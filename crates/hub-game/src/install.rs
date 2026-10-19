@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `plugin/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.10.0";
+pub const VERSION: &str = "1.11.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../../../plugin/main.lua")),
@@ -38,6 +38,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("traffic.lua", include_str!("../../../plugin/traffic.lua")),
     ("dash.lua", include_str!("../../../plugin/dash.lua")),
     ("layout.lua", include_str!("../../../plugin/layout.lua")),
+    ("nav.lua", include_str!("../../../plugin/nav.lua")),
     // the look openOMSI's own screens take with the plugin (`skin=omsihub` in its settings: a
     // game that has no skins reads none of them)
     ("skin.json", include_str!("../../../plugin/skin.json")),
@@ -265,6 +266,16 @@ pub const TEXTS: &[&str] = &[
     // the pause menu's lines of the skin (`menu_entry`)
     "No messages from the control room",
     "No duty: take one in the Omsi-Hub app",
+    // the navigator as one unit (`lua/nav.lua`): its tabs, the break clock, the slim strip
+    "Navigate",
+    "Trips",
+    "Messages",
+    "Break",
+    "Break over",
+    "until %{time}",
+    "Message from control",
+    "No trip under way",
+    "No trips yet: start your duty",
 ];
 
 /// The sounds of the control room's messages (`lua/messages.lua`), made here as small WAV files:

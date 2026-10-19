@@ -108,6 +108,12 @@ pub struct GameState {
     pub timetable_buses: Vec<Value>,
     pub others: Vec<Value>,
     pub tile: f64,
+    /// `omsi.ui.version` (2: no navigator's board), the navigator's board `omsi.ui.dock` says
+    /// (width, room, height, whether it is this plugin's; None: no board shown), and whether
+    /// the duty's trip under way is done (at its terminus).
+    pub ui_version: i64,
+    pub dock: Option<(f64, f64, f64, bool)>,
+    pub trip_done: bool,
 }
 
 impl Default for GameState {
@@ -142,6 +148,9 @@ impl Default for GameState {
             timetable_buses: Vec::new(),
             others: Vec::new(),
             tile: 300.0,
+            ui_version: 2,
+            dock: None,
+            trip_done: false,
         }
     }
 }
@@ -239,7 +248,7 @@ fn from_lua(lua: &Lua, v: LuaValue) -> mlua::Result<Value> {
 }
 
 fn stops_json(stops: &[Stop]) -> Value {
-    Value::Array(stops.iter().enumerate().map(|(k, s)| json!({ "id": s.id, "number": k + 1, "name": s.name, "arr": s.arr, "dep": s.dep, "stops": true })).collect())
+    Value::Array(stops.iter().enumerate().map(|(k, s)| json!({ "id": s.id, "number": k + 1, "name": s.name, "arr": s.arr, "dep": s.dep, "arrival": s.arr, "stops": true })).collect())
 }
 
 impl Harness {
@@ -404,7 +413,11 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
 
     // the plugin's panels
     let ui = lua.create_table()?;
-    ui.set("version", 2)?;
+    ui.set("version", state.borrow().ui_version)?;
+    f!(ui, "dock", |l, s, _a: ()| match s.borrow().dock {
+        Some(d) => d.into_lua_multi(l),
+        None => Ok(mlua::MultiValue::new()),
+    });
     f!(ui, "set", |l, s, a: (String, LuaValue)| {
         let v = from_lua(l, a.1)?;
         s.borrow_mut().panels.insert(a.0, v);
@@ -445,7 +458,7 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     // the duty
     let duty = lua.create_table()?;
     f!(duty, "get", |l, s, _a: ()| match &s.borrow().duty {
-        Some(d) => to_lua(l, &json!({ "line": d.line, "tour": d.tour, "trip": d.trip, "trips": d.trips, "delay": d.delay })),
+        Some(d) => to_lua(l, &json!({ "line": d.line, "tour": d.tour, "trip": d.trip, "trips": d.trips, "delay": d.delay, "trip_done": s.borrow().trip_done })),
         None => Ok(LuaValue::Nil),
     });
     f!(duty, "trips", |l, s, _a: ()| {

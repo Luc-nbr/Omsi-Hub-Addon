@@ -388,3 +388,111 @@ fn the_skin_s_lines_in_the_pause_menu_open_the_duty_and_the_messages() {
     h.fire("menu_entry", &[json!("duty")]).unwrap();
     assert_eq!(eval(&h, "return omsi.ui.focused()"), json!(true));
 }
+
+/// A game whose navigator has its board (`omsi.ui.version` 3 and on): two trips of three stops.
+fn docked_game() -> GameState {
+    let stop = |id: i64, name: &str, t: f64| hub_plugin_harness::Stop { id, name: name.into(), arr: t, dep: t };
+    let trip = |name: &str, from: &str, to: &str, dep: f64, arr: f64| Trip {
+        name: name.into(),
+        line: "10".into(),
+        terminus: to.into(),
+        departure: dep,
+        arrival: arr,
+        stops: vec![stop(1, from, dep), stop(2, "Markt", dep + 300.0), stop(3, to, arr)],
+    };
+    GameState {
+        ui_version: 5,
+        dock: Some((360.0, 420.0, 0.0, true)),
+        trips: vec![trip("Zoo - Hbf", "Zoo", "Hbf", 28_800.0, 29_400.0), trip("Hbf - Zoo", "Hbf", "Zoo", 30_000.0, 30_600.0)],
+        ..GameState::default()
+    }
+}
+
+/// Every element of a panel, those in rows and boxes too.
+fn elements(v: &serde_json::Value) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for c in v["children"].as_array().into_iter().flatten() {
+        out.push(c.clone());
+        out.extend(elements(c));
+    }
+    out
+}
+
+fn has_element(h: &Harness, panel_id: &str, f: impl Fn(&serde_json::Value) -> bool) -> bool {
+    h.state.borrow().panels.get(panel_id).is_some_and(|p| elements(p).iter().any(f))
+}
+
+#[test]
+fn the_navigator_is_one_unit_with_its_tabs_and_the_break_clock() {
+    let dir = installed("nav");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let mut h = Harness::load(&dir, docked_game()).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let nav = panel(&h, "omsihub_nav");
+    assert_eq!(nav["anchor"], "navigator");
+    // the tab bar: a button a tab, Navigate in the accent
+    let bar = nav["children"].as_array().unwrap().last().unwrap().clone();
+    let ids: Vec<&str> = bar["children"].as_array().unwrap().iter().map(|b| b["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["nav_navigate", "nav_stops", "nav_trips", "nav_duty", "nav_messages"]);
+    assert_eq!(bar["children"][0]["color"], "#2A75F7");
+    assert_eq!(bar["children"][0]["text"], "Navigate", "wide: icons and labels");
+    // the board, the company's panel: in the unit, not panels of their own
+    assert!(h.state.borrow().panels.get("omsihub_board").is_none());
+    assert!(h.state.borrow().panels.get("omsihub").is_none(), "{:?}", h.state.borrow().panels.keys().collect::<Vec<_>>());
+    assert!(has_element(&h, "omsihub_nav", |e| e["type"] == "stops"), "the next stops under the map");
+
+    // the Trips tab: the duty's trips, the one under way marked
+    h.fire("ui_click", &[json!("omsihub_nav"), json!("nav_trips")]).unwrap();
+    assert!(has_element(&h, "omsihub_nav", |e| e["type"] == "table" && e["rows"].as_array().is_some_and(|r| r.len() == 2 && r[0][0]["text"] == "▶")));
+    // the Duty tab: the company's panel's elements
+    h.fire("ui_click", &[json!("omsihub_nav"), json!("nav_duty")]).unwrap();
+    assert!(has_element(&h, "omsihub_nav", |e| e["text"].as_str().is_some_and(|t| t.contains("Duty D-12"))));
+
+    // at the terminus with time to spare: the break clock comes up by itself
+    {
+        let mut g = h.state.borrow_mut();
+        g.trip_done = true;
+        g.clock = 29_500.0;
+    }
+    h.frame().unwrap();
+    assert!(has_element(&h, "omsihub_nav", |e| e["size"] == 40 && e["text"] == "8:20"), "{}", panel(&h, "omsihub_nav"));
+
+    // a narrow navigator: the tabs as icons; a short one: the slim strip, no tabs
+    h.state.borrow_mut().dock = Some((260.0, 420.0, 0.0, true));
+    h.frame().unwrap();
+    assert_eq!(panel(&h, "omsihub_nav")["children"].as_array().unwrap().last().unwrap()["children"][0]["text"], "");
+    h.state.borrow_mut().dock = Some((360.0, 120.0, 0.0, true));
+    h.frame().unwrap();
+    assert!(!has_element(&h, "omsihub_nav", |e| e["id"] == "nav_trips"));
+    assert!(has_element(&h, "omsihub_nav", |e| e["text"] == "8:20"), "the break in the strip: {}", panel(&h, "omsihub_nav"));
+
+    // the navigator switched off: the company's panel of its own again
+    h.state.borrow_mut().dock = None;
+    for _ in 0..6 {
+        h.frame().unwrap();
+    }
+    assert!(h.state.borrow().panels.get("omsihub").is_some());
+}
+
+#[test]
+fn the_control_room_s_instruction_opens_the_messages_tab_and_is_answered_there() {
+    let dir = installed("nav-msg");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let mut h = Harness::load(&dir, docked_game()).unwrap();
+    h.frame().unwrap();
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+    let inbox = json!({ "messages": [{ "id": 7, "time": "08:05", "from": "Control", "text": "Turn back at Markt", "priority": "instruction", "state": "sent", "action": { "kind": "short_turn", "stop": "Markt" } }], "replies": [], "quick": [] });
+    std::fs::write(dir.join("data").join("messages.json"), inbox.to_string()).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    assert!(toasted(&h, "Turn back at Markt"), "a card as it comes");
+    assert!(h.state.borrow().panels.get("omsihub_msgs").is_none(), "no inbox of its own");
+    assert!(has_element(&h, "omsihub_nav", |e| e["id"] == "msg_accept_7"), "{}", panel(&h, "omsihub_nav"));
+    h.fire("ui_click", &[json!("omsihub_nav"), json!("msg_accept_7")]).unwrap();
+    let replies = std::fs::read_to_string(dir.join("data").join("replies.jsonl")).unwrap();
+    assert!(replies.contains("\"accept\""), "{replies}");
+    assert!(!has_element(&h, "omsihub_nav", |e| e["id"] == "msg_accept_7"));
+}

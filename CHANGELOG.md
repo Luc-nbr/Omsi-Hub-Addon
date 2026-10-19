@@ -26,6 +26,16 @@ never changes their files.
   "Screen and navigator", gives openOMSI's own look back), switching it off takes it out. It needs
   an openOMSI with skins (`docs/openomsi-patches/`, proposed to openOMSI); an older one simply
   keeps its own look.
+- **The navigator as one unit**, laid out as a phone: under openOMSI's map a status line (the
+  line's plate, where the trip goes, on time or how late, the clock) and five tabs - Navigate
+  (the next stops and what comes after this trip), Stops (every stop still to come), Trips (the
+  duty's trips, the one under way marked, the next break and relief), Duty (signing on where the
+  company asks for it, the duty order, start and sign off, the notes and the walk-around) and
+  Messages (the control room's messages, answered there; a new one shows its count on the tab,
+  an instruction opens it). At a terminus with time to spare the **break clock** comes up by
+  itself and counts down to the next departure. It fits the navigator: a narrow one gets the
+  tabs as icons, a short one only the status line and the one thing that matters now. F9 opens
+  the Messages tab. An openOMSI without the navigator's board keeps the panels of before.
 - **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
   "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
   them, and where Windows still refuses it, says so and what can be done.

@@ -31,8 +31,14 @@ local ICON = { info = "chat", instruction = "campaign", urgent = "warning" }
 local SOUND = { info = { "msg_info.wav", 0.45 }, instruction = { "msg_instruction.wav", 0.75 }, urgent = { "msg_urgent.wav", 1.0 } }
 local DIM = "#9AA3AD"
 
+M.PANEL = PANEL
+
 local tr = function(t) return t end
 local hook = {}
+-- (in the navigator's Messages tab, `nav.lua`: no panel of its own; `unseen` new ones since the
+-- tab was last looked at)
+local docked = false
+local unseen = 0
 local inbox = nil
 local open = false
 local quick = false
@@ -262,15 +268,16 @@ local function choices(list, prefix)
   return out
 end
 
-local function children()
+local function children(in_nav)
   local list = inbox and inbox.messages or {}
-  local out = {
-    { type = "row", align = "between", children = {
+  local out = {}
+  if not in_nav then
+    out[1] = { type = "row", align = "between", children = {
       { type = "icon", name = "forum", color = "#F47F30" },
       { type = "text", text = tr("Control"), weight = "bold", grow = true, wrap = false },
       { type = "button", id = "msg_close", text = "×" },
-    } },
-  }
+    } }
+  end
   if hold then
     local left = math.max(0, hold.until_ - (clock() or hold.until_))
     out[#out + 1] = { type = "badge", text = tr("Hold: %{time} left", { time = string.format("%d:%02d", math.floor(left / 60), math.floor(left % 60)) }), color = COLOR.instruction, text_color = "#1A1400" }
@@ -280,7 +287,7 @@ local function children()
   end
   for k = 1, math.min(SHOWN, #list) do
     local m = list[k]
-    out[#out + 1] = { type = "divider" }
+    if #out > 0 then out[#out + 1] = { type = "divider" } end
     out[#out + 1] = { type = "row", children = {
       { type = "icon", name = m.mine and "near_me" or (ICON[m.priority] or "chat"), size = 16, color = COLOR[m.priority] or DIM },
       { type = "text", text = (m.time or "") .. "  ·  " .. (m.from or ""), size = 12, color = DIM, grow = true, wrap = false },
@@ -306,12 +313,45 @@ local function children()
       out[#out + 1] = { type = "row", children = { q[i], q[i + 1] } }
     end
   end
-  out[#out + 1] = { type = "text", text = tr("F9: messages · F10: use the panels with the mouse"), size = 11, color = DIM }
+  if not in_nav then out[#out + 1] = { type = "text", text = tr("F9: messages · F10: use the panels with the mouse"), size = 11, color = DIM } end
   return out
 end
 
+-- the inbox's elements for the navigator's Messages tab (`nav.lua`)
+function M.children()
+  return children(true)
+end
+
+-- the inbox goes into the navigator (`on`) or has a panel of its own again
+function M.dock(on)
+  if on == docked then return end
+  docked = on
+  if on and shown and fn("ui.remove") then
+    layout.remove(PANEL)
+    shown = false
+  end
+end
+
+-- whether there is an inbox at all; whether an instruction waits for an answer or a hold runs
+function M.has_inbox()
+  return inbox ~= nil
+end
+
+function M.wants()
+  return inbox ~= nil and (any_waiting() or hold ~= nil)
+end
+
+-- the messages come in since the tab was looked at, and the tab looked at
+function M.unseen()
+  return unseen
+end
+
+function M.seen()
+  unseen = 0
+end
+
 local function panel()
-  if not fn("ui.set") then return end
+  if not fn("ui.set") or docked then return end
   local want = (open or any_waiting() or hold ~= nil) and inbox ~= nil
   if not want then
     if shown and fn("ui.remove") then layout.remove(PANEL) end
@@ -335,6 +375,7 @@ function M.read()
     local m = v.messages[k]
     if type(m) == "table" and m.id and not m.mine and not omsi.data.msg_seen[m.id] then
       omsi.data.msg_seen[m.id] = true
+      unseen = unseen + 1
       if m.state == "sent" then reply("delivered", m.id) end
       toast(m.text or "", m.from, ICON[m.priority] or "chat", COLOR[m.priority], m.priority == "urgent" and 20 or 10)
       sound(m.priority)
@@ -423,6 +464,11 @@ function M.show()
   open = true
   panel()
   return true
+end
+
+-- the inbox put away (the navigator's tab left)
+function M.hide()
+  open, quick = false, false
 end
 
 -- F9: the inbox shown or put away; whether it was this module's

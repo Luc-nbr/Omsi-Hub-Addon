@@ -25,7 +25,7 @@ local AHEAD = 4
 local PLATE, ON_PLATE = "#FFD23F", "#1A1400"
 local LATE, ON_TIME, EARLY, FIELD = "#D93A30", "#1A8A4F", "#2A75F7", "#1B2231"
 local LATE_INK, ON_TIME_INK, EARLY_INK = "#FF5F57", "#37D67A", "#4DA3FF"
-local ACCENT, ADVICE = "#F58620", "#F5E6C8"
+local ACCENT, ADVICE = "#2A75F7", "#DCE6FA"
 local TEXT, DIM, FAINT = "#E8EBF2", "#959DB0", "#6E7688"
 
 local tr = function(t) return t end
@@ -63,7 +63,7 @@ end
 local INK = { late = LATE_INK, early = EARLY_INK, on_time = ON_TIME_INK }
 
 -- (the line as the trip's displays show it; "5 Rathaus" is the line's terminus Rathaus)
-local function terminus_of(line, terminus)
+function M.terminus_of(line, terminus)
   terminus = terminus or ""
   if line ~= "" and terminus:sub(1, #line + 1) == line .. " " then terminus = terminus:sub(#line + 2) end
   return terminus
@@ -88,17 +88,24 @@ local function status(d, trips, clock)
   return offset(delay), p == "late" and LATE or EARLY, "#FFFFFF", "running"
 end
 
+-- the phase of the duty now: "before", "running", "break" or "finished" (`nav.lua`'s break
+-- clock), with the chip's text, fill and ink
+function M.phase(d, trips, clock)
+  local chip, fill, ink, phase = status(d, trips, clock)
+  return phase, chip, fill, ink
+end
+
 -- the line's plate (an empty run: a tag saying so)
-local function plate(line)
+function M.plate(line)
   if line ~= "" then return { type = "badge", text = line, color = PLATE, text_color = ON_PLATE, weight = "bold" } end
   return { type = "badge", text = tr("Empty run"), color = "#FFFFFF22", text_color = DIM }
 end
 
 -- the panel's elements for the duty `d` (`duty.get`), its trips, the stops of the trip now and
--- the game's clock; `ahead` stops from the one the bus heads for (four at most). `old`: for an
--- openOMSI without boxes and stop lists (a table in their place).
-function M.rows(d, trips, stops, clock, ahead, old)
-  ahead = math.max(math.min(ahead or AHEAD, AHEAD), 1)
+-- the game's clock; `ahead` stops from the one the bus heads for (`most` at most, four when not
+-- said). `old`: for an openOMSI without boxes and stop lists (a table in their place).
+function M.rows(d, trips, stops, clock, ahead, old, most)
+  ahead = math.max(math.min(ahead or AHEAD, most or AHEAD), 1)
   local chip, fill, ink, phase = status(d, trips, clock)
   local k = d.trip
   if phase == "break" then k = d.trip + 1 end
@@ -107,8 +114,8 @@ function M.rows(d, trips, stops, clock, ahead, old)
   local when = phase == "break" and "leaves %{time}" or "arrives %{time}"
   local children = {
     { type = "row", gap = 8, children = {
-      plate(line),
-      { type = "text", text = terminus_of(line, trip.terminus), size = 14, weight = "bold", color = TEXT, grow = true, wrap = false },
+      M.plate(line),
+      { type = "text", text = M.terminus_of(line, trip.terminus), size = 14, weight = "bold", color = TEXT, grow = true, wrap = false },
       { type = "badge", text = chip, color = fill, text_color = ink, weight = "bold" },
     } },
     { type = "text", size = 11.5, weight = "medium", color = DIM, wrap = false,
@@ -168,7 +175,7 @@ function M.rows(d, trips, stops, clock, ahead, old)
   if to < #served then
     add({ type = "row", gap = 0, children = {
       { type = "space", size = old and 0 or 19 },
-      { type = "text", size = 11.5, weight = "medium", color = FAINT, grow = true, text = tr("and %{n} more to %{terminus}", { n = #served - to, terminus = terminus_of(line, trip.terminus) }) },
+      { type = "text", size = 11.5, weight = "medium", color = FAINT, grow = true, text = tr("and %{n} more to %{terminus}", { n = #served - to, terminus = M.terminus_of(line, trip.terminus) }) },
     } })
   end
   local after = trips[d.trip + 1]
@@ -178,14 +185,14 @@ function M.rows(d, trips, stops, clock, ahead, old)
     if pause > 0 then parts[#parts + 1] = tr("%{m} min break", { m = pause }) end
     if (after.line or "") ~= line and (after.line or "") ~= "" then parts[#parts + 1] = tr("Continue on line %{line}, tour %{tour}", { line = after.line, tour = d.tour or "" }) end
     if old then
-      local text = tr("Next %{time}", { time = hhmm(after.departure) }) .. "  ·  " .. terminus_of(after.line or "", after.terminus)
+      local text = tr("Next %{time}", { time = hhmm(after.departure) }) .. "  ·  " .. M.terminus_of(after.line or "", after.terminus)
       if #parts > 0 then text = text .. "  ·  " .. table.concat(parts, "  ·  ") end
       add({ type = "text", size = 12, color = DIM, text = text })
     else
       local box = { { type = "row", gap = 7, children = {
         { type = "text", text = tr("Next %{time}", { time = hhmm(after.departure) }), size = 12.5, weight = "bold", color = ADVICE },
-        plate(after.line or ""),
-        { type = "text", text = terminus_of(after.line or "", after.terminus), size = 12.5, weight = "medium", color = ADVICE, grow = true, wrap = false },
+        M.plate(after.line or ""),
+        { type = "text", text = M.terminus_of(after.line or "", after.terminus), size = 12.5, weight = "medium", color = ADVICE, grow = true, wrap = false },
       } } }
       if #parts > 0 then box[2] = { type = "text", text = table.concat(parts, "  ·  "), size = 11.5, weight = "medium", color = ADVICE .. "D9" } end
       add({ type = "box", color = ACCENT, children = box })
