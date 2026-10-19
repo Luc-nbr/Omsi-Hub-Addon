@@ -7,7 +7,9 @@
 // cracks, tyre tracks, oil, manholes.
 //
 // How far it reaches is the graphics level's (`quality.js`'s `town`: rings of blocks round the
-// depot). It is the same town every time for the same yard (seeded).
+// depot). It is the same town every time for the same company (seeded): each street and each
+// block draws from a random of its own, by where it lies from the depot, so a town drawn with
+// fewer rings or without its trees has the same blocks where it has them.
 
 import { MAT, wearing } from './palette.js';
 
@@ -43,7 +45,7 @@ export function tree(m, pal, rnd, x, z, y = 0) {
 const vary = (c, rnd, k = 0.14) => wearing(c.map((v) => Math.min(1, v * (1 - k + rnd() * k * 2))), c.mat);
 const scale = (c, f) => wearing(c.map((v, i) => Math.min(1, v * f[i])), c.mat);
 
-/** The cars' paints (on a bright day; the evening darkens them as it does the rest). */
+/** The cars' paints (on a bright day; the night darkens them as it does the rest). */
 const CARS = ['#d9dde3', '#2b2f36', '#8a929e', '#b8342e', '#2f5ea8', '#e8e4da', '#3b6b47', '#c9a227', '#5b6470'];
 /** The town's brick and plaster, as tints of the palette's own. */
 const BRICKS = [
@@ -67,13 +69,12 @@ const PLASTERS = [
  * town's bounds.
  */
 export function buildTown(m, marks, { plot, street, gate }, pal, level = { town: 2, trees: true }, seed = 1) {
-  const rnd = seeded(seed);
+  // (a cell's own random: by its place from the depot's, and what it is)
+  const at = (i, j, salt) => seeded(Math.imul(seed ^ Math.imul(i + 4096, 73856093) ^ Math.imul(j + 4096, 19349663) ^ Math.imul(salt + 1, 83492791), 2654435761));
+  let rnd = at(0, 0, 0);
   const rings = Math.max(1, level.town || 1);
-  const night = pal.light.night;
-  const car = (h) => {
-    const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-    return night ? c.map((v) => v * 0.45) : c;
-  };
+  const dim = 0.45 + 0.55 * (pal.day ?? 1);
+  const car = (h) => [1, 3, 5].map((i) => (parseInt(h.slice(i, i + 2), 16) / 255) * dim);
 
   // the grid: across (x) and from the back to the front (z), each a list of [from, to, kind]
   const xs = [[plot.x0, plot.x1, 'depot']];
@@ -119,6 +120,7 @@ export function buildTown(m, marks, { plot, street, gate }, pal, level = { town:
   xs.forEach(([x0, x1, kx], i) =>
     zs.forEach(([z0, z1, kz], j) => {
       if (kx !== 'road' && kz !== 'road') return;
+      rnd = at(i - dx, j - dz, 1);
       const front = kz === 'road' && j === dz + 1 && kx === 'depot';
       if (kx === 'road' && kz === 'road') return junction(x0, x1, z0, z1);
       // (across: the street runs along x; else along z)
@@ -193,6 +195,7 @@ export function buildTown(m, marks, { plot, street, gate }, pal, level = { town:
   xs.forEach(([x0, x1, kx], i) =>
     zs.forEach(([z0, z1, kz], j) => {
       if (kx === 'road' || kz === 'road' || (kx === 'depot' && kz === 'depot')) return;
+      rnd = at(i - dx, j - dz, 2);
       const ring = Math.max(Math.abs(i - dx), Math.abs(j - dz)) >> 1;
       const r = { x0: x0 + 1, x1: x1 - 1, z0: z0 + 1, z1: z1 - 1 };
       const pick = rnd();

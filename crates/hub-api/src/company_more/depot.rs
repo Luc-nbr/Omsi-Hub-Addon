@@ -92,6 +92,7 @@ fn plan(c: &Company) -> Value {
     json!({
         "title": tr("The depot from above"),
         "colour": c.colours[0],
+        "seed": town_seed(&c.id),
         "offices": offices, "hall": hall, "wash": wash, "fuel": fuel, "parking": parking,
         "in_ws": in_ws.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
         "parked": parked.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
@@ -99,6 +100,12 @@ fn plan(c: &Company) -> Value {
         "upgrades": c.site.upgrades.iter().map(|u| u.key()).collect::<Vec<_>>(),
         "look": look(&c.site.look),
     })
+}
+
+/// The town round the 3D depot is drawn from this (`depot3d/city.js`): the company's own, so it
+/// is the same town every time the page opens, whatever is built or bought (FNV-1a of its id).
+fn town_seed(id: &str) -> u32 {
+    id.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193))
 }
 
 /// The depot's look as the page has it: its own colours (null: the depot's) and its walls.

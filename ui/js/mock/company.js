@@ -1269,7 +1269,7 @@ function depot() {
       { label: 'Upkeep', value: '€1,850', under: 'a month for the buildings', tone: 'text' },
     ],
     plan: {
-      title: 'The depot from above', colour: c.colours[0],
+      title: 'The depot from above', colour: c.colours[0], seed: [...c.id].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5),
       offices: { ...bld('OFFICES'), built: SITE.offices > 0, floors: SITE.offices, room: 'room for 50' }, hall: { ...bld('WORKSHOP'), built: SITE.workshop > 0, bays: SITE.workshop, max: 6 }, wash: { ...bld('WASHING BAY'), built: SITE.wash > 0, lanes: SITE.wash, gates: SITE.upgrades.includes('gantry') }, fuel: { ...bld('DIESEL STATION'), built: SITE.fuel > 0, pumps: SITE.fuel },
       parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: SITE.charging * 2 },
       layout: yardOf(SITE),

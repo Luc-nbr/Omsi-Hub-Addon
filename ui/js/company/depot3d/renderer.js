@@ -373,6 +373,15 @@ export class DepotRenderer {
     this.invalidate();
   }
 
+  /** The light of the time of day (`palette.js`'s `lightAt`): the sun's way and colour, the
+   * sky's, the ground's, how lit the windows are; the shadows cast again. */
+  setLight(light) {
+    if (!this.ok) return;
+    this.light = light;
+    this.dirtyShadow = true;
+    this.invalidate();
+  }
+
   /** The yard to draw (`scene.js`'s mesh, the depot's bounds the camera keeps to, the town's
    * round it) in the palette's light. */
   setYard(mesh, bounds, pal, world = bounds) {
@@ -609,12 +618,12 @@ export class DepotRenderer {
     return { o: a.slice(0, 3), d: unit([b[0] - a[0], b[1] - a[1], b[2] - a[2]]) };
   }
 
-  /** Where the ground is under a point of the canvas, as the camera's (tx, tz); null above
-   * the horizon. */
-  ground(x, y) {
+  /** Where the ground (or a level `at` metres over it) is under a point of the canvas, as the
+   * camera's (tx, tz); null above the horizon. */
+  ground(x, y, at = 0) {
     const { o, d } = this.ray(x, y);
     if (d[1] > -1e-4) return null;
-    const t = -o[1] / d[1];
+    const t = (at - o[1]) / d[1];
     const b = this.bounds || { x0: 0, x1: 0, z0: 0, z1: 0 };
     return [o[0] + d[0] * t - (b.x0 + b.x1) / 2, o[2] + d[2] * t - (b.z0 + b.z1) / 2];
   }
@@ -643,10 +652,11 @@ export class DepotRenderer {
     }
     const gl = this.gl;
     const pal = this.pal;
-    const L = pal.light;
-    // the sun from the west, a little behind: the sides the camera first sees are lit, the
+    // the light of the company's time of day (`setLight`), its sun where the clock has it;
+    // else the sun from the west, a little behind: the sides the camera first sees are lit, the
     // shadows fall towards the street and to the right
-    const sun = unit([-0.78, 0.82, 0.22]);
+    const L = this.light || pal.light;
+    const sun = unit(L.dir || [-0.78, 0.82, 0.22]);
     // (the shadows over the town too, as far as they stay sharp enough: twice the depot)
     const d = this.bounds;
     const w = this.world || d;
