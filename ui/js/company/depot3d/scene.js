@@ -3,30 +3,25 @@
 // as it stands - the offices a storey a level, the workshop's bays (an open roof of trusses so
 // the buses in them show), the washing bay, the diesel station, the blocks of twelve spaces with
 // their chargers -, building work where a module will stand, the gate and the street at the
-// front, the land still to buy beside the yard, a verge of grass with trees round it all. The
-// buses stand where the plan says: in the bays, in the spaces, before the workshop when they
-// wait for it, and in the street when the yard has no room.
+// front, the land still to buy beside the yard, a verge of grass with trees round it all, and
+// the town round that (`city.js`). The buses stand where the plan says: in the bays, in the
+// spaces, before the workshop when they wait for it, and in the street when the yard has no room.
+// What use leaves on the ground (oil in the spaces, tyre tracks at the gate and before the
+// workshop, cracks) is a layer of its own (`decals`).
 //
 // Each module is drawn in a frame of its own (x across, z from its back to its front, its front
 // at +z) and turned onto the yard. Each area has its number (`AREAS`): the Build list's row
 // lights it up.
 
 import { Mesh } from './mesh.js';
+import { MAT } from './palette.js';
+import { buildTown, seeded, tree } from './city.js';
 
 export const AREAS = { parking: 1, workshop: 2, wash: 3, fuel: 4, charging: 5, offices: 6, land: 7 };
 
 /** A bus's length in metres by its size (`BusSize`). */
 const LENGTH = { midi: 10.5, solo: 12, articulated: 18, double: 11.5 };
 const VERGE = 16;
-
-/** A small seeded random, so the trees stand where they stood. */
-function seeded(seed) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
 
 /** A module's frame onto the yard: its own (lx, y, lz), lw wide and ld deep, turned `rot` with
  * its corner at (x0, z0). */
@@ -37,13 +32,15 @@ export function frame(rot, x0, z0, lw, ld) {
   return { pt, dir, heading: (h) => h + (k * Math.PI) / 2 };
 }
 
-/** The yard: `{ mesh, buses, labels, bounds, picks }` (`picks`: each module's place in metres,
- * to point at). `pal` is the look's palette (`palette.js`), `level` how finely it is drawn
- * (`quality.js`: without trees at the lowest). */
-export function buildScene(p, pal, level = { trees: true }) {
+/** The yard: `{ mesh, decals, buses, labels, bounds, world, picks }` (`picks`: each module's
+ * place in metres, to point at; `bounds` the depot's plot, `world` the town's). `pal` is the
+ * look's palette (`palette.js`), `level` how finely it is drawn (`quality.js`: without trees at
+ * the lowest, the town smaller). */
+export function buildScene(p, pal, level = { trees: true, town: 2 }) {
   const L = p.layout;
   const cell = L.cell;
   const m = new Mesh();
+  const marks = new Mesh();
   const buses = [];
   const labels = [];
   const picks = [];
@@ -52,24 +49,26 @@ export function buildScene(p, pal, level = { trees: true }) {
   const MW = L.max_cols * cell;
   const street = { z0: D + 5, z1: D + 15 };
 
-  // the base: grass with its edge of earth, the yard's asphalt on it, the street at the front
+  // the base: the town with the depot's plot in it, the yard's asphalt on its grass, the street
+  // at the front
   const bx0 = -VERGE;
   const bx1 = MW + VERGE;
   const bz0 = -VERGE;
   const bz1 = street.z1 + 6;
-  m.box(bx0, -2.4, bz0, bx1, 0, bz1, pal.earth, { top: pal.grass });
+  const gate = { x0: L.gate.x * cell, x1: (L.gate.x + L.gate.w) * cell };
+  const world = buildTown(m, marks, { plot: { x0: bx0, x1: bx1, z0: bz0, z1: street.z0 }, street, gate }, pal, level, 7 + L.max_cols * 13);
   m.flat(0, 0, W, D, 0.02, pal.asphalt);
-  m.flat(bx0, street.z0, bx1, street.z1, 0.02, pal.street);
-  m.flat(bx0, street.z0 - 1.6, bx1, street.z0, 0.04, pal.kerb);
-  for (let x = bx0 + 2; x < bx1 - 4; x += 6) m.flat(x, (street.z0 + street.z1) / 2 - 0.12, x + 3, (street.z0 + street.z1) / 2 + 0.12, 0.04, pal.paint);
   // the land still to buy: its edge marked, a label to say so
   if (MW > W) {
     m.dashed(W + 1, 1, MW - 1, D - 1, pal.plot, AREAS.land, { w: 0.35 });
     for (let z = 4; z < D - 2; z += 12) m.box(MW - 1.2, 0, z, MW - 1, 1.2, z + 0.2, pal.fence, { area: AREAS.land });
     if (L.land) labels.push({ key: 'land', pos: [(W + Math.min(MW, W + 40)) / 2, 2.5, D / 2], built: false, works: null });
   }
-  const gate = { x0: L.gate.x * cell, x1: (L.gate.x + L.gate.w) * cell };
-  m.flat(gate.x0, D, gate.x1, street.z0 - 1.6, 0.03, pal.asphalt);
+  m.flat(gate.x0, D, gate.x1, street.z0 - 2.5, 0.03, pal.asphalt);
+  // the yard's wear: the tracks from the gate, cracks here and there
+  const wear = seeded(11 + L.cols * 7 + L.rows);
+  marks.decal((gate.x0 + gate.x1) / 2, D - 6, gate.x1 - gate.x0, 18, 0, MAT.tyres, 0.5);
+  for (let k = 0; k < (W * D) / 900; k++) marks.decal(2 + wear() * (W - 4), 2 + wear() * (D - 4), 3 + wear() * 4, 3 + wear() * 4, wear() * 6, MAT.cracks, 0.35 + wear() * 0.4);
   // the fence round the yard, open at the gate; a gatehouse beside it
   const post = (x, z) => m.box(x - 0.08, 0, z - 0.08, x + 0.08, 1.9, z + 0.08, pal.fence);
   const rail = (x0, z0, x1, z1) => m.box(Math.min(x0, x1) - 0.04, 1.75, Math.min(z0, z1) - 0.04, Math.max(x0, x1) + 0.04, 1.85, Math.max(z0, z1) + 0.04, pal.fence);
@@ -142,7 +141,7 @@ export function buildScene(p, pal, level = { trees: true }) {
   const H = 8.5;
   const bays = of('workshop');
   bays.forEach((o, k) => {
-    const f = put(o, (mm, r) => {
+    const f = put(o, (mm, r, fr) => {
       const t = 0.5;
       const A = AREAS.workshop;
       mm.box(r.x0, 0, r.z0, r.x1, H, r.z0 + t, pal.wall, { area: A });
@@ -151,11 +150,18 @@ export function buildScene(p, pal, level = { trees: true }) {
       mm.box(r.x0, H - 1.6, r.z1 - t, r.x1, H, r.z1, pal.wall, { area: A });
       for (let z = r.z0 + 3; z < r.z1 - 1; z += 3.2) mm.box(r.x0, H - 0.2, z, r.x1, H + 0.4, z + 0.45, pal.roof, { area: A });
       mm.box(r.x0, H - 0.1, r.z0, r.x1, H + 0.5, r.z0 + 2.2, pal.roof, { area: A });
-      mm.flat(r.x0 + 0.8, r.z0 + 1, r.x1 - 0.8, r.z1 - 0.5, 0.04, pal.concrete, A);
+      // inside: its walls of blocks, its floor coated
+      mm.box(r.x0 + t, 0, r.z0 + t, r.x1 - t, H - 0.4, r.z0 + t + 0.04, pal.hallWall, { area: A });
+      mm.box(r.x0 + t, 0, r.z0 + t, r.x0 + t + 0.04, H - 0.4, r.z1 - 0.2, pal.hallWall, { area: A });
+      mm.box(r.x1 - t - 0.04, 0, r.z0 + t, r.x1 - t, H - 0.4, r.z1 - 0.2, pal.hallWall, { area: A });
+      mm.flat(r.x0 + 0.5, r.z0 + 0.5, r.x1 - 0.5, r.z1 - 0.2, 0.04, pal.hallFloor, A);
       const cx = (r.x0 + r.x1) / 2;
       mm.flat(cx - 0.5, r.z0 + 4, cx + 0.5, r.z1 - 3, 0.06, pal.pit, A);
       mm.box(r.x0 + 0.6, H - 1.6, r.z1 - 0.15, r.x1 - 0.6, H - 0.6, r.z1 + 0.1, pal.door, { area: A });
       mm.box(cx - 1.2, H - 0.7, (r.z0 + r.z1) / 2 - 0.2, cx + 1.2, H - 0.5, (r.z0 + r.z1) / 2 + 0.2, pal.lamp, { glow: 1 });
+      // (the tracks of the buses in and out on its forecourt, oil under the pit)
+      marks.append(mark(cx, r.z1 + 7, 3.4, 14, 0, MAT.tyres, 0.55), fr);
+      marks.append(mark(cx, (r.z0 + r.z1) / 2, 2.2, 6, 0, MAT.oil, 0.5), fr);
     });
     const bus = p.in_ws[k];
     if (bus) buses.push(place(bus, f, 4, 15, 'workshop'));
@@ -176,6 +182,9 @@ export function buildScene(p, pal, level = { trees: true }) {
       mm.flat(r.x0 + 1, r.z0, r.x1 - 1, r.z1, 0.04, pal.washLane, A);
       mm.box(r.x0, 0, r.z0, r.x0 + 0.6, 5.5, r.z1, pal.wall, { area: A });
       mm.box(r.x1 - 0.6, 0, r.z0, r.x1, 5.5, r.z1, pal.wall, { area: A });
+      // (tiled inside, to the height the water reaches)
+      mm.box(r.x0 + 0.6, 0, r.z0, r.x0 + 0.64, 3.2, r.z1, pal.washWall, { area: A });
+      mm.box(r.x1 - 0.64, 0, r.z0, r.x1 - 0.6, 3.2, r.z1, pal.washWall, { area: A });
       mm.box(r.x0, 5.5, r.z0, r.x1, 6.1, r.z1, pal.roof, { area: A });
       for (const z of p.wash.gates ? [r.z0 + 8, r.z0 + 18] : [r.z0 + 13]) {
         mm.box(r.x0 + 0.6, 4.4, z - 0.4, r.x1 - 0.6, 4.9, z + 0.4, pal.metal, { area: A });
@@ -223,10 +232,12 @@ export function buildScene(p, pal, level = { trees: true }) {
   let n = 0;
   of('parking').forEach((o, k) => {
     const first = n;
-    const f = put(o, (mm, r) => {
+    const f = put(o, (mm, r, fr) => {
       const sw = (r.x1 - r.x0) / per;
       for (let s = 0; s <= per; s++) mm.flat(r.x0 + s * sw - 0.07, r.z0, r.x0 + s * sw + 0.07, r.z1, 0.05, pal.paint, AREAS.parking);
       mm.flat(r.x0, r.z0 - 0.07, r.x1, r.z0 + 0.07, 0.05, pal.paint, AREAS.parking);
+      // (oil where the buses stand)
+      for (let s = 0; s < per; s++) if (wear() < 0.6) marks.append(mark(r.x0 + (s + 0.5) * sw, (r.z0 + r.z1) / 2 + (wear() - 0.5) * 4, 1.8 + wear() * 1.4, 2.4 + wear() * 1.6, wear() * 6, MAT.oil, 0.5 + wear() * 0.4), fr);
       for (let s = 0; s < per; s++) {
         if (first + s >= pk.chargers) break;
         const cx = r.x0 + (s + 0.5) * sw;
@@ -249,22 +260,21 @@ export function buildScene(p, pal, level = { trees: true }) {
   // trees on the verge, round the land but not on the street
   if (level.trees) {
     const rnd = seeded(7 + L.cols * 31 + L.rows);
-    const tree = (x, z) => {
-      const s = 0.8 + rnd() * 0.6;
-      m.prism(x, z, 0.25 * s, 0.2 * s, 0, 2 * s, pal.trunk, { n: 5 });
-      const tint = pal.leaves.map((c, i) => Math.min(1, c * (0.88 + rnd() * 0.24) + (i === 1 ? 0.02 : 0)));
-      m.prism(x, z, 2.4 * s, 0, 1.4 * s, 6.2 * s, tint, { n: 7, turn: rnd() * 6 });
-      m.prism(x, z, 1.8 * s, 0, 4 * s, 8 * s, tint, { n: 7, turn: rnd() * 6 });
-    };
-    for (let x = bx0 + 4; x < bx1 - 2; x += 7 + rnd() * 5) tree(x, bz0 + 4 + rnd() * 6);
+    for (let x = bx0 + 4; x < bx1 - 2; x += 7 + rnd() * 5) tree(m, pal, rnd, x, bz0 + 4 + rnd() * 6);
     for (let z = bz0 + 14; z < street.z0 - 6; z += 8 + rnd() * 6) {
-      tree(bx0 + 4 + rnd() * 7, z);
-      tree(bx1 - 4 - rnd() * 7, z);
+      tree(m, pal, rnd, bx0 + 4 + rnd() * 7, z);
+      tree(m, pal, rnd, bx1 - 4 - rnd() * 7, z);
     }
-    for (let x = bx0 + 6; x < bx1 - 2; x += 10 + rnd() * 8) if (x < gate.x0 - 8 || x > gate.x1 + 8) tree(x, street.z1 + 3 + rnd() * 2);
   }
 
-  return { mesh: m, buses, labels, picks, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, yard: { w: W, d: D } };
+  return { mesh: m, decals: marks, buses, labels, picks, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, world, yard: { w: W, d: D } };
+}
+
+/** A mark on the ground in a module's own frame (appended turned with it: `Mesh.decal`). */
+function mark(x, z, w, l, turn, mat, s) {
+  const m = new Mesh();
+  m.decal(x, z, w, l, turn, mat, s);
+  return m;
 }
 
 /** A bus where it stands, in a module's frame: its centre, its heading (0: nose to the

@@ -3,16 +3,19 @@
 // "auto": a guess from the computer to start with, a level lower when the pictures come too
 // slowly while the yard is turned.
 //
-// * high: the sun's shadows at 2048², smoothed edges, the screen's full sharpness (up to 2x);
-// * medium: shadows at 1024², smoothed edges, at most 1.5x;
-// * low: no shadows, no smoothing, 1x, no trees, the buses' pictures at half their size.
+// * high: the sun's shadows at 2048², smoothed edges, the screen's full sharpness (up to 2x),
+//   the surfaces' textures, the town round the depot and the staff at work;
+// * medium: shadows at 1024², smoothed edges, at most 1.5x, the textures, a smaller town and
+//   the staff;
+// * low: no shadows, no smoothing, 1x, no trees, no textures, the town's nearest blocks only,
+//   no staff, the buses' pictures at half their size.
 
 const KEY = 'omsihub.depot3d.quality';
 
 export const LEVELS = {
-  high: { shadow: 2048, msaa: true, dpr: 2, trees: true, atlas: 1024 },
-  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true, atlas: 1024 },
-  low: { shadow: 0, msaa: false, dpr: 1, trees: false, atlas: 512 },
+  high: { shadow: 2048, msaa: true, dpr: 2, trees: true, atlas: 1024, detail: true, town: 3, staff: true },
+  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true, atlas: 1024, detail: true, town: 2, staff: true },
+  low: { shadow: 0, msaa: false, dpr: 1, trees: false, atlas: 512, detail: false, town: 1, staff: false },
 };
 const DOWN = { high: 'medium', medium: 'low', low: 'low' };
 

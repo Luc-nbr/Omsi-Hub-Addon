@@ -17,7 +17,7 @@ import { buildScene, AREAS, moduleUnder, ghostMesh, gridMesh } from './scene.js'
 import { rectOf, whyNot } from './yard.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
-import { DepotRenderer, VIEW } from './renderer.js';
+import { DepotRenderer, VIEW, ZOOM } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
 
@@ -64,7 +64,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const [skins, setSkins] = useState(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
-  const pal = palette();
+  const pal = palette(p.look);
   const key = JSON.stringify([p, pal.dark, pal.accent]);
 
   // the renderer, on a canvas of its own for each level (smoothing is the context's); its
@@ -86,7 +86,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     const wheel = (e) => {
       e.preventDefault();
       const g = view.goal;
-      const zoom = Math.max(0.15, Math.min(1.45, g.zoom * Math.exp(e.deltaY * 0.0012)));
+      const zoom = Math.max(ZOOM[0], Math.min(ZOOM[1], g.zoom * Math.exp(e.deltaY * 0.0012)));
       const b = el.getBoundingClientRect();
       const hit = view.ground(e.clientX - b.left, e.clientY - b.top);
       const f = 1 - zoom / g.zoom;
@@ -109,7 +109,8 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     if (!view) return;
     const s = buildScene(p, pal, LEVELS[level]);
     scene.current = s;
-    view.setYard(s.mesh, s.bounds, pal);
+    view.setYard(s.mesh, s.bounds, pal, s.world);
+    view.setDecals(s.decals);
     buses(true);
     setBuilt((n) => n + 1);
   }, [key, level]);

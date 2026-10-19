@@ -6,10 +6,23 @@
 //
 // A bus whose own depot model is there (`skins.js`) is drawn as that: each model in its livery
 // one buffer, one texture and one draw for all the buses wearing it.
+//
+// The surfaces wear their textures (`palette.js`'s MATERIALS): one picture of them all, a layer
+// each, laid over the ground and the walls by where they are (no coordinates of their own to
+// keep), tinting the colour rather than taking its place, so the look, the evening and the
+// company's colours still hold. The town's facades get their windows from where they are too,
+// some lit in the evening. The marks on the ground (cracks, tyre tracks, oil, manholes) are a
+// layer of their own over it, darkening what is under them. Without the picture (the lowest
+// level, or before it is there) everything is drawn in its plain colour.
 
 import { inverse, lookAt, mul, ortho, perspective, project, unit } from '../../hub/bus3d/math.js';
 import { STRIDE } from './mesh.js';
 import { INSTANCE, SKINNED } from './bus.js';
+import { MAT, MATERIALS, WINDOWS } from './palette.js';
+
+/** The textures' picture: square layers one under the other. */
+const DETAIL = new URL('../../../img/depot/detail.jpg', import.meta.url).href;
+const LAYERS = MATERIALS.length;
 
 const FOV = (30 * Math.PI) / 180;
 
@@ -42,32 +55,102 @@ layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
 layout(location=3) in float aArea;
 layout(location=4) in float aGlow;
+layout(location=8) in float aMat;
 uniform mat4 uVP, uLight;
-out vec3 vCol, vNrm;
+out vec3 vCol, vNrm, vPos;
 out vec4 vSh;
 out float vArea, vGlow;
+flat out int vMat;
 void main() {
-  vCol = aCol; vNrm = aNrm; vArea = aArea; vGlow = aGlow;
+  vCol = aCol; vNrm = aNrm; vArea = aArea; vGlow = aGlow; vPos = aPos;
+  vMat = int(aMat + 0.5);
   vSh = uLight * vec4(aPos, 1.0);
   gl_Position = uVP * vec4(aPos, 1.0);
+}`;
+
+// (where a surface's texture lies: the ground and the roofs from above, a wall from its side,
+// its top up)
+const DETAIL_FS = `
+uniform highp sampler2DArray uDetail;
+uniform float uDetailOn;
+uniform float uScale[${LAYERS}];
+uniform float uStrength[${LAYERS}];
+uniform vec3 uUnder;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec2 planar(vec3 p, vec3 n) {
+  vec3 a = abs(n);
+  if (a.y > 0.5) return p.xz;
+  return a.x > a.z ? vec2(p.z * sign(n.x), -p.y) : vec2(-p.x * sign(n.z), -p.y);
+}
+// the surface's colour with its texture; glow, as the windows light it, in w
+vec4 surface(vec3 col, int mat, vec3 p, vec3 n) {
+  if (mat <= 0) return vec4(col, 0.0);
+  int m = mat >= ${WINDOWS} ? mat - ${WINDOWS} : mat;
+  int k = min(m, ${LAYERS}) - 1;
+  vec2 uv = planar(p, n);
+  vec3 c = col;
+  // (the texture when it is there; the windows either way)
+  if (uDetailOn > 0.5) {
+    float t = texture(uDetail, vec3(uv / uScale[k], float(k))).r;
+    if (m == ${MAT.paint}) return vec4(mix(uUnder, col, smoothstep(0.32, 0.62, t)), 0.0);
+    c = col * (1.0 + (t - 0.5) * 2.0 * uStrength[k]);
+  }
+  if (mat >= ${WINDOWS} && abs(n.y) < 0.5 && p.y > 0.8) {
+    // a window every 2.8 m a floor of 3.2 m, the shop windows wider below
+    float u = uv.x / 2.8;
+    float fl = floor((p.y - 0.4) / 3.2);
+    vec2 f = vec2(fract(u), fract((p.y - 0.4) / 3.2));
+    bool shop = fl < 0.5;
+    vec2 lo = shop ? vec2(0.08, 0.2) : vec2(0.24, 0.3);
+    vec2 hi = shop ? vec2(0.92, 0.82) : vec2(0.76, 0.8);
+    if (all(greaterThan(f, lo)) && all(lessThan(f, hi))) {
+      float on = step(0.42, hash(vec2(floor(u) + floor(p.x * 0.13 + p.z * 0.17) * 7.0, fl)));
+      vec3 glass = mix(vec3(0.2, 0.26, 0.34), vec3(0.34, 0.42, 0.52), smoothstep(lo.y, hi.y, f.y));
+      return vec4(mix(glass, vec3(1.0, 0.8, 0.5), on * uNight), on * uNight * 0.9);
+    }
+    if (all(greaterThan(f, lo - 0.04)) && all(lessThan(f, hi + 0.04))) c *= 0.72;
+  }
+  return vec4(c, 0.0);
 }`;
 
 const YARD_FS = `#version 300 es
 precision highp float;
 ${LIGHT_FS}
+${DETAIL_FS}
 uniform vec3 uAccent;
 uniform float uHi;
 uniform vec4 uTint;
 uniform float uAlpha;
-in vec3 vCol, vNrm;
+in vec3 vCol, vNrm, vPos;
 in vec4 vSh;
 in float vArea, vGlow;
+flat in int vMat;
 out vec4 o;
 void main() {
-  vec3 c = lit(vCol, normalize(vNrm), vSh, vGlow);
+  vec3 n = normalize(vNrm);
+  vec4 s = surface(vCol, vMat, vPos, n);
+  vec3 c = lit(s.rgb, n, vSh, max(vGlow, s.w));
   if (uHi > 0.5 && abs(vArea - uHi) < 0.25) c = mix(c, uAccent, 0.42);
   c = mix(c, uTint.rgb, uTint.a);
   o = vec4(c * uAlpha, uAlpha);
+}`;
+
+// The marks on the ground: a decal's place in its picture in the colour's first two (0 to 1),
+// how strong it is in the third; drawn multiplying what is under it.
+const DECAL_FS = `#version 300 es
+precision highp float;
+uniform highp sampler2DArray uDetail;
+uniform float uStrength[${LAYERS}];
+in vec3 vCol;
+flat in int vMat;
+out vec4 o;
+void main() {
+  int k = min(vMat, ${LAYERS}) - 1;
+  float t = texture(uDetail, vec3(vCol.xy, float(k))).r;
+  // (the picture's edges always clear, so a mark never shows its square)
+  vec2 e = min(vCol.xy, 1.0 - vCol.xy);
+  float edge = smoothstep(0.0, 0.06, min(e.x, e.y));
+  o = vec4(vec3(mix(1.0, t, vCol.z * uStrength[k] * edge)), 1.0);
 }`;
 
 const BUS_VS = `#version 300 es
@@ -183,7 +266,8 @@ function compile(gl, vs, fs) {
 /** The camera round the yard: turned (`yaw`), tilted (`pitch`), how far, looking at (tx, tz). */
 export const VIEW = { yaw: -0.5, pitch: 0.78, zoom: 0.74, tx: 0, tz: 4 };
 const PITCH = [0.42, 1.48];
-const ZOOM = [0.15, 1.45];
+/** How near and how far the camera goes (far enough out to see the town round the depot). */
+export const ZOOM = [0.15, 2.6];
 
 export class DepotRenderer {
   /** `level` is how finely to draw (`quality.js`); `onFrame(viewProj, w, h)` after every
@@ -216,6 +300,9 @@ export class DepotRenderer {
     this.busDepth = compile(gl, BUS_VS, DEPTH_FS);
     this.skin = compile(gl, SKIN_VS, SKIN_FS);
     this.skinDepth = compile(gl, SKIN_VS, DEPTH_FS);
+    this.decal = compile(gl, YARD_VS, DECAL_FS);
+    this.detailOn = false;
+    if (level.detail) this.loadDetail();
     /** The buses' own models: `key -> { vao, count, tex, inst, instances }`. */
     this.skins = new Map();
     const SHADOW = Math.max(1, level.shadow);
@@ -235,18 +322,64 @@ export class DepotRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
-  /** The yard to draw (`scene.js`'s mesh, bounds) in the palette's light. */
-  setYard(mesh, bounds, pal) {
+  /** The textures' picture, once it is read: a layer each, repeated, smoothed with distance. */
+  loadDetail() {
+    const img = new Image();
+    img.onload = () => {
+      if (!this.ok || this.gone) return;
+      const gl = this.gl;
+      const side = img.width;
+      if (img.height !== side * LAYERS) return;
+      this.detailTex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detailTex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.R8, side, side, LAYERS, 0, gl.RED, gl.UNSIGNED_BYTE, img);
+      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+      if (aniso) gl.texParameterf(gl.TEXTURE_2D_ARRAY, aniso.TEXTURE_MAX_ANISOTROPY_EXT, this.level.msaa ? 8 : 2);
+      gl.activeTexture(gl.TEXTURE0);
+      this.detailOn = true;
+      this.invalidate();
+    };
+    // (without it the surfaces are plain)
+    img.onerror = () => {};
+    img.src = DETAIL;
+  }
+
+  /** The marks on the ground (`scene.js`'s decals), drawn over the yard. */
+  setDecals(mesh) {
+    if (!this.ok) return;
+    const gl = this.gl;
+    this.decalVao = this.decalVao || gl.createVertexArray();
+    this.decalBuf = this.decalBuf || gl.createBuffer();
+    gl.bindVertexArray(this.decalVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.decalBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.floats(), gl.STATIC_DRAW);
+    this.vertexLayout(true);
+    gl.bindVertexArray(null);
+    this.decalCount = mesh.count;
+    this.invalidate();
+  }
+
+  /** The yard to draw (`scene.js`'s mesh, the depot's bounds the camera keeps to, the town's
+   * round it) in the palette's light. */
+  setYard(mesh, bounds, pal, world = bounds) {
     if (!this.ok) return;
     const gl = this.gl;
     this.pal = pal;
     this.bounds = bounds;
+    this.world = world;
     this.yardVao = this.yardVao || gl.createVertexArray();
     this.yardBuf = this.yardBuf || gl.createBuffer();
     gl.bindVertexArray(this.yardVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.yardBuf);
     gl.bufferData(gl.ARRAY_BUFFER, mesh.floats(), gl.STATIC_DRAW);
-    this.vertexLayout();
+    this.vertexLayout(true);
     gl.bindVertexArray(null);
     this.yardCount = mesh.count;
     this.dirtyShadow = true;
@@ -367,7 +500,7 @@ export class DepotRenderer {
       o = { vao: gl.createVertexArray(), buf: gl.createBuffer() };
       gl.bindVertexArray(o.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, o.buf);
-      this.vertexLayout();
+      this.vertexLayout(true);
       gl.bindVertexArray(null);
       this.overlays.set(name, o);
     }
@@ -384,7 +517,9 @@ export class DepotRenderer {
     this.invalidate();
   }
 
-  vertexLayout() {
+  /** A mesh's floats to the shaders; `mat`: the material too (the yard's, not the bus's: its
+   * instances have those places). */
+  vertexLayout(mat = false) {
     const gl = this.gl;
     const b = STRIDE * 4;
     for (const [loc, size, off] of [
@@ -393,6 +528,7 @@ export class DepotRenderer {
       [2, 3, 24],
       [3, 1, 36],
       [4, 1, 40],
+      ...(mat ? [[8, 1, 44]] : []),
     ]) {
       gl.enableVertexAttribArray(loc);
       gl.vertexAttribPointer(loc, size, gl.FLOAT, false, b, off);
@@ -416,11 +552,13 @@ export class DepotRenderer {
     g.pitch = Math.max(PITCH[0], Math.min(PITCH[1], g.pitch));
     g.zoom = Math.max(ZOOM[0], Math.min(ZOOM[1], g.zoom));
     if (this.bounds) {
+      // (round the depot, as far as the town goes)
       const b = this.bounds;
+      const w = this.world || b;
       const cx = (b.x0 + b.x1) / 2;
       const cz = (b.z0 + b.z1) / 2;
-      g.tx = Math.max(b.x0 - cx, Math.min(b.x1 - cx, g.tx));
-      g.tz = Math.max(b.z0 - cz, Math.min(b.z1 - cz, g.tz));
+      g.tx = Math.max(w.x0 - cx, Math.min(w.x1 - cx, g.tx));
+      g.tz = Math.max(w.z0 - cz, Math.min(w.z1 - cz, g.tz));
     }
     this.goal = g;
     if (still) this.cam = { ...g };
@@ -441,7 +579,10 @@ export class DepotRenderer {
     const target = [cx + c.tx, 0, cz + c.tz];
     const eye = [target[0] + dist * Math.cos(c.pitch) * Math.sin(c.yaw), dist * Math.sin(c.pitch), target[2] + dist * Math.cos(c.pitch) * Math.cos(c.yaw)];
     const view = lookAt(eye, target);
-    const proj = perspective(FOV, aspect, Math.max(1, dist - R * 1.6), dist + R * 1.6);
+    // (the town in front of the far plane, from wherever the camera looks)
+    const w = this.world || b;
+    const far = Math.hypot(Math.max(Math.abs(w.x0 - target[0]), Math.abs(w.x1 - target[0])), Math.max(Math.abs(w.z0 - target[2]), Math.abs(w.z1 - target[2])));
+    const proj = perspective(FOV, aspect, Math.max(1, dist - R * 1.6), dist + far + 40);
     return { eye, target, vp: mul(proj, view), dist };
   }
 
@@ -494,7 +635,10 @@ export class DepotRenderer {
     // the sun from the west, a little behind: the sides the camera first sees are lit, the
     // shadows fall towards the street and to the right
     const sun = unit([-0.78, 0.82, 0.22]);
-    const b = this.bounds;
+    // (the shadows over the town too, as far as they stay sharp enough: twice the depot)
+    const d = this.bounds;
+    const w = this.world || d;
+    const b = { x0: Math.max(w.x0, d.x0 - (d.x1 - d.x0) / 2), x1: Math.min(w.x1, d.x1 + (d.x1 - d.x0) / 2), z0: Math.max(w.z0, d.z0 - (d.z1 - d.z0) / 2), z1: Math.min(w.z1, d.z1 + (d.z1 - d.z0) / 2) };
     const cx = (b.x0 + b.x1) / 2;
     const cz = (b.z0 + b.z1) / 2;
     const R = Math.hypot(b.x1 - b.x0, b.z1 - b.z0) / 2 + 4;
@@ -521,6 +665,20 @@ export class DepotRenderer {
     gl.enable(gl.DEPTH_TEST);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
+    if (this.detailTex) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detailTex);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    for (const prog of [this.yard, this.decal]) {
+      gl.useProgram(prog.p);
+      const u = prog.u;
+      gl.uniform1i(u.uDetail, 2);
+      if (u.uDetailOn) gl.uniform1f(u.uDetailOn, this.detailOn ? 1 : 0);
+      if (u['uScale[0]']) gl.uniform1fv(u['uScale[0]'], MATERIALS.map((m) => m[1]));
+      gl.uniform1fv(u['uStrength[0]'], MATERIALS.map((m) => m[2]));
+      if (u.uUnder) gl.uniform3fv(u.uUnder, pal.asphalt);
+    }
     for (const prog of [this.yard, this.bus, this.skin]) {
       gl.useProgram(prog.p);
       const u = prog.u;
@@ -538,6 +696,7 @@ export class DepotRenderer {
       if (u.uHi) gl.uniform1f(u.uHi, this.hi);
     }
     this.drawAll(this.yard, this.bus, vp, lightVP, 0, this.skin);
+    this.drawDecals(vp);
     this.drawOverlays(vp, lightVP);
     this.onFrame?.(vp, this.size.w, this.size.h);
     this.timeFrame();
@@ -558,6 +717,25 @@ export class DepotRenderer {
       this.onSlow = null;
       slow();
     }
+  }
+
+  /** The marks, multiplied into the ground under them (not on the lowest level's plain one). */
+  drawDecals(vp) {
+    if (!this.decalCount || !this.detailOn) return;
+    const gl = this.gl;
+    gl.useProgram(this.decal.p);
+    gl.uniformMatrix4fv(this.decal.u.uVP, false, vp);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.DST_COLOR, gl.ZERO);
+    gl.depthMask(false);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(-2, -4);
+    gl.bindVertexArray(this.decalVao);
+    gl.drawArrays(gl.TRIANGLES, 0, this.decalCount);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.bindVertexArray(null);
   }
 
   drawOverlays(vp, lightVP) {
