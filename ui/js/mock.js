@@ -8,6 +8,7 @@
 
 import { companyAnswers } from './mock/company.js';
 import { rosterflowAnswers } from './mock/rosterflow.js';
+import { depotAtlas, depotHas } from './mock/depotmodels.js';
 
 const listeners = {};
 const params = new URLSearchParams(location.search);
@@ -226,6 +227,8 @@ const answers = {
     throw 'The 3D view reads the bus from your OMSI 2 folder: open Omsi-Hub itself';
   },
   b3d_photo_has: () => ({ has: false }),
+  // (the 3D depot's bus models: drawn by the mock, `mock/depotmodels.js`)
+  b3d_depot_has: (a) => depotHas(a),
   // (the livery studio: no liveries begun in the mock, the studio's own fonts)
   lak_projects: () => [],
   lak_fonts: () => ['Hanken Grotesk', 'Roboto'],
@@ -314,7 +317,8 @@ export const backend = {
     }
     return a(args || {});
   },
-  async callBytes(cmd) {
+  async callBytes(cmd, args) {
+    if (cmd === 'b3d_depot') return depotAtlas(args || {});
     (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[`bytes:${cmd}`] = 1;
     throw `not ported yet: ${cmd}`;
   },

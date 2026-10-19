@@ -41,6 +41,51 @@
 .cm-plan .cm-txt { pointer-events: none; }
 .cm-bus { cursor: pointer; }
 
+/* (the yard in 3D: `company/depot3d/`; its labels over the buildings, its tools in a corner) */
+.cm-plan3d { border-radius: var(--hub-r); overflow: hidden; background: radial-gradient(120% 90% at 50% 40%, rgba(var(--co-white), var(--aw-06, 0.06)), transparent 70%); }
+.cm-plan3d canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; touch-action: none; }
+.cm-plan3d canvas:active { cursor: grabbing; }
+.cm-plan3d canvas.on-bus { cursor: pointer; }
+.cm-plan3d .dp-tags { position: absolute; inset: 0; pointer-events: none; }
+.cm-plan3d .dp-tag { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 9px 4px 7px; border-radius: 8px; background: var(--hub-panel); color: var(--hub-text); font-size: 9.6px; font-weight: 700; white-space: nowrap; box-shadow: 0 0 0 1px var(--hub-edge), 0 4px 14px rgba(0, 0, 0, 0.18); will-change: transform; }
+.cm-plan3d .dp-tag::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; transform: rotate(45deg); box-shadow: 1px 1px 0 0 var(--hub-edge); }
+.cm-plan3d .dp-tag .co-icon, .cm-plan3d .dp-tag svg { color: var(--hub-accent-text, var(--hub-accent)); flex: none; }
+.cm-plan3d .dp-tag span { display: flex; flex-direction: column; line-height: 1.2; }
+.cm-plan3d .dp-tag small { font-size: 8.6px; font-weight: 500; color: var(--co-warn); }
+.cm-plan3d .dp-tag.plot { color: var(--hub-text-dim); background: var(--hub-glass-card); backdrop-filter: blur(6px); }
+.cm-plan3d .dp-tag.works svg { color: var(--co-warn); }
+.cm-plan3d .dp-tag.lit { background: var(--hub-accent); color: var(--hub-on-accent); }
+.cm-plan3d .dp-tag.lit svg, .cm-plan3d .dp-tag.lit small { color: var(--hub-on-accent); }
+.cm-plan3d .dp-tip { position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px); padding: 7px 11px; border-radius: 8px; background: var(--hub-panel); color: var(--hub-text); font-size: 10.4px; font-weight: 600; box-shadow: 0 0 0 1px var(--hub-edge), 0 6px 18px rgba(0, 0, 0, 0.2); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-tools { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 2px; padding: 3px; border-radius: 12px; background: var(--hub-glass-card); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px var(--hub-edge); }
+.cm-plan3d .dp-tools .co-iconbtn { width: 32px; height: 32px; }
+.cm-plan3d .dp-hint { position: absolute; right: 12px; bottom: 10px; font-size: 9px; font-weight: 500; color: var(--hub-text-faint); pointer-events: none; }
+.cm-plan3d .dp-menu { position: absolute; right: 54px; top: 10px; width: 230px; padding: 10px 6px 6px; border-radius: 12px; background: var(--hub-panel); box-shadow: 0 0 0 1px var(--hub-edge), 0 10px 28px rgba(0, 0, 0, 0.25); z-index: 2; }
+.cm-plan3d .dp-menu .co-caps { padding: 0 8px 6px; }
+.cm-plan3d .dp-menu button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: none; color: var(--hub-text); text-align: left; cursor: pointer; font-size: 10.6px; font-weight: 700; }
+.cm-plan3d .dp-menu button:hover { background: var(--hub-hover); }
+.cm-plan3d .dp-menu button.on svg { color: var(--hub-accent-text, var(--hub-accent)); }
+.cm-plan3d .dp-menu button span { flex: 1; display: flex; flex-direction: column; }
+.cm-plan3d .dp-menu button small { font-size: 9px; font-weight: 500; color: var(--hub-text-dim); }
+/* (the build mode: what it says of the spot and its buttons, along the bottom; a module's card) */
+.cm-plan3d .dp-place { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border-radius: 12px; background: var(--hub-panel); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.22); }
+.cm-plan3d .dp-place .dp-why { flex: 1; min-width: 0; font-size: 10.6px; font-weight: 600; color: var(--co-ok); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-place .dp-why.no { color: var(--co-danger-text); }
+.cm-plan3d .dp-place .co-btn { height: 32px; padding: 0 10px; flex: none; }
+.cm-plan3d .dp-card { position: absolute; left: 12px; bottom: 12px; width: 280px; display: flex; flex-direction: column; gap: 3px; padding: 12px 14px 10px; border-radius: 12px; background: var(--hub-panel); color: var(--hub-text); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.22); }
+.cm-plan3d .dp-card b { font-size: 11.4px; }
+.cm-plan3d .dp-card span { font-size: 10px; color: var(--hub-text-dim); }
+.cm-plan3d .dp-card .row { display: flex; gap: 6px; margin-top: 6px; }
+.cm-plan3d .dp-card .co-btn { height: 30px; padding: 0 10px; }
+.cm-buildrow .co-btn.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+/* (the Build list: a dot a level, the one being built in amber) */
+.cm-pips { position: absolute; display: flex; gap: 5px; }
+.cm-pips i { width: 7px; height: 7px; border-radius: 50%; background: rgba(var(--co-white), var(--aw-16, 0.16)); }
+.cm-pips i.on { background: var(--hub-accent); }
+.cm-pips i.works { background: rgb(var(--co-warn-fill)); }
+.cm-buildrow { border-radius: 10px; transition: background 0.12s; }
+.cm-buildrow:hover { background: var(--hub-hover); }
+
 /* --- the workshop's stores ------------------------------------------------------------------- */
 
 .cm-part { position: absolute; border-radius: var(--hub-r-sheet); background: var(--hub-field); box-shadow: inset 0 0 0 1px rgba(110, 160, 230, 0.45); }

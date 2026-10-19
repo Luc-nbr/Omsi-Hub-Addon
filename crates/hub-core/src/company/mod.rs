@@ -97,6 +97,7 @@ pub mod training;
 pub mod unassign;
 pub mod variations;
 pub mod vehicles;
+pub mod yard;
 
 pub use model::*;
 

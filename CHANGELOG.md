@@ -22,6 +22,12 @@ never changes their files.
 - **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
   "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
   them, and where Windows still refuses it, says so and what can be done.
+- **The depot in 3D**: the yard as a model to turn round and zoom into (and from straight above,
+  2D), every bus in it as its own model in the livery it wears (baked once from the bus as the
+  game draws it), a hundred and more of them smoothly. Build it up as you like: put each block of
+  spaces, workshop bay, washing bay, diesel station and the offices where you want them on the
+  yard's grid, turn and move them, pull them down, buy more land beside it. The graphics can be
+  set lower for slower computers.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.

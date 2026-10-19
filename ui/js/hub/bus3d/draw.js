@@ -731,7 +731,7 @@ export class Painter {
     gl.colorMask(true, true, true, true);
     gl.depthMask(true);
     // the photo is transparent: no sky, and of the floor only the contact shadow
-    gl.clearColor(0, 0, 0, opts.photo ? 0 : 1);
+    gl.clearColor(0, 0, 0, opts.photo || opts.bake ? 0 : 1);
     gl.clearDepth(1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.disable(gl.BLEND);
@@ -739,7 +739,7 @@ export class Painter {
     gl.disable(gl.POLYGON_OFFSET_FILL);
     this.bindEnv();
     const inside = this.view === 'inside';
-    if (!opts.flat && !opts.id) {
+    if (!opts.flat && !opts.id && !opts.bake) {
       gl.disable(gl.CULL_FACE);
       if (!opts.photo) {
         gl.disable(gl.DEPTH_TEST);
@@ -762,7 +762,7 @@ export class Painter {
     }
     const u = this.bus.u;
     gl.useProgram(this.bus.prog);
-    gl.uniform1i(u.uFlat, opts.id ? 2 : opts.flat ? 1 : 0);
+    gl.uniform1i(u.uFlat, opts.id ? 2 : opts.flat ? 1 : opts.bake ? 3 : 0);
     this.idTable = [];
     const setId = (list, d) => {
       if (!opts.id) return;
@@ -803,7 +803,7 @@ export class Painter {
     if (!opts.id) gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const order = s.blended.map((list, i) => ({ list, d: dist2(s.partMid[i] || [0, 0, 0], c.eye) })).sort((a, b) => b.d - a.d);
-    const lists = opts.flat || inside ? order.map((o) => o.list) : [s.blobs, ...order.map((o) => o.list)];
+    const lists = opts.flat || opts.bake || inside ? order.map((o) => o.list) : [s.blobs, ...order.map((o) => o.list)];
     last = undefined;
     for (const list of lists) {
       for (const d of list) {
@@ -878,6 +878,22 @@ export class Painter {
     const gl = this.gl;
     const fb = this.msaaFor(w, h);
     this.drawScene(c, w, h, { photo: true }, fb);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.msaa.outFb);
+    gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.msaa.outFb);
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return px;
+  }
+
+  /** A picture of the depot model (`bake.js`): a flat view with the bus lit evenly, or its
+   * mask (white where the bus is), read back as the photo is. */
+  readBake(c, w, h, mask) {
+    const gl = this.gl;
+    const fb = this.msaaFor(w, h);
+    this.drawScene(c, w, h, mask ? { flat: true } : { bake: true }, fb);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.msaa.outFb);
     gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
