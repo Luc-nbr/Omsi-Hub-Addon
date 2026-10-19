@@ -246,9 +246,9 @@ const answers = {
     setTimeout(() => backend.emit('game-ended', { code: 0, seconds: 4 }), 4000);
     return { started: true, args: ['--map', a.duty.map] };
   },
-  hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Addon', auto: false }),
+  hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Releases', auto: false }),
   hub_drive_args: (a) => ({ args: ['--root', settings.openomsi_folder, '--map', a.duty.map, '--bus', a.duty.bus, ...(a.duty.line ? ['--line', a.duty.line, '--tour', a.duty.tour || ''] : []), '--time', a.duty.time] }),
-  hub_update_act: (a) => ({ kind: 'none', line: a.what === 'check' ? 'Omsi-Hub 0.1.0 is the newest.' : '', repo: 'github.com/Luc-nbr/Omsi-Hub-Addon', auto: false }),
+  hub_update_act: (a) => ({ kind: 'none', line: a.what === 'check' ? 'Omsi-Hub 0.1.0 is the newest.' : '', repo: 'github.com/Luc-nbr/Omsi-Hub-Releases', auto: false }),
 
   // the timetable editor
   tt_load: (a) => (/grundorf/i.test(a.map || '') ? TT : { dir: '', folder: '', lines: [], trips: [] }),

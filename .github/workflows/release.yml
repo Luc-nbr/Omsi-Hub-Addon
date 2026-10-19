@@ -1,6 +1,11 @@
 # Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon and Intel) and Linux,
-# built by Tauri and put in a DRAFT release named after the version (`v<version>`). Luc publishes
-# the draft by hand (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
+# built by Tauri and put in a DRAFT release named after the version (`v<version>`) in the PUBLIC
+# repository Luc-nbr/Omsi-Hub-Releases (this one is private: players could not download from it;
+# the app's updater and the website read the releases there). Luc publishes the draft by hand
+# (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
+#
+# Writing there takes the secret RELEASES_TOKEN: a fine-grained token of Luc's with "Contents: Read
+# and write" on Luc-nbr/Omsi-Hub-Releases only (this repository's own token cannot write to another).
 #
 # A pre-release (for testers) is the same draft with GitHub's pre-release mark: run by hand with
 # "pre-release" on (the default), or a tag whose version has a `-` in it. Published, it stays a
@@ -29,8 +34,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# (this repository is only read: the release goes to Omsi-Hub-Releases with RELEASES_TOKEN)
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -76,6 +82,17 @@ jobs:
           toolchain: "1.99.0"
           targets: ${{ matrix.target }}
 
+      # (Luc's openOMSI fork, which Cargo fetches, is private: read with the secret OPENOMSI_TOKEN when
+      # there is one - a fine-grained token with "Contents: Read-only" on Luc-nbr/openOMSI)
+      - name: Access to the openOMSI fork
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OPENOMSI_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Luc-nbr/openOMSI".insteadOf "https://github.com/Luc-nbr/openOMSI"
+            echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+          fi
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
@@ -106,6 +123,17 @@ jobs:
           echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
           echo "::notice::Omsi-Hub $app, pre-release: $pre"
 
+      # (the releases' repository can be written to)
+      - name: Releases repository token
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::The secret RELEASES_TOKEN is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
+            exit 1
+          fi
+
       # (the updater files signed and latest.json attached only when the key is set up)
       - name: Updater signing set up?
         id: signing
@@ -125,18 +153,22 @@ jobs:
       - name: Build and upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
+          owner: Luc-nbr
+          repo: Omsi-Hub-Releases
+          # (the tag is made there, from its own main: this repository's commits are not in it)
+          commitish: main
           tauriScript: npx --yes @tauri-apps/cli@2
           tagName: v__VERSION__
           releaseName: Omsi-Hub __VERSION__
           releaseBody: |
-            ${{ steps.kind.outputs.prerelease == 'true' && '**A pre-release, for testing.** The app does not offer it as an update: install it yourself. Something wrong? Tell us at info@omsihub.com or in an issue.' || '' }}
+            ${{ steps.kind.outputs.prerelease == 'true' && '**A pre-release, for testing.** The app does not offer it as an update: install it yourself. Something wrong? Tell us at info@omsihub.com or with "Report a bug" on omsihub.com.' || '' }}
 
-            Omsi-Hub __VERSION__: the add-on for openOMSI. What is in it: [CHANGELOG.md](https://github.com/Luc-nbr/Omsi-Hub-Addon/blob/main/CHANGELOG.md).
+            Omsi-Hub __VERSION__: the add-on for openOMSI. More at [omsihub.com](https://omsihub.com).
 
             Needs openOMSI 0.2.22 or newer and an original OMSI 2. Omsi-Hub does not replace openOMSI: it builds on the openOMSI you have installed.
 

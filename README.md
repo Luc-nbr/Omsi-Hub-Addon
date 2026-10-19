@@ -16,7 +16,6 @@
   <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-f58620">
   <img alt="Needs openOMSI 0.2.22 or newer" src="https://img.shields.io/badge/openOMSI-0.2.22%2B-2a75f7">
   <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a142e">
-  <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-34b26e">
 </p>
 
 ---
@@ -122,7 +121,9 @@ everything else keeps working.
 
 ## Licence
 
-[MIT](LICENSE) © 2026 Omsi-Hub.
+© 2026 Omsi-Hub. All rights reserved: Omsi-Hub is proprietary software, free to download and
+use ([LICENSE](LICENSE)). Its code up to 19 October 2026 (0.1.0) was published under the MIT
+licence. The code by others it contains keeps its own licence (`THIRD_PARTY_NOTICES.md`).
 
 Omsi-Hub is a fan project. It is not affiliated with the makers or publishers of OMSI 2, and it is a
 separate project from openOMSI.
