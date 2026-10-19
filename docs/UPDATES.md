@@ -68,7 +68,6 @@ release without a `latest.json`.
 |---|---|---|---|
 | Windows x64 | `windows-x86_64` | `Omsi-Hub_<version>_x64-setup.exe` | the same |
 | macOS Apple silicon | `darwin-aarch64` | `Omsi-Hub_aarch64.app.tar.gz` | `Omsi-Hub_<version>_aarch64.dmg` |
-| macOS Intel | `darwin-x86_64` | `Omsi-Hub_x64.app.tar.gz` | `Omsi-Hub_<version>_x64.dmg` |
 | Linux x64 | `linux-x86_64` | `Omsi-Hub_<version>_amd64.AppImage` | the same, or the `.deb` / `.rpm` (not self-updating) |
 | Linux ARM64 | `linux-aarch64` | `Omsi-Hub_<version>_aarch64.AppImage` | the same |
 
