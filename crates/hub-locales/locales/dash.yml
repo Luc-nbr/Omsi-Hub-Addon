@@ -155,6 +155,20 @@ _version: 2
   pl: "Mapa trasy"
   ru: "Карта маршрута"
   uk: "Мапа маршруту"
+"Day mode":
+  de: "Tagmodus"
+  fr: "Mode jour"
+  nl: "Dagmodus"
+  pl: "Tryb dzienny"
+  ru: "Дневной режим"
+  uk: "Денний режим"
+"Night mode":
+  de: "Nachtmodus"
+  fr: "Mode nuit"
+  nl: "Nachtmodus"
+  pl: "Tryb nocny"
+  ru: "Ночной режим"
+  uk: "Нічний режим"
 "Open the route map":
   de: "Streckenkarte öffnen"
   fr: "Ouvrir la carte de l’itinéraire"

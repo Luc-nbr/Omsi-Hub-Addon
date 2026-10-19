@@ -375,7 +375,8 @@
   box-shadow: inset 0 0 0 1px var(--hub-hairline); border: 0; padding: 0 12px; outline: none; font-size: 10px;
 }
 .hub .input:focus, .hub .select:focus, .hub-input:focus { box-shadow: inset 0 0 0 1px var(--hub-accent), 0 0 0 3px rgba(var(--hub-accent-rgb), 0.18); background-color: var(--hub-field); }
-.hub .select { padding-right: 34px; background-position: right 12px center; }
+/* (never wider than where it stands: a long line's or entry's name is cut, not out of the sheet) */
+.hub .select { padding-right: 34px; background-position: right 12px center; max-width: 100%; text-overflow: ellipsis; }
 .hub .select option { background: var(--hub-panel); color: var(--hub-text); }
 .hub .input::placeholder, .hub-input::placeholder { color: var(--hub-text-faint); }
 .hub .search svg { left: 12px; color: var(--hub-text-dim); }

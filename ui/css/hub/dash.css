@@ -6,11 +6,13 @@
   --dash-card: var(--hub-panel);
   --dash-grid: rgba(255, 255, 255, 0.05);
   --dash-soft: rgba(255, 255, 255, 0.035);
+  --dash-road: rgba(255, 255, 255, 0.1);
+  --dash-road-main: rgba(255, 255, 255, 0.17);
   position: absolute; inset: 0; display: flex; flex-direction: column; gap: 18px;
   padding: 24px 28px 26px; overflow: auto; color: var(--hub-text);
   background: radial-gradient(120% 90% at 50% -10%, rgba(var(--hub-accent-rgb), 0.06), transparent 60%), var(--hub-ground);
 }
-:root[data-theme="light"] .dash { --dash-grid: rgba(22, 20, 26, 0.06); --dash-soft: rgba(22, 20, 26, 0.035); }
+:root[data-theme="light"] .dash { --dash-grid: rgba(22, 20, 26, 0.06); --dash-soft: rgba(22, 20, 26, 0.035); --dash-road: rgba(22, 20, 26, 0.13); --dash-road-main: rgba(22, 20, 26, 0.22); }
 .dash .grow { flex: 1; }
 .dash .cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash .faint { color: var(--hub-text-faint); }
@@ -21,6 +23,9 @@
 .dash-head p { margin: 4px 0 0; color: var(--hub-text-dim); font-size: 12.5px; }
 .dash-tools { display: flex; gap: 8px; align-self: center; }
 .dash-tools .hub-btn { height: 32px; padding: 0 12px; font-size: 11.5px; }
+/* the day and night look, as a switch of two */
+.dash-look { align-self: center; }
+.dash-look button { height: 26px; display: inline-flex; align-items: center; gap: 6px; }
 .dash-clock { display: flex; flex-direction: column; align-items: flex-end; min-width: 150px; }
 .dash-clock span { color: var(--hub-text-dim); font-size: 11.5px; }
 .dash-clock b { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }

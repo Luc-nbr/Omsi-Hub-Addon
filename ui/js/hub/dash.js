@@ -9,11 +9,13 @@
 // window is in the background): the plugin's `dash.json` of the game, the duty's plan from the
 // map's timetable, the driver's trip records. It says what is so; this words it.
 
-import { html, useEffect, useLayoutEffect, useRef, useState } from '../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
 import { S, set, useStore } from '../store.js';
 import { Icon, tr } from './bits.js';
 import { SYMBOLS } from '../symbols.js';
+import { dark } from './theme.js';
+import { flipLook } from './bar.js';
 
 let cssLoaded = false;
 function loadCss() {
@@ -166,16 +168,77 @@ function useSize(ref) {
   return size;
 }
 
-/** The bus on the map: the way it went, where it stood at its stops, where it is and where it
- * heads. `zoom` 1 shows all of the way; closer, the bus in the middle. */
+/** The map's roads and the duty's routes under the bus (`hub_route_map`, as the drive's steps
+ * draw them): read once a map, day and duty, and kept while the next one is read (the plan
+ * comes a moment after the drive began). Its points are metres from its `origin`. */
+const drawn = new Map();
+function useRoads(v) {
+  const map = v.map?.map || '';
+  const trips = [...new Set((v.plan || []).map((p) => p.name).filter(Boolean))].join('|');
+  const key = `${map}|${v.date || ''}|${trips}`;
+  const [roads, setRoads] = useState(() => drawn.get(key)?.done || null);
+  useEffect(() => {
+    if (!map) return undefined;
+    let alive = true;
+    if (!drawn.has(key)) {
+      const e = { read: call('hub_route_map', { map, date: v.date || '', trip: trips }).catch(() => null) };
+      e.read.then((r) => (e.done = r));
+      drawn.set(key, e);
+    }
+    drawn.get(key).read.then((r) => alive && r && setRoads(r));
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  return roads;
+}
+
+/** The roads and the routes, drawn again only when the map or the scale changes (`u`: metres
+ * a pixel, in steps). */
+function Roads({ g, u }) {
+  return html`<g>
+    ${(g.roads || []).map((r) => html`<polyline points=${flat(r.p)} fill="none" stroke=${r.main ? 'var(--dash-road-main)' : 'var(--dash-road)'} stroke-width=${Math.max(r.w || 6, u * 2)} stroke-linecap="round" stroke-linejoin="round" />`)}
+    ${(g.route || []).map((p) => html`<polyline points=${flat(p)} fill="none" stroke="var(--hub-accent)" stroke-opacity="0.35" stroke-width=${u * 6} stroke-linecap="round" stroke-linejoin="round" />`)}
+    ${(g.stops || []).filter((s) => s.at).map((s) => html`<circle cx=${s.at[0]} cy=${-s.at[1]} r=${u * 3.5} fill="var(--hub-panel)" stroke="var(--hub-accent)" stroke-opacity="0.6" stroke-width=${u * 1.5} />`)}
+  </g>`;
+}
+
+/** `[x, y, x, y …]` (y north) as an SVG polyline's points. */
+function flat(p) {
+  let s = '';
+  for (let i = 0; i + 1 < p.length; i += 2) s += `${p[i]},${-p[i + 1]} `;
+  return s;
+}
+
+/** The bus on the map: the map's roads and the duty's route, the way the bus went, where it
+ * stood at its stops, where it is and where it heads. `zoom` 1 shows all of the route; closer,
+ * the bus in the middle. */
 export function LiveMap({ v, big = false }) {
   const ref = useRef(null);
   const [w, h] = useSize(ref);
   const [zoom, setZoom] = useState(1);
   const m = v.map || {};
-  const trail = m.trail || [];
-  const bus = m.bus;
-  const pts = [...trail, ...(bus ? [bus] : []), ...(m.stood || []).map((s) => s.at)];
+  const g = useRoads(v);
+  // (the game's world metres; the drawing's are from its origin)
+  const o = g?.origin || [0, 0];
+  const rel = (p) => [p[0] - o[0], p[1] - o[1]];
+  const trail = (m.trail || []).map(rel);
+  const bus = m.bus && rel(m.bus);
+  const stood = (m.stood || []).map((s) => ({ ...s, at: rel(s.at) }));
+  const route = [];
+  for (const p of g?.route || []) for (let i = 0; i + 1 < p.length; i += 2) route.push([p[i], p[i + 1]]);
+  let pts = [...route, ...trail, ...(bus ? [bus] : []), ...stood.map((s) => s.at)];
+  if (!pts.length && g?.lo && g?.hi && (g.roads || []).length) pts = [g.lo, g.hi];
+  const step = (x) => 2 ** (Math.round(Math.log2(x) * 2) / 2);
+  const fitOf = (lo, hi) => Math.max((hi[0] - lo[0]) / Math.max(w, 1), (hi[1] - lo[1]) / Math.max(h, 1), 300 / Math.max(w, 1)) * 1.25;
+  let lo = [Infinity, Infinity];
+  let hi = [-Infinity, -Infinity];
+  for (const p of pts) {
+    lo = [Math.min(lo[0], p[0]), Math.min(lo[1], p[1])];
+    hi = [Math.max(hi[0], p[0]), Math.max(hi[1], p[1])];
+  }
+  const uq = pts.length && w ? step(fitOf(lo, hi) / zoom) : 1;
+  const roads = useMemo(() => g && html`<${Roads} g=${g} u=${uq} />`, [g, uq]);
   const tools = html`<div class="dash-maptools">
     <button type="button" title=${tr('Closer')} onClick=${() => setZoom((z) => Math.min(z * 1.6, 24))}><${Icon} name="add" size=${18} /></button>
     <button type="button" title=${tr('Further')} onClick=${() => setZoom((z) => Math.max(z / 1.6, 1))}><${Icon} name="remove" size=${18} /></button>
@@ -184,15 +247,8 @@ export function LiveMap({ v, big = false }) {
   if (!pts.length || !w) {
     return html`<div class="dash-map empty" ref=${ref}><p>${!v.live ? tr('The map follows the bus once you drive.') : tr('Where the bus is shows here once it moves.')}</p></div>`;
   }
-  let lo = [Infinity, Infinity];
-  let hi = [-Infinity, -Infinity];
-  for (const p of pts) {
-    lo = [Math.min(lo[0], p[0]), Math.min(lo[1], p[1])];
-    hi = [Math.max(hi[0], p[0]), Math.max(hi[1], p[1])];
-  }
-  const fit = Math.max((hi[0] - lo[0]) / Math.max(w, 1), (hi[1] - lo[1]) / Math.max(h, 1), 300 / Math.max(w, 1)) * 1.25;
   // (metres a pixel; the middle of the view)
-  const mpp = fit / zoom;
+  const mpp = fitOf(lo, hi) / zoom;
   const c = zoom > 1 && bus ? bus : [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2];
   const vw = w * mpp;
   const vh = h * mpp;
@@ -207,15 +263,16 @@ export function LiveMap({ v, big = false }) {
   }
   const grid = 100 * 2 ** Math.max(0, Math.round(Math.log2((mpp * 60) / 100)));
   const u = mpp;
-  const labels = big || (m.stood || []).length <= 6;
+  const labels = big || stood.length <= 6;
   return html`<div class="dash-map" ref=${ref}>
     <svg viewBox=${view} width=${w} height=${h} aria-label=${tr('The bus on the map')}>
       <defs><pattern id=${big ? 'dash-grid-big' : 'dash-grid'} width=${grid} height=${grid} patternUnits="userSpaceOnUse" x=${0} y=${0}><path d=${`M ${grid} 0 L 0 0 0 ${grid}`} fill="none" stroke="var(--dash-grid)" stroke-width=${u} /></pattern></defs>
       <rect x=${c[0] - vw} y=${-c[1] - vh} width=${vw * 2} height=${vh * 2} fill=${`url(#${big ? 'dash-grid-big' : 'dash-grid'})`} />
+      ${roads}
       ${trail.length > 1 && html`<polyline points=${line} fill="none" stroke="var(--hub-accent)" stroke-opacity="0.3" stroke-width=${u * 9} stroke-linecap="round" stroke-linejoin="round" />
         <polyline points=${line} fill="none" stroke="var(--hub-accent)" stroke-width=${u * 3.5} stroke-linecap="round" stroke-linejoin="round" />`}
       ${trail.length > 1 && html`<circle cx=${trail[0][0]} cy=${-trail[0][1]} r=${u * 6} fill="var(--hub-ok)" stroke="var(--hub-panel)" stroke-width=${u * 2.5} />`}
-      ${(m.stood || []).map((s) => html`<g>
+      ${stood.map((s) => html`<g>
         <circle cx=${s.at[0]} cy=${-s.at[1]} r=${u * 4.5} fill="var(--hub-panel)" stroke="var(--hub-accent)" stroke-width=${u * 2.5} />
         ${labels && html`<text x=${s.at[0] + u * 9} y=${-s.at[1] + u * 4} font-size=${u * 11} class="dash-maplabel" stroke-width=${u * 3}>${s.name}</text>`}
       </g>`)}
@@ -530,6 +587,9 @@ export function DriveDash({ still = false }) {
       <div><h1>${tr(greeting(v.clock), { name: v.driver || tr('Driver') })}</h1><p>${tr("Here's your duty overview and what's ahead.")}</p></div>
       <span class="grow"></span>
       <div class="dash-tools">
+        <div class="dash-tabs dash-look" role="radiogroup" aria-label=${tr('Dark mode')}>
+          ${[[false, 'light_mode', 'Day mode'], [true, 'dark_mode', 'Night mode']].map(([night, icon, label]) => html`<button type="button" role="radio" aria-checked=${dark() === night} class=${dark() === night ? 'on' : ''} title=${tr(label)} onClick=${(e) => dark() !== night && flipLook(e)}><${Icon} name=${icon} size=${16} /><span>${tr(label)}</span></button>`)}
+        </div>
         <button type="button" class="hub-btn" onClick=${() => showDash(false)}><${Icon} name="chevron_left" size=${18} />${tr('Launcher')}</button>
         <button type="button" class="hub-btn" onClick=${() => setOpen('end')}><${Icon} name="stop_circle" size=${18} />${tr('End the drive')}</button>
       </div>

@@ -123,6 +123,22 @@ function view() {
   };
 }
 
+/** The map under the mock drive (`hub_route_map` of its map): the road it drives and a few
+ * side streets, the line's route along the road and its stops, from an origin off the world's
+ * corner as a real map's is. */
+export function liveRouteMap() {
+  const o = [1000, 2000];
+  const flat = (pts) => pts.flatMap(([x, y]) => [x, y]);
+  const side = [[[600, 420], [300, 1200]], [[1600, 1150], [2200, 400]], [[3000, 2100], [2600, 3000]], [[4300, 2700], [5000, 2000]], [[1100, 600], [2300, 1400]]];
+  return {
+    origin: o,
+    roads: [{ p: flat(ROAD), w: 9, main: true }, ...side.map((r) => ({ p: flat(r), w: 6 }))].map((r) => ({ ...r, p: r.p.map((v, i) => v - o[i % 2]) })),
+    route: [flat(ROAD).map((v, i) => v - o[i % 2])],
+    stops: STOPS.map(([, , m], k) => ({ k, at: at(m).map((v, i) => v - o[i]) })),
+    lo: [-o[0], -o[1]], hi: [5600 - o[0], 3600 - o[1]], entries: [],
+  };
+}
+
 /** Start a mock drive (`mode`: company, shift, tour or free). */
 export function startMockDrive(mode, emit) {
   drive = { mode, began: Date.now(), trail: [], series: [], last: 1 };

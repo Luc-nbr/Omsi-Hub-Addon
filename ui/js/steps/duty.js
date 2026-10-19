@@ -175,7 +175,7 @@ function Tours({ c }) {
       </div>
       ${!lines.length
         ? html`<p style="color:var(--hub-text-dim)">${tr(s.lines.loading ? 'Reading the timetable…' : mine ? 'Make one in Editor → Line editor' : 'No lines on this date.')}</p>`
-        : html`<${Select} raw value=${line && lines.includes(line) ? line.name : ''} placeholder=${tr('Choose a line…')} options=${lines.map((l) => [l.name, label(l)])} onChange=${(name) => {
+        : html`<${Select} raw style="width:100%" value=${line && lines.includes(line) ? line.name : ''} placeholder=${tr('Choose a line…')} options=${lines.map((l) => [l.name, label(l)])} onChange=${(name) => {
             const l = lines.find((x) => x.name === name);
             choose({ line: name, tour: (l?.tours.find((x) => x.runs) || l?.tours[0])?.number ?? null, start_trip: null });
           }} />`}
