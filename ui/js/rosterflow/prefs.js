@@ -15,7 +15,7 @@ import { Icon, RfButton, Switch, CheckRow, Seg, Stepper, Select } from './ui.js'
 
 /** The preferences, by kind: (kind, its icon, its items). */
 const KINDS = [
-  ['Vehicles', 'directions_bus', ['layover', 'prepost']],
+  ['Vehicles', 'directions_bus', ['layover', 'prepost', 'interline']],
   ['Drivers', 'person', ['signing', 'points', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types']],
   ['Depots', 'local_parking', ['depot']],
   ['Misc', 'apps', ['costs', 'algorithm']],
@@ -24,6 +24,7 @@ const KINDS = [
 const NAME = {
   layover: 'Layover',
   prepost: 'Pre/Post-Trip',
+  interline: 'Interlining',
   signing: 'Driver Signing',
   points: 'Relief Points',
   relief: 'Relief Timing',
@@ -43,6 +44,7 @@ const NAME = {
 const INFO = {
   layover: 'The least time a bus stands between two trips at one place.',
   prepost: "The bus's check before it leaves the depot and after it is back.",
+  interline: 'A bus may run trips of different lines in its day: Optimise chains a trip of one line into one of another where it ends where the next begins, or a short run empty away, and a trip can be moved by hand onto a bus of another line.',
   signing: "The paid minutes a driver signs on before work and off after it, at the duty's ends and around a split.",
   points: "Where drivers may begin or end a duty, change on the bus and take a break: the depot and the lines' termini by themselves, and the stops on a line's way you add.",
   relief: "When the driver changes within the bus's layover at a relief point (a terminus or the depot).",
@@ -64,6 +66,8 @@ function inUse(it, p) {
   switch (it) {
     case 'layover':
       return p.layover.on;
+    case 'interline':
+      return !!p.interline;
     case 'breaks':
       return p.meal.on;
     case 'continuous':
@@ -290,6 +294,22 @@ function DutyTypes({ types, set, v }) {
 }
 
 /** The window over the studio. */
+/** Interlining (`Prefs::interline`): on or off, the longest run empty between two lines, and
+ * the lines that may interline - the others keep to their own buses (`interline_not`). */
+function Interlining({ pr, put }) {
+  const lines = S.rf.data?.lines || [];
+  const not = pr.interline_not || [];
+  const keeps = (l) => not.some((x) => eq(x, l.name));
+  const toggle = (l, on) => put({ interline_not: on ? not.filter((x) => !eq(x, l.name)) : [...not, l.name] });
+  return html`<${Switch} on=${!!pr.interline} label="Buses interline: a bus runs trips of several lines" style="width:420px" onChange=${(x) => put({ interline: x })} />
+    ${pr.interline &&
+    html`<${Minutes} label="Longest run empty between two lines" value=${pr.interline_deadhead ?? 15} max=${60} set=${(x) => put({ interline_deadhead: x })} />
+      <p class="pf-note">${tr('Only where a trip of the day runs between the two places: Optimise makes no run empty whose time it does not know. Where one ends and the next begins at one stop or relief point, the bus needs none.')}</p>
+      <b class="pf-sub">${tr('Lines that interline').toUpperCase()}</b>
+      ${lines.map((l) => html`<${CheckRow} on=${!keeps(l)} label=${tr('Line %{n}', { n: l.number || l.name })} raw style="width:420px" onChange=${(x) => toggle(l, x)} />`)}
+      <p class="pf-note">${tr('A line not ticked keeps to its own buses. Optimise makes the blocks anew with it: run it after a change.')}</p>`}`;
+}
+
 export function PrefsWindow() {
   const e = S.rf.prefs;
   useEffect(() => {
@@ -319,6 +339,9 @@ export function PrefsWindow() {
       break;
     case 'prepost':
       body = html`<${Minutes} label="Pre-trip check" value=${pr.pre_trip} max=${60} set=${(x) => put({ pre_trip: x })} /><${Minutes} label="Post-trip check" value=${pr.post_trip} max=${60} set=${(x) => put({ post_trip: x })} />`;
+      break;
+    case 'interline':
+      body = html`<${Interlining} pr=${pr} put=${put} />`;
       break;
     case 'signing':
       body = html`<${Minutes} label="Sign-on at the duty's start" value=${pr.sign_on} max=${60} set=${(x) => put({ sign_on: x })} />

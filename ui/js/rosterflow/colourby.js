@@ -62,7 +62,7 @@ export function keyOf(b, by, i, j, dutyRow = null) {
   if (!t || !x) return null;
   switch (by) {
     case 'trip':
-      return [`T|${t.line}|${x.name}`, x.name];
+      return [`T|${x.line || t.line}|${x.name}`, x.name];
     case 'block':
       return [t.id, t.label];
     case 'duty': {
@@ -70,16 +70,20 @@ export function keyOf(b, by, i, j, dutyRow = null) {
       return s ? [s.id, s.label] : null;
     }
     default:
-      return [`L|${t.line}`, tr('Line %{n}', { n: t.number })];
+      // (a bus that interlines: each trip by its own line)
+      return [`L|${x.line || t.line}`, tr('Line %{n}', { n: x.number || t.number })];
   }
 }
+
+/** A trip's line colour: its own line's (a bus that interlines runs several), else its bus's. */
+const lineColour = (t, x) => hex(x?.colour || t?.colour);
 
 /** The colour of trip `j` of block `i` as the Layers ask (`p` the look). */
 export function tripColour(p, b, by, i, j, dutyRow = null) {
   const t = b.blocks[i];
-  if (by === 'line' || !t) return hex(t?.colour);
+  if (by === 'line' || !t) return lineColour(t, t?.trips[j]);
   const k = keyOf(b, by, i, j, dutyRow);
-  return k ? colourOf(p, k[0]) : hex(t.colour);
+  return k ? colourOf(p, k[0]) : lineColour(t, t.trips[j]);
 }
 
 /** A trip on the stack (no bus, no duty): by its trip ID, else its line's. */
@@ -106,7 +110,7 @@ function values(data, drivers, by, p) {
     if (!k) return;
     const v = seen.get(k[0]);
     if (v) v.n++;
-    else seen.set(k[0], { key: k[0], label: k[1], n: 1, colour: by === 'line' ? hex(b.blocks[i].colour) : colourOf(p, k[0]) });
+    else seen.set(k[0], { key: k[0], label: k[1], n: 1, colour: by === 'line' ? lineColour(b.blocks[i], b.blocks[i].trips[j]) : colourOf(p, k[0]) });
   };
   for (const row of rowsOf(data, drivers)) {
     if (row.kind === 'block') b.blocks[row.i]?.trips.forEach((x, j) => x.counts && add(row.i, j, null));

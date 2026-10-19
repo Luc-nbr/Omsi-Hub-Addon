@@ -386,17 +386,27 @@ fn board_json(c: &Company, board: &Board) -> Value {
         .iter()
         .enumerate()
         .map(|(i, t)| {
-            let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|o| o.line.eq_ignore_ascii_case(&t.line)).flat_map(|o| o.trips.iter()).collect();
+            // (a bus that interlines: the times between places of all its lines)
+            let lines = t.lines();
+            let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|o| o.lines().iter().any(|l| lines.iter().any(|m| m.eq_ignore_ascii_case(l)))).flat_map(|o| o.trips.iter()).collect();
             let bad: Vec<i32> = board.block_issues(i).filter(|x| x.text == rf::I_LAYOVER).filter_map(|x| x.key.rsplit('/').next().and_then(|d| d.parse().ok())).collect();
             let trips: Vec<Value> = t
                 .trips
                 .iter()
                 .enumerate()
                 .map(|(j, x)| {
+                    // (each trip of its own line, and in its colour, where the bus interlines)
+                    let of = t.line_of(x);
+                    let number = if of.eq_ignore_ascii_case(&t.line) {
+                        t.number.trim().to_string()
+                    } else {
+                        c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(of)).map(|l| l.number.trim().to_string()).unwrap_or_default()
+                    };
                     let mut v = json!({
                         "dep": x.dep, "arr": x.arr, "from": x.from.trim(), "to": x.end().trim(), "empty": x.empty, "counts": x.counts(),
-                        "origin": x.origin.trim(), "name": x.name, "num": if x.line.trim().is_empty() { t.number.trim().to_string() } else { x.line.trim().to_string() },
-                        "km": (x.km * 10.0).round() / 10.0, "out": outbound(tours, &t.line, x),
+                        "origin": x.origin.trim(), "name": x.name, "num": if x.line.trim().is_empty() { number.clone() } else { x.line.trim().to_string() },
+                        "line": of, "number": number, "colour": colour_of(c, of),
+                        "km": (x.km * 10.0).round() / 10.0, "out": outbound(tours, of, x),
                         "linked": x.counts() && !rf::linked(c, wd, &t.line, &st::TripRef::of(x)).is_empty(),
                         "moved": !x.origin.trim().is_empty() && x.origin.trim() != t.tour.trim(),
                         "bad": bad.contains(&x.dep),
@@ -426,6 +436,7 @@ fn board_json(c: &Company, board: &Board) -> Value {
             json!({
                 "id": block_id(t), "line": t.line, "number": t.number.trim(), "tour": t.tour.trim(), "label": block_label(t),
                 "colour": colour_of(c, &t.line), "from": t.from(), "to": t.to(), "km": (t.km() * 10.0).round() / 10.0,
+                "lines": lines, "interlined": lines.len() > 1,
                 "locked": rf::block_locked(c, wd, &t.line, &t.tour),
                 "trips": trips,
                 "pieces": pieces.iter().map(|r| json!([r.start, r.end])).collect::<Vec<_>>(),
@@ -746,6 +757,8 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             "relief": rf::ReliefTiming::ALL.iter().position(|x| *x == prefs.relief).unwrap_or(0),
             "pre_trip": prefs.pre_trip, "post_trip": prefs.post_trip, "relief_before": prefs.relief_before,
             "optimise_vehicles": prefs.optimise_vehicles, "optimise_duties": prefs.optimise_duties,
+            // (which lines' buses may take another line's trips: the swap's targets)
+            "interline": prefs.interline, "interline_not": prefs.interline_not,
         },
         "palette": rf::PALETTE.iter().map(|x| rf::hex(*x)).collect::<Vec<_>>(),
         "saved_same": r.lesson.as_ref().map(|l| l.snap.same_saved(&c)).unwrap_or(true),
@@ -782,12 +795,15 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let c: &Company = &k.view;
     let wd = board.weekday;
     Ok(match what.as_str() {
-        // the trip card's quick assign list: the buses of the line it may go to
+        // the trip card's quick assign list: the buses it may go to (of its line, or of one it
+        // interlines with: `plan_move` says)
         "candidates" => {
             let (tour, trip) = (usize_arg(args, "tour"), usize_arg(args, "trip"));
-            let Some(t) = board.tours.get(tour) else { return Ok(json!([])) };
+            if board.tours.get(tour).is_none() {
+                return Ok(json!([]));
+            }
             let list: Vec<Value> = (0..board.tours.len())
-                .filter(|&i| i != tour && board.tours[i].line.eq_ignore_ascii_case(&t.line) && st::plan_move(c, wd, &board.tours, tour, trip, Target::Block(i)).is_ok())
+                .filter(|&i| i != tour && st::plan_move(c, wd, &board.tours, tour, trip, Target::Block(i)).is_ok())
                 .map(|i| json!({ "tour": i, "label": block_label(&board.tours[i]) }))
                 .collect();
             json!(list)
@@ -873,10 +889,12 @@ fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Value> {
     };
     match h {
         Hand::Trips { tour, trips } => {
-            let Some(src) = tours.get(*tour) else { return Vec::new() };
-            let line = src.line.clone();
-            for (i, t) in tours.iter().enumerate() {
-                if i == *tour || !t.line.eq_ignore_ascii_case(&line) || st::plan_move_many(c, wd, tours, *tour, trips, Target::Block(i)).is_err() {
+            if tours.get(*tour).is_none() {
+                return Vec::new();
+            }
+            // (the buses of its line, and of the lines it interlines with: `plan_move_many` says)
+            for i in 0..tours.len() {
+                if i == *tour || st::plan_move_many(c, wd, tours, *tour, trips, Target::Block(i)).is_err() {
                     continue;
                 }
                 probe_with(json!({ "kind": "block", "i": i }), &|p| st::move_trips(p, wd, tours, *tour, trips, Target::Block(i)));
@@ -886,8 +904,8 @@ fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Value> {
         }
         Hand::Stack(sk) => {
             let Some((line, x)) = board.stack.get(*sk) else { return Vec::new() };
-            for (i, t) in tours.iter().enumerate() {
-                if !t.line.eq_ignore_ascii_case(line) || st::plan_assign(c, wd, tours, line, x, Target::Block(i)).is_err() {
+            for i in 0..tours.len() {
+                if st::plan_assign(c, wd, tours, line, x, Target::Block(i)).is_err() {
                     continue;
                 }
                 probe_with(json!({ "kind": "block", "i": i }), &|p| st::assign(p, wd, tours, line, x, Target::Block(i)));

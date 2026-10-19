@@ -41,22 +41,64 @@ pub const DEADHEAD_MIN: i32 = 5;
 // --- what is kept ----------------------------------------------------------------------------
 
 /// A trip of the timetable by where it comes from: its tour there, its name, and when it
-/// leaves (minutes of the day).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, Default)]
+/// leaves (minutes of the day). In a block it is the same trip by these alone - a bus runs one
+/// trip at a time - so two are equal whatever line they name.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct TripRef {
     pub tour: String,
     pub name: String,
     pub dep: i32,
+    /// A trip of another line than the layout's (a bus that interlines): that line. Empty: the
+    /// layout's own, as every trip was before.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub line: String,
+}
+
+impl PartialEq for TripRef {
+    fn eq(&self, o: &TripRef) -> bool {
+        self.dep == o.dep && self.name == o.name && self.tour == o.tour
+    }
+}
+
+impl Eq for TripRef {}
+
+impl std::hash::Hash for TripRef {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        (&self.tour, &self.name, self.dep).hash(h);
+    }
 }
 
 impl TripRef {
     pub fn of(t: &PlannedTrip) -> TripRef {
-        TripRef { tour: t.origin.trim().to_string(), name: t.name.clone(), dep: t.dep }
+        TripRef { tour: t.origin.trim().to_string(), name: t.name.clone(), dep: t.dep, line: String::new() }
+    }
+
+    /// Trip `t` as a layout of line `home` keeps it: the line it is of where that is another.
+    pub fn kept_in(t: &PlannedTrip, home: &str) -> TripRef {
+        let mut r = TripRef::of(t);
+        if !t.of_line.trim().is_empty() && !same(&t.of_line, home) {
+            r.line = t.of_line.trim().to_string();
+        }
+        r
     }
 
     /// Whether it is that trip.
     pub fn is(&self, t: &PlannedTrip) -> bool {
         self.dep == t.dep && self.name == t.name && self.tour.trim() == t.origin.trim()
+    }
+
+    /// The line it is of, kept in a layout of line `home`.
+    pub fn line_in<'a>(&'a self, home: &'a str) -> &'a str {
+        if self.line.trim().is_empty() {
+            home
+        } else {
+            &self.line
+        }
+    }
+
+    /// Whether it is trip `t`, of line `line`, kept in a layout of line `home`.
+    pub fn is_in(&self, t: &PlannedTrip, line: &str, home: &str) -> bool {
+        self.is(t) && same(self.line_in(home), line)
     }
 }
 
@@ -131,25 +173,45 @@ fn same(a: &str, b: &str) -> bool {
 
 // --- the day as laid out ---------------------------------------------------------------------
 
-/// The line's blocks as `l` lays them out from the line's tours of the timetable (`tours`), or
-/// None when it no longer fits them: a trip it names is gone, or a trip with passengers is in
-/// none of its blocks. Each block with the trips its duties begin with (None: cut
+/// The day's trips of the timetable (`tours`) a layout may take, each once: of every line
+/// whose layout is built (`fit`), and whether one took it yet.
+struct Pool<'a> {
+    trips: Vec<(&'a PlannedTrip, &'a str, bool)>,
+}
+
+impl<'a> Pool<'a> {
+    fn of(tours: &[&'a TourOfDay]) -> Pool<'a> {
+        Pool { trips: tours.iter().flat_map(|t| t.trips.iter().map(move |x| (x, t.line_of(x), false))).collect() }
+    }
+
+    /// Trip `r` of a layout of line `home`, taken (None: none such left).
+    fn take(&mut self, r: &TripRef, home: &str) -> Option<&'a PlannedTrip> {
+        let slot = self.trips.iter_mut().find(|(x, l, used)| !*used && r.is_in(x, l, home))?;
+        slot.2 = true;
+        Some(slot.0)
+    }
+}
+
+/// A block a layout made (`build`), with the trips its duties begin with (None: cut
 /// automatically).
-fn build(l: &LineLayout, tours: &[&TourOfDay], info: Option<&LineInfo>) -> Option<Vec<(TourOfDay, Option<Vec<TripRef>>)>> {
+type Built = (TourOfDay, Option<Vec<TripRef>>);
+
+/// The line's blocks as `l` lays them out from the trips of the timetable (`pool`: its line's,
+/// and those of the other lines laid out, a bus that interlines running some), or None when it
+/// no longer fits them: a trip it names is gone. Each block with the trips its duties begin
+/// with (None: cut automatically). (`tours` the line's own tours, `info` the timetable read.)
+fn build(l: &LineLayout, tours: &[&TourOfDay], pool: &mut Pool, info: &[LineInfo]) -> Option<Vec<Built>> {
     let template = tours.first()?;
-    let mut pool: Vec<(&PlannedTrip, bool)> = tours.iter().flat_map(|t| t.trips.iter()).map(|x| (x, false)).collect();
     let mut out = Vec::new();
     // (the stack's trips run with no bus: placed, in no block)
     for r in &l.stack {
-        let slot = pool.iter_mut().find(|(x, used)| !*used && r.is(x))?;
-        slot.1 = true;
+        pool.take(r, &l.line)?;
     }
     for b in &l.blocks {
         let mut trips: Vec<PlannedTrip> = Vec::new();
         for r in &b.trips {
-            let slot = pool.iter_mut().find(|(x, used)| !*used && r.is(x))?;
-            slot.1 = true;
-            trips.push(slot.0.clone());
+            let x = pool.take(r, &l.line)?;
+            trips.push(x.clone());
         }
         if !trips.iter().any(PlannedTrip::counts) {
             continue;
@@ -160,7 +222,8 @@ fn build(l: &LineLayout, tours: &[&TourOfDay], info: Option<&LineInfo>) -> Optio
         let mut cuts = b.cuts.clone();
         for r in &b.reliefs {
             let Some(k) = trips.iter().position(|x| x.part.is_none() && r.trip.is(x)) else { continue };
-            let Some((first, second)) = info.and_then(|i| split_trip(i, &trips[k], r.stop, &r.name)) else { continue };
+            let of = if trips[k].of_line.trim().is_empty() { l.line.as_str() } else { trips[k].of_line.as_str() };
+            let Some((first, second)) = info.iter().find(|x| same(&x.name, of)).and_then(|i| split_trip(i, &trips[k], r.stop, &r.name)) else { continue };
             cuts.get_or_insert_with(Vec::new).push(TripRef::of(&second));
             trips[k] = first;
             trips.insert(k + 1, second);
@@ -171,10 +234,41 @@ fn build(l: &LineLayout, tours: &[&TourOfDay], info: Option<&LineInfo>) -> Optio
         let t = TourOfDay { line: template.line.clone(), number: template.number.clone(), tour: b.tour.clone(), ai_group: group, trips, unplanned: false, cuts: None };
         out.push((t, cuts));
     }
-    if pool.iter().any(|(x, used)| !*used && x.counts()) {
-        return None;
-    }
     Some(out)
+}
+
+/// The layouts of `weekday` that fit the day's tours of the timetable (`tours`), built together
+/// (a bus that interlines takes trips of another line): each line's blocks. A layout naming a
+/// trip that is gone drops out, and so does one of a line a trip with passengers of is on no
+/// bus nor the stack - a layout of another line that ran it dropped out, or a line that has
+/// none ran it - until all that are left fit. A layout whose line runs nothing that day is
+/// not built.
+fn fit(c: &Company, weekday: u8, tours: &[TourOfDay], info: &[LineInfo]) -> (Vec<(String, Vec<Built>)>, Vec<String>) {
+    let mine = |line: &str| tours.iter().filter(|t| same(&t.line, line)).collect::<Vec<&TourOfDay>>();
+    let mut ok: Vec<&LineLayout> = c.planning.layouts.iter().filter(|l| l.weekday == weekday && !mine(&l.line).is_empty()).collect();
+    let mut gone: Vec<String> = Vec::new();
+    loop {
+        let laid: Vec<&TourOfDay> = tours.iter().filter(|t| ok.iter().any(|l| same(&l.line, &t.line))).collect();
+        let mut pool = Pool::of(&laid);
+        let mut built = Vec::new();
+        let mut bad: Vec<String> = Vec::new();
+        for l in &ok {
+            match build(l, &mine(&l.line), &mut pool, info) {
+                Some(b) => built.push((l.line.clone(), b)),
+                None => bad.push(l.line.clone()),
+            }
+        }
+        for (x, line, used) in &pool.trips {
+            if !*used && x.counts() && !bad.iter().any(|b| same(b, line)) {
+                bad.push(line.to_string());
+            }
+        }
+        if bad.is_empty() {
+            return (built, gone);
+        }
+        ok.retain(|l| !bad.iter().any(|b| same(b, &l.line)));
+        gone.extend(bad);
+    }
 }
 
 /// The timetable's own of trip `x` of line `info` (its stops and their times): by its tour,
@@ -199,7 +293,7 @@ pub fn split_trip(info: &LineInfo, x: &PlannedTrip, stop: usize, name: &str) -> 
 
 /// A trip as the layouts know it: a part of a trip cut on the way by the whole trip.
 pub fn whole_ref(x: &PlannedTrip) -> TripRef {
-    TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: x.whole_dep() }
+    TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: x.whole_dep(), line: String::new() }
 }
 
 /// Trips `idx` of block `t` whole (each once): a part of a trip cut on the way stands for it.
@@ -244,21 +338,14 @@ fn set_block_cuts(b: &mut BlockLayout, t: &TourOfDay, at: &[usize]) {
 /// the player laid out their lines on `weekday`. Returns the blocks whose duties he cut, with
 /// the trips they begin with (found once the depot runs are in, `resolve_cuts`).
 pub fn arrange(c: &Company, weekday: u8, tours: &mut Vec<TourOfDay>, info: &[LineInfo]) -> Vec<(usize, Vec<TripRef>)> {
-    let mut laid: Vec<Vec<(TourOfDay, Option<Vec<TripRef>>)>> = Vec::new();
-    let mut lines: Vec<&str> = Vec::new();
-    for l in c.planning.layouts.iter().filter(|l| l.weekday == weekday) {
-        let mine: Vec<&TourOfDay> = tours.iter().filter(|t| same(&t.line, &l.line)).collect();
-        if let Some(blocks) = build(l, &mine, info.iter().find(|x| same(&x.name, &l.line))) {
-            laid.push(blocks);
-            lines.push(&l.line);
-        }
-    }
+    let (laid, _) = fit(c, weekday, tours, info);
     if laid.is_empty() {
         return Vec::new();
     }
+    let lines: Vec<String> = laid.iter().map(|(l, _)| l.clone()).collect();
     tours.retain(|t| !lines.iter().any(|l| same(l, &t.line)));
     let mut cuts = Vec::new();
-    for (t, cut) in laid.into_iter().flatten() {
+    for (t, cut) in laid.into_iter().flat_map(|(_, b)| b) {
         if let Some(cut) = cut {
             cuts.push((tours.len(), cut));
         }
@@ -282,16 +369,8 @@ pub fn resolve_cuts(tours: &mut [TourOfDay], cuts: &[(usize, Vec<TripRef>)]) {
 pub fn stale(c: &Company, lines: &[LineInfo], date: &str) -> Vec<String> {
     let wd = super::plandays::slot_of(c, date);
     let raw = network::timetable_tours(c, lines);
-    c.planning
-        .layouts
-        .iter()
-        .filter(|l| l.weekday == wd)
-        .filter(|l| {
-            let mine: Vec<&TourOfDay> = raw.iter().filter(|t| same(&t.line, &l.line)).collect();
-            !mine.is_empty() && build(l, &mine, None).is_none()
-        })
-        .map(|l| l.line.clone())
-        .collect()
+    let (_, gone) = fit(c, wd, &raw, &[]);
+    c.planning.layouts.iter().filter(|l| l.weekday == wd && gone.iter().any(|g| same(g, &l.line))).map(|l| l.line.clone()).collect()
 }
 
 /// The title and text of the inbox's word on a layout dropped (`retire_stale`).
@@ -354,26 +433,28 @@ pub fn reset_day(c: &mut Company, weekday: u8) -> bool {
 
 // --- the game's side ------------------------------------------------------------------------
 
-/// The timetable's tours a block of the day (`t`, one of `all`) runs in the game: each it
-/// holds more trips of than any other block of its line (the first such on a tie). A block
-/// whose trips do not know their tour: its own.
-pub fn origins(all: &[DayTour], t: &DayTour) -> Vec<String> {
-    let count = |b: &TourOfDay, o: &str| b.trips.iter().filter(|x| x.origin.trim() == o).count();
-    let mut mine: Vec<String> = Vec::new();
+/// The timetable's tours a block of the day (`t`, one of `all`) runs in the game, each with its
+/// line (another than the block's where the bus interlines): each it holds more trips of than
+/// any other block (the first such on a tie). A block whose trips do not know their tour: its
+/// own.
+pub fn origins(all: &[DayTour], t: &DayTour) -> Vec<(String, String)> {
+    let count = |b: &TourOfDay, l: &str, o: &str| b.trips.iter().filter(|x| x.origin.trim() == o && same(b.line_of(x), l)).count();
+    let mut mine: Vec<(String, String)> = Vec::new();
     for x in t.tour.trips.iter().filter(|x| !x.origin.trim().is_empty()) {
-        if !mine.iter().any(|o| o == x.origin.trim()) {
-            mine.push(x.origin.trim().to_string());
+        let l = t.tour.line_of(x);
+        if !mine.iter().any(|(ml, o)| same(ml, l) && o == x.origin.trim()) {
+            mine.push((l.to_string(), x.origin.trim().to_string()));
         }
     }
     if mine.is_empty() {
-        return vec![t.tour.tour.clone()];
+        return vec![(t.tour.line.clone(), t.tour.tour.clone())];
     }
     mine.into_iter()
-        .filter(|o| {
-            let here = count(&t.tour, o);
-            // (the first block of the line holding the most of it)
-            let best = all.iter().filter(|b| same(&b.tour.line, &t.tour.line)).max_by_key(|b| (count(&b.tour, o), std::cmp::Reverse(std::ptr::addr_of!(**b) as usize)));
-            best.is_none_or(|b| std::ptr::eq(b, t) || count(&b.tour, o) < here)
+        .filter(|(l, o)| {
+            let here = count(&t.tour, l, o);
+            // (the first block holding the most of it)
+            let best = all.iter().filter(|b| b.tour.lines().iter().any(|bl| same(bl, l))).max_by_key(|b| (count(&b.tour, l, o), std::cmp::Reverse(std::ptr::addr_of!(**b) as usize)));
+            best.is_none_or(|b| std::ptr::eq(b, t) || count(&b.tour, l, o) < here)
         })
         .collect()
 }
@@ -491,7 +572,13 @@ fn layout_now(c: &Company, tours: &[TourOfDay], line: &str, weekday: u8) -> Line
 /// A block of the day as a layout keeps it: its trips (a trip cut on the way once, with its
 /// relief), the cuts the player made.
 pub fn layout_of_block(t: &TourOfDay) -> BlockLayout {
-    let mut b = BlockLayout { tour: t.tour.clone(), trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(TripRef::of).collect(), cuts: None, reliefs: Vec::new() };
+    // (a trip of another line, where the bus interlines, names its line)
+    let mut b = BlockLayout {
+        tour: t.tour.clone(),
+        trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(|x| TripRef::kept_in(x, &t.line)).collect(),
+        cuts: None,
+        reliefs: Vec::new(),
+    };
     if let Some(cs) = t.cuts.as_ref() {
         set_block_cuts(&mut b, t, cs);
     }
@@ -507,6 +594,37 @@ pub fn set_cuts_of(b: &mut BlockLayout, t: &TourOfDay, at: &[usize]) {
 fn save(c: &mut Company, l: LineLayout) {
     c.planning.layouts.retain(|x| !(x.weekday == l.weekday && same(&x.line, &l.line)));
     c.planning.layouts.push(l);
+}
+
+/// The layouts an edit made (`plan_move` ...: one, or two where it moved trips between buses of
+/// lines that interline) kept.
+fn save_all(c: &mut Company, lays: Vec<LineLayout>) {
+    for l in lays {
+        save(c, l);
+    }
+}
+
+/// Whether a bus may run trips of all of `lines` (a trip moved onto a bus of another line):
+/// one line, or lines that interline (`rosterflow::interlines`).
+fn may_mix(c: &Company, lines: &[&str]) -> bool {
+    lines.iter().all(|a| lines.iter().all(|b| super::rosterflow::interlines(c, a, b)))
+}
+
+/// Every trip of the day's blocks of `lines` (the times between places of a bus that runs them).
+fn trips_of<'a>(tours: &'a [TourOfDay], lines: &[&str]) -> Vec<&'a PlannedTrip> {
+    tours.iter().filter(|t| t.lines().iter().any(|l| lines.iter().any(|x| same(x, l)))).flat_map(|t| t.trips.iter()).collect()
+}
+
+/// The line's layout among `lays` (the layouts an edit changes), taken on as it is now first.
+fn lay_of<'a>(c: &Company, tours: &[TourOfDay], weekday: u8, lays: &'a mut Vec<LineLayout>, line: &str) -> &'a mut LineLayout {
+    let k = match lays.iter().position(|l| same(&l.line, line)) {
+        Some(k) => k,
+        None => {
+            lays.push(layout_now(c, tours, line, weekday));
+            lays.len() - 1
+        }
+    };
+    &mut lays[k]
 }
 
 /// The duties joined on `weekday` with a piece of these blocks taken apart (their pieces
@@ -636,14 +754,16 @@ fn tidy(lay: &mut LineLayout, line_trips: &[&PlannedTrip]) {
 }
 
 /// What moving trip `trip` of block `from` to `to` would make of its line (None: refused,
-/// and why). The trips linked with it move along.
-pub fn plan_move(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, trip: usize, to: Target) -> Result<LineLayout, &'static str> {
+/// and why) - and of the line of the bus it goes to, where the lines interline. The trips
+/// linked with it move along.
+pub fn plan_move(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, trip: usize, to: Target) -> Result<Vec<LineLayout>, &'static str> {
     plan_move_many(c, weekday, tours, from, &[trip], to)
 }
 
-/// What moving trips `picked` of block `from` together to `to` would make of its line: every
+/// What moving trips `picked` of block `from` together to `to` would make of the lines' layouts
+/// (its own, and the other bus's where it is of another line the trips interline with): every
 /// one a trip with passengers, the trips linked with them along, none of a locked bus.
-pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: Target) -> Result<LineLayout, &'static str> {
+pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: Target) -> Result<Vec<LineLayout>, &'static str> {
     let src = tours.get(from).ok_or(NOT_FOUND)?;
     if picked.is_empty() {
         return Err(NOT_FOUND);
@@ -657,33 +777,53 @@ pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize
     let whole = wholes(src, &idx);
     let moving: Vec<&PlannedTrip> = whole.iter().collect();
     guard_block(c, weekday, tours, from)?;
-    let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
-    let mut lay = layout_now(c, tours, &src.line, weekday);
+    let mut theirs: Vec<&str> = Vec::new();
+    for x in &moving {
+        let l = src.line_of(x);
+        if !theirs.iter().any(|t| same(t, l)) {
+            theirs.push(l);
+        }
+    }
     let refs: Vec<TripRef> = moving.iter().map(|x| TripRef::of(x)).collect();
+    let mut lays: Vec<LineLayout> = Vec::new();
     match to {
         Target::Block(i) => {
             let dst = tours.get(i).ok_or(NOT_FOUND)?;
             if i == from {
                 return Err(SAME_BUS);
             }
-            if !same(&dst.line, &src.line) {
+            let mut all = dst.lines();
+            all.extend(theirs.iter().copied());
+            if !may_mix(c, &all) {
                 return Err(OTHER_LINE);
             }
             guard_block(c, weekday, tours, i)?;
+            let line_trips = trips_of(tours, &all);
             all_fit(&dst.trips, &moving, &line_trips)?;
+            let lay = lay_of(c, tours, weekday, &mut lays, &dst.line);
             let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
-            b.trips.extend(refs.iter().cloned());
+            b.trips.extend(moving.iter().map(|x| TripRef::kept_in(x, &dst.line)));
         }
         Target::New => {
             if src.trips.iter().filter(|t| t.counts() && !t.is_second()).count() == moving.len() {
                 return Err(ALONE);
             }
+            // (a new bus of the trips' line, where they are all of one; else of this bus's)
+            let home = if theirs.len() == 1 { theirs[0] } else { src.line.as_str() };
+            let line_trips = trips_of(tours, &theirs);
             all_fit(&[], &moving, &line_trips)?;
-            lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: refs.clone(), cuts: None, reliefs: Vec::new() });
+            let name = new_name(c, weekday, tours, home);
+            lay_of(c, tours, weekday, &mut lays, home).blocks.push(BlockLayout { tour: name, trips: moving.iter().map(|x| TripRef::kept_in(x, home)).collect(), cuts: None, reliefs: Vec::new() });
         }
     }
-    take_out(&mut lay, &src.tour, &refs, &line_trips)?;
-    Ok(lay)
+    let mut lines = src.lines();
+    lines.extend(theirs.iter().copied());
+    let line_trips = trips_of(tours, &lines);
+    take_out(lay_of(c, tours, weekday, &mut lays, &src.line), &src.tour, &refs, &line_trips)?;
+    for l in lays.iter_mut() {
+        tidy(l, &line_trips);
+    }
+    Ok(lays)
 }
 
 /// Move trip `trip` of block `from` to `to` (`plan_move`): kept for the weekday. The duties
@@ -694,19 +834,19 @@ pub fn move_trip(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize,
 
 /// Move trips `picked` of block `from` together to `to` (`plan_move_many`).
 pub fn move_trips(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: Target) -> Result<(), &'static str> {
-    let lay = plan_move_many(c, weekday, tours, from, picked, to)?;
+    let lays = plan_move_many(c, weekday, tours, from, picked, to)?;
     let src = &tours[from];
-    let mut touched = vec![src.tour.as_str()];
+    unjoin_blocks(c, weekday, &src.line, &[src.tour.as_str()]);
     if let Target::Block(i) = to {
-        touched.push(tours[i].tour.as_str());
+        unjoin_blocks(c, weekday, &tours[i].line, &[tours[i].tour.as_str()]);
     }
-    unjoin_blocks(c, weekday, &src.line, &touched);
-    save(c, lay);
+    save_all(c, lays);
     Ok(())
 }
 
 /// Take trips `picked` of block `from` off the bus onto the stack (RosterFlow's "Unassign"):
-/// no bus runs them until they are assigned again. Its linked trips go along.
+/// no bus runs them until they are assigned again. Its linked trips go along; a trip of
+/// another line (the bus interlines) waits on its own line's stack.
 pub fn unassign(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize]) -> Result<(), &'static str> {
     let src = tours.get(from).ok_or(NOT_FOUND)?;
     let idx = with_links(c, weekday, src, picked);
@@ -715,50 +855,66 @@ pub fn unassign(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, 
         return Err(NOT_MOVABLE);
     }
     guard_block(c, weekday, tours, from)?;
-    let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
-    let mut lay = layout_now(c, tours, &src.line, weekday);
-    let refs: Vec<TripRef> = wholes(src, &idx).iter().map(TripRef::of).collect();
-    lay.stack.extend(refs.iter().cloned());
-    take_out(&mut lay, &src.tour, &refs, &line_trips)?;
+    let line_trips = trips_of(tours, &src.lines());
+    let mut lays: Vec<LineLayout> = Vec::new();
+    let whole = wholes(src, &idx);
+    let refs: Vec<TripRef> = whole.iter().map(TripRef::of).collect();
+    for x in &whole {
+        lay_of(c, tours, weekday, &mut lays, src.line_of(x)).stack.push(TripRef::of(x));
+    }
+    take_out(lay_of(c, tours, weekday, &mut lays, &src.line), &src.tour, &refs, &line_trips)?;
+    for l in lays.iter_mut() {
+        tidy(l, &line_trips);
+    }
     unjoin_blocks(c, weekday, &src.line, &[src.tour.as_str()]);
-    save(c, lay);
+    save_all(c, lays);
     Ok(())
 }
 
-/// Whether trip `x` of the stack (of its line `line`) may go to `to` (`assign`).
-pub fn plan_assign(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str, x: &PlannedTrip, to: Target) -> Result<LineLayout, &'static str> {
+/// Whether trip `x` of the stack (of its line `line`) may go to `to` (`assign`): to a bus of
+/// its line, or of another it interlines with.
+pub fn plan_assign(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str, x: &PlannedTrip, to: Target) -> Result<Vec<LineLayout>, &'static str> {
     let r = TripRef::of(x);
-    let mut lay = layout_now(c, tours, line, weekday);
-    if !lay.stack.contains(&r) {
+    let mut lays = vec![layout_now(c, tours, line, weekday)];
+    if !lays[0].stack.contains(&r) {
         return Err(NOT_FOUND);
     }
-    let mut line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, line)).flat_map(|t| t.trips.iter()).collect();
-    line_trips.push(x);
+    lays[0].stack.retain(|t| *t != r);
+    let mut lines = vec![line];
     match to {
         Target::Block(i) => {
             let dst = tours.get(i).ok_or(NOT_FOUND)?;
-            if !same(&dst.line, line) {
+            let mut all = dst.lines();
+            all.push(line);
+            if !may_mix(c, &all) {
                 return Err(OTHER_LINE);
             }
             guard_block(c, weekday, tours, i)?;
+            let mut line_trips = trips_of(tours, &all);
+            line_trips.push(x);
             fits_into(&dst.trips, x, &line_trips)?;
-            let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
-            b.trips.push(r.clone());
+            let b = lay_of(c, tours, weekday, &mut lays, &dst.line).blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
+            b.trips.push(TripRef::kept_in(x, &dst.line));
+            lines = all;
         }
-        Target::New => lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, line), trips: vec![r.clone()], cuts: None, reliefs: Vec::new() }),
+        Target::New => lays[0].blocks.push(BlockLayout { tour: new_name(c, weekday, tours, line), trips: vec![r.clone()], cuts: None, reliefs: Vec::new() }),
     }
-    lay.stack.retain(|t| *t != r);
-    tidy(&mut lay, &line_trips);
-    Ok(lay)
+    let mut line_trips = trips_of(tours, &lines);
+    line_trips.push(x);
+    for l in lays.iter_mut() {
+        tidy(l, &line_trips);
+    }
+    Ok(lays)
 }
 
-/// Put trip `x` of the stack on a bus again: a bus of its line, or a new one.
+/// Put trip `x` of the stack on a bus again: a bus of its line (or one it interlines with), or
+/// a new one.
 pub fn assign(c: &mut Company, weekday: u8, tours: &[TourOfDay], line: &str, x: &PlannedTrip, to: Target) -> Result<(), &'static str> {
-    let lay = plan_assign(c, weekday, tours, line, x, to)?;
+    let lays = plan_assign(c, weekday, tours, line, x, to)?;
     if let Target::Block(i) = to {
-        unjoin_blocks(c, weekday, line, &[tours[i].tour.as_str()]);
+        unjoin_blocks(c, weekday, &tours[i].line, &[tours[i].tour.as_str()]);
     }
-    save(c, lay);
+    save_all(c, lays);
     Ok(())
 }
 
@@ -771,15 +927,18 @@ pub enum Swap {
     FromHere,
 }
 
-/// What swapping trips of block `from` with block `to` would make of the line (RosterFlow's
-/// "Swap" and "Swap from here"): both buses keep what fits, or it is refused.
-pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: usize, how: Swap) -> Result<LineLayout, &'static str> {
+/// What swapping trips of block `from` with block `to` would make of the lines' layouts
+/// (RosterFlow's "Swap" and "Swap from here"; two buses of lines that interline too): both
+/// buses keep what fits, or it is refused.
+pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: usize, how: Swap) -> Result<Vec<LineLayout>, &'static str> {
     let src = tours.get(from).ok_or(NOT_FOUND)?;
     let dst = tours.get(to).ok_or(NOT_FOUND)?;
     if from == to {
         return Err(SAME_BUS);
     }
-    if !same(&dst.line, &src.line) {
+    let mut both = src.lines();
+    both.extend(dst.lines());
+    if !may_mix(c, &both) {
         return Err(OTHER_LINE);
     }
     guard_block(c, weekday, tours, from)?;
@@ -798,30 +957,34 @@ pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, pic
     let (a, b): (Vec<&PlannedTrip>, Vec<&PlannedTrip>) = (a.iter().collect(), b.iter().collect());
     let ra: Vec<TripRef> = a.iter().map(|x| TripRef::of(x)).collect();
     let rb: Vec<TripRef> = b.iter().map(|x| TripRef::of(x)).collect();
-    let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
+    let line_trips = trips_of(tours, &both);
     // (each bus's day as it would be: what it keeps, and what it takes over)
     let keep = |t: &TourOfDay, gone: &[TripRef]| -> Vec<PlannedTrip> { t.trips.iter().filter(|x| !gone.contains(&whole_ref(x))).cloned().collect() };
     all_fit(&keep(src, &ra), &b, &line_trips).map_err(|_| SWAP_FAILS)?;
     all_fit(&keep(dst, &rb), &a, &line_trips).map_err(|_| SWAP_FAILS)?;
-    let mut lay = layout_now(c, tours, &src.line, weekday);
-    for (tour, gone, comes) in [(&src.tour, &ra, &rb), (&dst.tour, &rb, &ra)] {
-        let blk = lay.blocks.iter_mut().find(|x| same(&x.tour, tour)).ok_or(NOT_FOUND)?;
-        blk.trips.retain(|t| !gone.contains(t));
+    let mut lays: Vec<LineLayout> = Vec::new();
+    // (each trip kept by the layout of the bus it goes to, its line named where it is another)
+    for (t, gone, comes) in [(src, &ra, &b), (dst, &rb, &a)] {
+        let blk = lay_of(c, tours, weekday, &mut lays, &t.line).blocks.iter_mut().find(|x| same(&x.tour, &t.tour)).ok_or(NOT_FOUND)?;
+        blk.trips.retain(|r| !gone.contains(r));
         if let Some(cuts) = blk.cuts.as_mut() {
-            cuts.retain(|t| !gone.contains(t));
+            cuts.retain(|r| !gone.contains(r));
         }
         blk.reliefs.retain(|r| !gone.contains(&r.trip));
-        blk.trips.extend(comes.iter().cloned());
+        blk.trips.extend(comes.iter().map(|x| TripRef::kept_in(x, &t.line)));
     }
-    tidy(&mut lay, &line_trips);
-    Ok(lay)
+    for l in lays.iter_mut() {
+        tidy(l, &line_trips);
+    }
+    Ok(lays)
 }
 
 /// Swap trips of block `from` with block `to` (`plan_swap`): kept for the weekday.
 pub fn swap(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: usize, how: Swap) -> Result<(), &'static str> {
-    let lay = plan_swap(c, weekday, tours, from, picked, to, how)?;
-    unjoin_blocks(c, weekday, &tours[from].line, &[tours[from].tour.as_str(), tours[to].tour.as_str()]);
-    save(c, lay);
+    let lays = plan_swap(c, weekday, tours, from, picked, to, how)?;
+    unjoin_blocks(c, weekday, &tours[from].line, &[tours[from].tour.as_str()]);
+    unjoin_blocks(c, weekday, &tours[to].line, &[tours[to].tour.as_str()]);
+    save_all(c, lays);
     Ok(())
 }
 
@@ -2120,7 +2283,7 @@ mod tests {
         move_trip(&mut c, wd, &tours, block(&tours, "2").0, 7, Target::New).unwrap();
         let tours = day(&c, &l);
         let dp: Vec<DayTour> = tours.iter().cloned().map(|t| DayTour { tour: t, ..Default::default() }).collect();
-        let of = |no: &str| origins(&dp, dp.iter().find(|t| t.tour.tour == no).unwrap());
+        let of = |no: &str| origins(&dp, dp.iter().find(|t| t.tour.tour == no).unwrap()).into_iter().map(|(_, o)| o).collect::<Vec<_>>();
         assert_eq!((of("1"), of("2"), of("3")), (vec!["1".to_string()], vec!["2".to_string()], Vec::<String>::new()));
         // the day plan and the game's plan of the day take the edited blocks: three buses, the
         // game's tour 2 with block 2's bus (block 3 holds no tour mostly)

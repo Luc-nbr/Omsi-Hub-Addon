@@ -73,10 +73,12 @@ const STAFF = [
 
 /** The buses' days (`TourOfDay`): each part a shuttle from the line's first stop, its long
  * layovers (a meal break) once it is back there after the minutes in `breaks`, the duty cut at
- * the first departure from `cutAt` on. `days`: weekdays, Monday to Saturday, every day. */
+ * the first departure from `cutAt` on. `days`: weekdays, Monday to Saturday, every day. A part
+ * of another `line` that `joins` the one before runs on from where it ended, with no depot run
+ * between: bus 101/02 interlines, its morning peak on 101 and then 205 from Grundorf Bahnhof. */
 const BLOCKS = [
   { line: '101', tour: '01', days: 'all', parts: [{ start: 345, end: 1305, breaks: [540, 960, 1200], cutAt: 840 }] },
-  { line: '101', tour: '02', days: 'weekday', parts: [{ start: 435, end: 495, breaks: [] }, { start: 975, end: 1095, breaks: [] }] },
+  { line: '101', tour: '02', days: 'weekday', parts: [{ start: 435, end: 495, breaks: [] }, { line: '205', tour: '03', start: 560, end: 620, breaks: [], joins: true }, { start: 975, end: 1095, breaks: [] }] },
   { line: '102', tour: '01', days: 'sat', parts: [{ start: 360, end: 1180, breaks: [570, 1020], cutAt: 780, slow: { 420: 1 } }] },
   { line: '205', tour: '01', days: 'all', parts: [{ start: 340, end: 1380, breaks: [560, 1000, 1200], cutAt: 840 }] },
 ];
@@ -166,10 +168,19 @@ function defaultPrefs() {
     per_km: null,
     optimise_vehicles: true,
     optimise_duties: true,
+    interline: false,
+    interline_not: [],
+    interline_deadhead: 15,
   };
 }
 
-let prefs = defaultPrefs();
+// (Grundorf Bus lets its buses interline: bus 101/02 runs 101 and 205)
+let prefs = { ...defaultPrefs(), interline: true };
+
+/** Whether one bus may run trips of all of `lines` (`rosterflow::interlines`). */
+const mayMix = (lines) => lines.every((l) => eq(l, lines[0])) || (prefs.interline && !lines.some((l) => prefs.interline_not.some((x) => eq(x, l))));
+/** The lines a bus runs trips of: its own first. */
+const linesOf = (b) => [b.line, ...new Set(b.trips.filter((x) => !x.empty && !eq(x.line, b.line)).map((x) => x.line))];
 const RELIEF = ['ArrivalDeparture', 'OnArrival', 'OnDeparture', 'MidLayover', 'BeforeDeparture'];
 const RELIEF_LABELS = ['On arrival and on departure (unattended)', 'On arrival', 'On departure', 'Mid-layover', 'Before departure'];
 const TRAVEL = ['Walk', 'Public', 'Car'];
@@ -249,12 +260,15 @@ function shuttle(L, tour, p, cuts) {
 function genModel(wd) {
   const on = (d) => d === 'all' || (d === 'weekday' && wd < 5) || (d === 'sat' && wd < 6);
   const blocks = BLOCKS.filter((s) => on(s.days)).map((s) => {
-    const L = lineOf(s.line);
     const cuts = [];
     const trips = [];
     s.parts.forEach((p, k) => {
-      const part = shuttle(L, s.tour, p, cuts);
-      if (k > 0) cuts.push(part[0].dep);
+      const part = shuttle(lineOf(p.line || s.line), p.tour || s.tour, p, cuts);
+      // (a part that joins the one before: no run in to the depot and out again between)
+      if (p.joins && k > 0) {
+        trips.pop();
+        part.shift();
+      } else if (k > 0) cuts.push(part[0].dep);
       trips.push(...part);
     });
     return { line: s.line, tour: s.tour, trips, cuts };
@@ -346,9 +360,11 @@ function derive(model, wd) {
   const blocks = model.blocks.map((b) => ({ ...b, pieces: piecesOf(b) }));
   const issues = [];
   const issue = (scope, row, group, title, text, hard, key, penalty = 0, words = '', timeplan = null) => issues.push({ scope, row, text, group, title, hard, key, dismissed: model.dismissed.includes(key), row_words: words, timeplan, penalty });
-  // the vehicles' rules: the layover
+  // the vehicles' rules: the layover, and the lines a bus may run together
   blocks.forEach((b, i) => {
     b.bad = [];
+    const ls = linesOf(b);
+    if (!mayMix(ls)) issue('vehicle', i, 'interline', 'Buses on lines that do not interline', `Runs trips of lines ${ls.map((l) => lineOf(l)?.number || l).join(', ')}, which do not interline (Preferences › Vehicles)`, false, `interline/${b.line}/${b.tour}`, 0, `Vehicle ${blockLabel(b)}`);
     for (let j = 1; j < b.trips.length; j++) {
       const a = b.trips[j - 1];
       const x = b.trips[j];
@@ -468,9 +484,13 @@ function derive(model, wd) {
   const rowOfPiece = (i, k) => shaped.findIndex((s) => s.spans.some((sp) => sp.tour === i && sp.duty === k));
   const blocksJson = blocks.map((b, i) => {
     const L = lineOf(b.line);
+    const lines = linesOf(b);
     const trips = b.trips.map((x, j) => {
+      // (each trip of its own line, in its colour: a bus that interlines runs several)
+      const XL = lineOf(x.line) || L;
       const v = {
-        dep: x.dep, arr: x.arr, from: x.from, to: x.to, empty: x.empty, counts: !x.empty, origin: x.origin, name: x.name, num: L.number,
+        dep: x.dep, arr: x.arr, from: x.from, to: x.to, empty: x.empty, counts: !x.empty, origin: x.origin, name: x.name, num: XL.number,
+        line: XL.name, number: XL.number, colour: colourOf(XL.name),
         km: Math.round(x.km * 10) / 10, out: x.out, linked: !x.empty && model.linked.includes(tripKey(x)), moved: !!x.origin && x.origin !== b.tour, bad: b.bad.includes(x.dep),
         sl: `${letters(x.from)} > ${letters(x.to)}`,
       };
@@ -488,7 +508,7 @@ function derive(model, wd) {
     }
     const mine = issues.filter((x) => x.scope === 'vehicle' && x.row === i && open(x));
     return {
-      id: `B|${b.line}|${b.tour}`, line: b.line, number: L.number, tour: b.tour, label: blockLabel(b), colour: colourOf(b.line),
+      id: `B|${b.line}|${b.tour}`, line: b.line, number: L.number, tour: b.tour, label: blockLabel(b), colour: colourOf(b.line), lines, interlined: lines.length > 1,
       from: b.trips[0].dep, to: b.trips[b.trips.length - 1].arr, km: Math.round(b.trips.reduce((a, x) => a + x.km, 0) * 10) / 10,
       locked: model.blockLocks.includes(blockKey(b)), trips, pieces: b.pieces.map(([s, e]) => [s, e]),
       duty_rows: b.pieces.map((_, k) => {
@@ -660,7 +680,7 @@ function boardAnswer(args) {
     proposal_better: prop ? prop.better : null,
     proposal_note: prop ? prop.note : null,
     lines: LINES.map((l) => ({ name: l.name, number: l.number, caption: l.caption, colour: colourOf(l.name), own_colour: true })),
-    prefs: { relief: Math.max(0, RELIEF.indexOf(prefs.relief)), pre_trip: prefs.pre_trip, post_trip: prefs.post_trip, relief_before: prefs.relief_before, optimise_vehicles: prefs.optimise_vehicles, optimise_duties: prefs.optimise_duties },
+    prefs: { relief: Math.max(0, RELIEF.indexOf(prefs.relief)), pre_trip: prefs.pre_trip, post_trip: prefs.post_trip, relief_before: prefs.relief_before, optimise_vehicles: prefs.optimise_vehicles, optimise_duties: prefs.optimise_duties, interline: prefs.interline, interline_not: prefs.interline_not },
     palette: PALETTE,
     saved_same: true,
     colours: LINES.map((l) => colourOf(l.name)),
@@ -839,7 +859,7 @@ function zonesFor(day, hand) {
     const src = d.blocks[hand.tour];
     if (!src) return [];
     d.blocks.forEach((b, i) => {
-      if (i === hand.tour || !eq(b.line, src.line)) return;
+      if (i === hand.tour) return;
       probe({ kind: 'block', i }, (m) => moveTrips(m, hand.tour, hand.trips || [], i) === true);
     });
     probe({ kind: 'new' }, (m) => moveTrips(m, hand.tour, hand.trips || [], null) === true);
@@ -847,7 +867,7 @@ function zonesFor(day, hand) {
   } else if (hand?.kind === 'stack') {
     const x = model.stack[hand.k];
     if (!x) return [];
-    d.blocks.forEach((b, i) => eq(b.line, x.line) && probe({ kind: 'block', i }, (m) => assign(m, hand.k, i) === true));
+    d.blocks.forEach((b, i) => mayMix([...linesOf(b), x.line]) && probe({ kind: 'block', i }, (m) => assign(m, hand.k, i) === true));
     probe({ kind: 'new' }, (m) => assign(m, hand.k, null) === true);
   } else if (hand?.kind === 'piece') {
     const row = d.shaped.findIndex((s) => s.spans.some((sp) => sp.tour === hand.tour && sp.duty === hand.duty));
@@ -884,7 +904,7 @@ function view(args) {
       const t = d.blocks[Number(args.tour)];
       const x = t?.trips[Number(args.trip)];
       if (!x) return [];
-      return d.blocks.map((b, i) => [b, i]).filter(([b, i]) => i !== Number(args.tour) && eq(b.line, t.line) && fits(b.trips, [x])).map(([b, i]) => ({ tour: i, label: blockLabel(b) }));
+      return d.blocks.map((b, i) => [b, i]).filter(([b, i]) => i !== Number(args.tour) && mayMix([...linesOf(b), x.line]) && fits(b.trips, [x])).map(([b, i]) => ({ tour: i, label: blockLabel(b) }));
     }
     case 'zones':
       return zonesFor(day, args.hand);
@@ -934,7 +954,7 @@ function moveTrips(m, i, js, to) {
     dst = { line: src.line, tour: pad(Math.max(0, ...nums) + 1), trips: [], cuts: [] };
     m.blocks.push(dst);
   } else dst = m.blocks[to];
-  if (!dst || !eq(dst.line, src.line)) return 'Trips go only to a bus of their line.';
+  if (!dst || !mayMix([...linesOf(dst), ...moving.map((x) => x.line)])) return 'A bus keeps to its line: move the trip to a bus of the same line.';
   if (!fits(dst.trips, moving)) return `Vehicle ${blockLabel(dst)} runs another trip then.`;
   src.trips = src.trips.filter((x) => !moving.includes(x));
   insertTrips(dst, moving);
@@ -969,6 +989,7 @@ function assign(m, k, to) {
     const why = lockedBlock(m, to);
     if (why) return why;
   }
+  if (dst && !mayMix([...linesOf(dst), x.line])) return 'A bus keeps to its line: move the trip to a bus of the same line.';
   if (!dst || !fits(dst.trips, [x])) return `Vehicle ${dst ? blockLabel(dst) : ''} runs another trip then.`;
   m.stack.splice(k, 1);
   insertTrips(dst, [x]);
@@ -1066,6 +1087,7 @@ function swap(m, i, js, to, how) {
   if (why) return why;
   const chosen = js.map((j) => a.trips[j]).filter((x) => x && !x.empty);
   if (!chosen.length) return 'Pick a trip with passengers.';
+  if (!mayMix([...linesOf(a), ...linesOf(b)])) return 'A bus keeps to its line: move the trip to a bus of the same line.';
   const lo = Math.min(...chosen.map((x) => x.dep));
   const hi = how === 'from_here' ? Infinity : Math.max(...chosen.map((x) => x.arr));
   const inA = a.trips.filter((x) => !x.empty && x.dep >= lo && x.dep < hi);

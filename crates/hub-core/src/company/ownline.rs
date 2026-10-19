@@ -695,6 +695,7 @@ pub fn add_depot_runs(c: &Company, tours: &mut [TourOfDay]) {
             origin: String::new(),
             last: String::new(),
             part: None,
+            of_line: String::new(),
         };
         t.trips.insert(0, run("Depot", &first.from, first.dep - DEPOT_RUN_MIN));
         t.trips.push(run(last.end(), "Depot", last.arr));
@@ -1364,6 +1365,7 @@ pub fn design_tours(c: &Company, cl: &CompanyLine, l: &LineDesign, stem: &str, d
                     origin: t.number.clone(),
                     last: d.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                     part: None,
+                    of_line: cl.name.clone(),
                 })
             })
             .collect();

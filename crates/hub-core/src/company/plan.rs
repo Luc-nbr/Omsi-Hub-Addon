@@ -1198,7 +1198,8 @@ impl DayPlan {
 
 /// Whether a tour is one of `keys` (a line's number or name, and the tour).
 fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
-    keys.iter().any(|(l, n)| (same(&t.number, l) || same(&t.line, l) || t.trips.iter().any(|x| same(&x.line, l))) && t.runs_tour(n))
+    // (a bus that interlines: the tour of the trip's own line)
+    keys.iter().any(|(l, n)| t.runs_tour_of(l, n))
 }
 
 /// When each bus is out: (id, (from, to) of its tours).
@@ -1560,7 +1561,7 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
         .fleet
         .iter()
         .filter(|v| v.held_on(&dp.date) && !v.in_workshop(&dp.date) && v.condition >= 20.0 && !broken.contains(&v.id))
-        .filter(|v| t.bus != Some(BusOf::Own(v.id)) && super::ownline::line_allows(c, &t.tour.line, v))
+        .filter(|v| t.bus != Some(BusOf::Own(v.id)) && t.tour.lines().iter().all(|l| super::ownline::line_allows(c, l, v)))
         // (a model the company does not work with any more is no spare: Beta 54)
         .filter(|v| super::vehicles::vehicle_allowed(c, v))
         .filter(|v| !dp.tours.iter().enumerate().any(|(i, x)| i != ti && x.bus == Some(BusOf::Own(v.id)) && from < x.tour.to() + BUS_MARGIN && x.tour.from() < to + BUS_MARGIN))
@@ -1624,7 +1625,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             Some(v) if !v.held_on(date) => Some(Problem::Gone),
             Some(_) if broken.contains(&id) => Some(Problem::Breakdown),
             Some(v) if v.in_workshop(date) || v.condition < 20.0 => Some(Problem::Workshop),
-            Some(v) if !super::ownline::line_allows(c, &t.tour.line, v) => Some(Problem::NotLineBus),
+            Some(v) if !t.tour.lines().iter().all(|l| super::ownline::line_allows(c, l, v)) => Some(Problem::NotLineBus),
             Some(_) if !buses.free(id, from, to) => Some(Problem::BusBusy),
             Some(_) => None,
         };
@@ -1651,7 +1652,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let best = c
             .fleet
             .iter()
-            .filter(|v| usable(v.id) && buses.free(v.id, from, to) && super::ownline::line_allows(c, &t.tour.line, v))
+            .filter(|v| usable(v.id) && buses.free(v.id, from, to) && t.tour.lines().iter().all(|l| super::ownline::line_allows(c, l, v)))
             .max_by_key(|v| (size_fit(wants, v.kind.size), !rostered_bus.contains(&v.id), buses.last_end(v.id, from), std::cmp::Reverse(v.id)));
         match best {
             Some(v) => {
@@ -1685,7 +1686,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                     let best = c
                         .fleet
                         .iter()
-                        .filter(|v| usable(v.id) && buses.free(v.id, from, to) && super::ownline::line_allows(c, &t.tour.line, v))
+                        .filter(|v| usable(v.id) && buses.free(v.id, from, to) && t.tour.lines().iter().all(|l| super::ownline::line_allows(c, l, v)))
                         .max_by(|a, b| (size_fit(wants, a.kind.size), a.condition).partial_cmp(&(size_fit(wants, b.kind.size), b.condition)).unwrap_or(std::cmp::Ordering::Equal));
                     if let Some(v) = best {
                         buses.take(v.id, from, to);
@@ -2212,9 +2213,12 @@ pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
         // (a line not in service runs nothing, not even in the game)
         .filter(|t| !t.by_player && !t.tour.unplanned)
         .flat_map(|t| super::studio::origins(&dp.tours, t).into_iter().map(move |o| (t, o)))
-        .map(|(t, origin)| {
-            let hof = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.tour.line)).map(|l| l.hof.trim().to_string()).unwrap_or_default();
-            let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: origin, hof, ..Default::default() };
+        .map(|(t, (line, origin))| {
+            // (a tour of another line the bus interlines with: as that line's)
+            let cl = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&line));
+            let hof = cl.map(|l| l.hof.trim().to_string()).unwrap_or_default();
+            let number = if line.eq_ignore_ascii_case(&t.tour.line) { t.tour.number.clone() } else { cl.map(|l| l.number.clone()).unwrap_or_default() };
+            let mut lt = LiveTour { line, number, tour: origin, hof, ..Default::default() };
             match t.bus {
                 Some(BusOf::Own(id)) => {
                     if let Some(v) = c.vehicle(id) {

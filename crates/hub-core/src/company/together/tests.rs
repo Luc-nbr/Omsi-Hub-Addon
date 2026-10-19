@@ -36,6 +36,7 @@ fn trip(name: &str, dep: i32, arr: i32, from: &str, to: &str, empty: bool) -> Pl
         origin: String::new(),
         last: String::new(),
         part: None,
+        of_line: String::new(),
     }
 }
 

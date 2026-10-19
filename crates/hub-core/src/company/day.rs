@@ -135,7 +135,8 @@ impl Plan {
 
 /// Whether a tour is one of `keys` (a line's number or name, and the tour).
 fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
-    keys.iter().any(|(l, n)| (t.number.eq_ignore_ascii_case(l) || t.line.eq_ignore_ascii_case(l) || t.trips.iter().any(|x| x.line.eq_ignore_ascii_case(l))) && t.runs_tour(n))
+    // (a bus that interlines: the tour of the trip's own line)
+    keys.iter().any(|(l, n)| t.runs_tour_of(l, n))
 }
 
 /// Give the day's tours buses and drivers: the buses that are there (held, not in the
@@ -871,6 +872,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 // with its first part, run only when the duties of both parts are)
                 let Some((trip, rest)) = whole_trip(tp, j) else { continue };
                 let trip = &trip;
+                // (a bus that interlines: each trip booked to its own line)
+                let of = tp.tour.line_of(trip).to_string();
+                let li = lines.iter().position(|l| l.line.eq_ignore_ascii_case(&of)).unwrap_or(li);
                 let counts = trip.counts();
                 let kind = kinds.get(li).copied().unwrap_or_default();
                 // (an on-demand trip nobody booked stays in the depot: no kilometres, no money,
@@ -897,7 +901,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     if counts {
                         lines[li].dropped += 1;
                         report.dropped += 1;
-                        journeys.missed(&tp.tour.line, &tp.tour.tour);
+                        journeys.missed(&of, &tp.tour.tour);
                         let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
                         let sent = broken_at.filter(|_| broke).and_then(|x| x.back.map(|b| (b, x.until)));
                         // (the bus and the driver it had, or the roster's that could not come)
@@ -1003,7 +1007,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 let t = super::lateness::whole(&late_model, ti, j, rest.is_some());
                 let minutes = t.as_ref().map_or(0, |t| t.minutes());
                 lat.count(&tp.tour.number, &tp.tour.tour, k, e.id, trip.dep, minutes);
-                journeys.ran(&tp.tour.line, &tp.tour.tour, minutes, cut_short > 0.0, Some(v.id), Some(e.id), super::ownline::wanted(c, &tp.tour));
+                journeys.ran(&of, &tp.tour.tour, minutes, cut_short > 0.0, Some(v.id), Some(e.id), super::ownline::wanted(c, &tp.tour));
                 match t.filter(|_| minutes >= economy::LATE_FROM) {
                     Some(t) => {
                         lines[li].late += 1;
@@ -1012,7 +1016,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                         if minutes > super::econ_uk::ON_TIME_LATE {
                             sums[li].seen.late += 1;
                         }
-                        let value = super::bus_contracts::journey_value(c, &tp.tour.line, None);
+                        let value = super::bus_contracts::journey_value(c, &of, None);
                         let o = super::lateness::late(c, tp, k, trip, v.id, e.id, t, value);
                         if minutes >= economy::LATE_FULL {
                             lines[li].late_lost += 1;

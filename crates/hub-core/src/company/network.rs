@@ -40,6 +40,11 @@ pub struct PlannedTrip {
     /// mid-trip relief). None: the whole trip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<Part>,
+    /// The company line it is a trip of (its timetable name): a bus of another line may run it,
+    /// where the lines interline (RosterFlow, `rosterflow::interlines`). Empty (a depot run the
+    /// company adds, an old save): its block's line (`TourOfDay::line_of`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub of_line: String,
 }
 
 /// What a part of a trip cut at a relief point on the way knows of the whole trip.
@@ -147,6 +152,43 @@ impl TourOfDay {
         } else {
             self.tour.trim() == n
         }
+    }
+
+    /// The company line trip `x` (one of its) is of: its own, else the block's.
+    pub fn line_of<'a>(&'a self, x: &'a PlannedTrip) -> &'a str {
+        if x.of_line.trim().is_empty() {
+            &self.line
+        } else {
+            &x.of_line
+        }
+    }
+
+    /// The company lines its trips with passengers are of, its own first: more than one where
+    /// the bus interlines.
+    pub fn lines(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = vec![self.line.as_str()];
+        for x in self.trips.iter().filter(|x| x.counts()) {
+            let l = self.line_of(x);
+            if !out.iter().any(|o| o.eq_ignore_ascii_case(l)) {
+                out.push(l);
+            }
+        }
+        out
+    }
+
+    /// Whether it runs trips of another line than its own (interlining).
+    pub fn interlined(&self) -> bool {
+        self.lines().len() > 1
+    }
+
+    /// Whether it runs (some of) tour `n` of the line a report names by `l` (its name or a
+    /// number its displays show): `runs_tour`, the trip's own line where the bus interlines.
+    pub fn runs_tour_of(&self, l: &str, n: &str) -> bool {
+        let is = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+        if !self.interlined() {
+            return (is(&self.number, l) || is(&self.line, l) || self.trips.iter().any(|x| is(&x.line, l))) && self.runs_tour(n);
+        }
+        self.trips.iter().any(|x| x.origin.trim() == n.trim() && (is(&x.line, l) || is(self.line_of(x), l) || (is(self.line_of(x), &self.line) && is(&self.number, l))))
     }
 
     /// The bus size its depot group asks for, if it names one (`vormVanDepot`).
@@ -354,6 +396,7 @@ pub(crate) fn timetable_tours(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay>
                     origin: t.number.clone(),
                     last: x.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                     part: None,
+                    of_line: cl.name.clone(),
                 })
                 .collect();
             trips.sort_by_key(|x| x.dep);
@@ -556,6 +599,7 @@ pub(crate) mod tests {
             origin: String::new(),
             last: String::new(),
             part: None,
+            of_line: String::new(),
         }
     }
 
