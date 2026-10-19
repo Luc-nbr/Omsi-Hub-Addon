@@ -169,7 +169,7 @@ fn the_spare_bus_coming_is_told_to_the_driver_of_the_broken_bus() {
 fn an_accepted_way_out_is_applied_as_service_control_applies_it() {
     let (mut c, dp, _, _) = day();
     let t = dp.tours[0].tour.clone();
-    let x = Action::of(&t.line, &t.tour, t.trips[0].dep, Act::ShortTurn { part: 0.2, saved: 20 }).unwrap();
+    let x = Action::of(&t.line, &t.tour, t.trips[0].dep, Act::ShortTurn { part: 0.2, saved: 20, next: None }).unwrap();
     let id = post(&mut c, duty(), Priority::Instruction, SHORT_TURN, Vec::new(), Some(x));
     c.messages.driving = Some(("Linie5".into(), "1".into()));
     // the player's: no AI answers it

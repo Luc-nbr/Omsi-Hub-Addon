@@ -19,6 +19,7 @@ use super::staff::{self, Block, MIN_PAID};
 use super::studio::{self as st, Duty, JoinedDuty, LineLayout, PieceRef, TripRef};
 use crate::LineInfo;
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::ops::Range;
 
 // --- the lines' colours ------------------------------------------------------------------------
@@ -230,6 +231,23 @@ pub struct Prefs {
     /// The bus's check before it leaves the depot and after it is back.
     pub pre_trip: i32,
     pub post_trip: i32,
+    /// Interlining (a tester, 2026-10-19: "all routes can interline together"): a bus's day may
+    /// run trips of different lines - Optimise chains them where one ends where the next
+    /// begins, or a short run empty away, and a trip is moved by hand onto a bus of another
+    /// line. Off by default, an old save's too. The lines of `interline_not` keep to their own
+    /// buses.
+    pub interline: bool,
+    pub interline_not: Vec<String>,
+    /// The longest a bus runs empty from where a trip of one line ends to where one of another
+    /// begins, as Optimise chains them (0: only where they meet; a run whose time no trip of the
+    /// day gives is not made).
+    pub interline_deadhead: i32,
+    /// Deadheads: a bus's run without passengers between two places where nothing else is
+    /// known (no deadhead set, no trip of the line between them), and the ones set between two
+    /// relief points (`DeadheadPair`; to or from one: `ReliefPoint::deadhead_min`).
+    pub deadhead_min: i32,
+    pub deadhead_km: f64,
+    pub deadheads: Vec<DeadheadPair>,
     // DEPOTS
     /// Buses out at once at most (the depot's capacity).
     pub depot_capacity: Limit,
@@ -298,6 +316,12 @@ impl Default for Prefs {
             layover: Limit::soft(3, 20_00),
             pre_trip: 5,
             post_trip: 5,
+            interline: false,
+            interline_not: Vec::new(),
+            interline_deadhead: 15,
+            deadhead_min: st::DEADHEAD_MIN,
+            deadhead_km: super::ownline::DEPOT_RUN_KM,
+            deadheads: Vec::new(),
             depot_capacity: Limit::off(20),
             sign_on: 10,
             sign_off: 5,
@@ -335,6 +359,32 @@ impl Default for Prefs {
     }
 }
 
+/// Whether a line's buses may run trips of other lines (`Prefs::interline`).
+pub fn interlining(c: &Company, line: &str) -> bool {
+    let p = &c.planning.flow.prefs;
+    p.interline && !p.interline_not.iter().any(|l| same(l, line))
+}
+
+/// Whether one bus may run trips of lines `a` and `b` in its day: they are one line, or both
+/// interline (`interlining`).
+pub fn interlines(c: &Company, a: &str, b: &str) -> bool {
+    same(a, b) || (interlining(c, a) && interlining(c, b))
+}
+
+/// How long a bus that interlines takes from where a trip ends (`a`) to where one of another
+/// line begins (`b`, `tours` the day's): nothing where they are one place or relief point; else
+/// the deadhead between them where Deadheads sets one or a trip of the day (`all`) runs it
+/// (`deadhead_between`), if it is not longer than the preferences allow
+/// (`Prefs::interline_deadhead`). None: Optimise does not chain them.
+fn interline_gap<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], all: &[&PlannedTrip], a: &str, b: &str) -> Option<i32> {
+    if same(a, b) || same(&point_key(c, tours, a), &point_key(c, tours, b)) {
+        return Some(0);
+    }
+    let d = deadhead_between(c, tours, all, a, b);
+    let known = d.set || st::line_minutes(all, a, b).is_some();
+    (known && d.minutes <= c.planning.flow.prefs.interline_deadhead).then_some(d.minutes)
+}
+
 // --- relief points and travel ------------------------------------------------------------------
 //
 // The tester (2026-10-14): "not every start point will have the same definitions". The depot and
@@ -368,11 +418,27 @@ pub struct ReliefPoint {
     pub walk: Option<i32>,
     pub public: Option<i32>,
     pub car: Option<i32>,
+    /// A bus's deadhead to or from it: its minutes and kilometres (None: not set).
+    pub deadhead_min: Option<i32>,
+    pub deadhead_km: Option<f64>,
 }
 
 impl Default for ReliefPoint {
     fn default() -> Self {
-        ReliefPoint { stop: String::new(), added: false, line: String::new(), sign: true, relief: true, breaks: true, travel: None, walk: None, public: None, car: None }
+        ReliefPoint {
+            stop: String::new(),
+            added: false,
+            line: String::new(),
+            sign: true,
+            relief: true,
+            breaks: true,
+            travel: None,
+            walk: None,
+            public: None,
+            car: None,
+            deadhead_min: None,
+            deadhead_km: None,
+        }
     }
 }
 
@@ -424,14 +490,17 @@ pub struct Uses {
 
 /// Whether `place` is the company's depot: "Depot", the depot file's name, or where a block's
 /// depot run begins or ends (`tours` the day's).
-pub fn is_depot(c: &Company, tours: &[TourOfDay], place: &str) -> bool {
+pub fn is_depot<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], place: &str) -> bool {
     let place = place.trim();
     if place.is_empty() {
         return false;
     }
     same(place, DEPOT_POINT)
         || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof")))
-        || tours.iter().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)))
+        || tours
+            .iter()
+            .map(|t| -> &TourOfDay { t.borrow() })
+            .any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)))
 }
 
 /// Whether `place` is a terminus of the day's lines: where a trip with passengers begins or
@@ -443,7 +512,7 @@ pub fn is_terminus(tours: &[TourOfDay], place: &str) -> bool {
 }
 
 /// The relief point a place is: the depot's names are one (`DEPOT_POINT`), a stop its own name.
-pub fn point_key(c: &Company, tours: &[TourOfDay], place: &str) -> String {
+pub fn point_key<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], place: &str) -> String {
     if is_depot(c, tours, place) {
         DEPOT_POINT.to_string()
     } else {
@@ -501,6 +570,67 @@ pub fn travel_between(c: &Company, tours: &[TourOfDay], from: &str, to: &str, wa
         return (way.unwrap_or(p.travel), 0);
     }
     travel_of(p, &a, &b, way)
+}
+
+// --- deadheads ------------------------------------------------------------------------------------
+//
+// The tester (2026-10-19): "Dead heads are broken ... specify deadheads". A bus running empty from
+// where one trip ends to where its next begins took the line's quickest trip between the two,
+// else five minutes and three kilometres: estimated, an issue on every block. Preferences ›
+// Deadheads sets them: between two relief points (the way back the same unless set too), else to
+// or from a point (the one the bus goes to first), else the line's trip, else the defaults.
+
+/// A deadhead's minutes and kilometres from one relief point to another (Preferences ›
+/// Deadheads' table; None: not set).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct DeadheadPair {
+    pub from: String,
+    pub to: String,
+    pub minutes: Option<i32>,
+    pub km: Option<f64>,
+}
+
+/// A bus's run without passengers between two places: how long, how far, and whether the player
+/// set its time (else it is estimated).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Deadhead {
+    pub minutes: i32,
+    pub km: f64,
+    pub set: bool,
+}
+
+/// The deadhead set from relief point `from` to relief point `to` (their keys, `point_key`), the
+/// most specific first: the pair's, the way back's, the point it goes to, the one it comes from.
+pub fn deadhead_set(p: &Prefs, from: &str, to: &str) -> (Option<i32>, Option<f64>) {
+    let pair = |a: &str, b: &str| p.deadheads.iter().find(|x| same(&x.from, a) && same(&x.to, b));
+    let pairs = [pair(from, to), pair(to, from)];
+    let points = [point(p, to), point(p, from)];
+    let minutes = pairs.iter().flatten().find_map(|x| x.minutes).or_else(|| points.iter().flatten().find_map(|x| x.deadhead_min));
+    let km = pairs.iter().flatten().find_map(|x| x.km).or_else(|| points.iter().flatten().find_map(|x| x.deadhead_km));
+    (minutes, km)
+}
+
+/// The deadhead from `from` to `to` (places of the day `tours`; `line` the trips whose times
+/// stand in where none is set): as Deadheads sets it, else the line's quickest trip between the
+/// two, else the defaults. None between a place and itself.
+pub fn deadhead_between<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], line: &[&PlannedTrip], from: &str, to: &str) -> Deadhead {
+    if same(from, to) {
+        return Deadhead { minutes: 0, km: 0.0, set: true };
+    }
+    let p = &c.planning.flow.prefs;
+    let (minutes, km) = deadhead_set(p, &point_key(c, tours, from), &point_key(c, tours, to));
+    Deadhead {
+        minutes: minutes.or_else(|| st::line_minutes(line, from, to)).unwrap_or(p.deadhead_min).max(0),
+        km: km.or_else(|| st::line_km(line, from, to)).unwrap_or(p.deadhead_km).max(0.0),
+        set: minutes.is_some(),
+    }
+}
+
+/// A bus's deadheads in its day `t` (`tours` the day's, `line` the trips of its line): where
+/// the one trip ends, where the next begins, and how far it runs empty between (`deadhead_between`).
+pub fn deadheads_of<T: Borrow<TourOfDay>>(c: &Company, tours: &[T], t: &TourOfDay, line: &[&PlannedTrip]) -> Vec<(i32, i32, f64)> {
+    t.trips.windows(2).filter(|w| !same(w[0].end(), &w[1].from)).map(|w| (w[0].arr, w[1].dep, deadhead_between(c, tours, line, w[0].end(), &w[1].from).km)).collect()
 }
 
 /// What kind of relief point a row of the Preferences is.
@@ -1548,8 +1678,11 @@ pub const I_DAY_UNPLANNED: &str = "%{n} tours in service have no bus or driver i
 /// A line of the company's confirmed with its route alone (`ownline::no_timetable`): it runs
 /// nothing until its timetable is made in the Timeplan (the issue's "line" its timetable name).
 pub const I_NO_TIMETABLE: &str = "Line %{n} has no timetable yet: make it in the Timeplan";
+/// A bus that runs trips of lines that may not interline (the preferences changed since:
+/// `interlines`).
+pub const I_INTERLINE: &str = "Runs trips of lines %{lines}, which do not interline (Preferences › Vehicles)";
 
-pub const ISSUE_TEXTS: [&str; 20] = [
+pub const ISSUE_TEXTS: [&str; 21] = [
     I_TYPE,
     I_MEAL,
     I_MEAL_LATE,
@@ -1570,10 +1703,11 @@ pub const ISSUE_TEXTS: [&str; 20] = [
     I_DAY_FILLED,
     I_DAY_UNPLANNED,
     I_NO_TIMETABLE,
+    I_INTERLINE,
 ];
 
 /// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
-pub const ISSUE_TITLES: [&str; 20] = [
+pub const ISSUE_TITLES: [&str; 21] = [
     "Duty type unsatisfied",
     "No meal break",
     "Meal break too late",
@@ -1594,6 +1728,7 @@ pub const ISSUE_TITLES: [&str; 20] = [
     "The day's roster",
     "The day's roster",
     "Lines without a timetable",
+    "Buses on lines that do not interline",
 ];
 
 /// The relief points' issues (`ReliefPoint`): a duty begins or ends, takes a split's break, or
@@ -1907,8 +2042,8 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
             let (x, n) = (&w[0], &w[1]);
             let rk = format!("{}/{}/{}", t.line, t.tour, n.dep);
             if !same(x.end(), &n.from) {
-                if !x.empty && !n.empty {
-                    let _ = st::travel(&line, x.end(), &n.from);
+                // (a deadhead whose time is set in Preferences › Deadheads is no guess)
+                if !x.empty && !n.empty && !deadhead_between(c, &tours, &line, x.end(), &n.from).set {
                     issues.push(Issue {
                         scope: Scope::Vehicle,
                         row: Some(i),
@@ -1930,6 +2065,20 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
                     key: format!("{I_LAYOVER}|{rk}"),
                 });
             }
+        }
+        // (a bus that runs trips of lines that may not interline: the preferences changed since)
+        let ls = t.lines();
+        if ls.len() > 1 && !ls.iter().all(|a| ls.iter().all(|b| interlines(c, a, b))) {
+            let numbers: Vec<String> = ls.iter().map(|l| c.lines.iter().find(|x| same(&x.name, l)).map(|x| x.number.trim().to_string()).unwrap_or_else(|| l.to_string())).collect();
+            issues.push(Issue {
+                scope: Scope::Vehicle,
+                row: Some(i),
+                text: I_INTERLINE,
+                args: vec![("lines", numbers.join(", "))],
+                hard: false,
+                penalty: 0,
+                key: format!("{I_INTERLINE}|{}/{}", t.line, t.tour),
+            });
         }
         // (drivers change only where a relief point allows it: a cut made before it said no)
         for r in network::duties_of(t).iter().skip(1) {
@@ -2364,7 +2513,7 @@ fn figures(c: &Company, tours: &[TourOfDay], shaped: &[Shaped], issues: &[Issue]
     let mut f = Figures { duties: shaped.len(), blocks: tours.len(), pvr, ..Default::default() };
     for t in tours {
         let line: Vec<&PlannedTrip> = tours.iter().filter(|x| same(&x.line, &t.line)).flat_map(|x| x.trips.iter()).collect();
-        f.dead_km += st::deadheads(t, &line).iter().map(|d| d.2).sum::<f64>();
+        f.dead_km += deadheads_of(c, tours, t, &line).iter().map(|d| d.2).sum::<f64>();
         for x in &t.trips {
             if x.counts() {
                 f.service_km += x.km;
@@ -2413,9 +2562,10 @@ fn figures(c: &Company, tours: &[TourOfDay], shaped: &[Shaped], issues: &[Issue]
 
 // --- Optimise --------------------------------------------------------------------------------
 
-/// A run of trips that stays on one bus (a trip with its depot runs, linked trips).
+/// A run of trips that stays on one bus (a trip with its depot runs, linked trips), of one line.
 #[derive(Clone, Debug)]
 struct Unit {
+    line: String,
     trips: Vec<PlannedTrip>,
 }
 
@@ -2433,18 +2583,23 @@ impl Unit {
     }
 }
 
-/// The blocks of one line as Optimise makes them: the locked blocks as they are, every other
+/// The blocks of lines `lines` as Optimise makes them (`raw` their tours of the timetable,
+/// `current` the day's blocks of theirs): the locked blocks (`keep`) as they are, every other
 /// trip chained onto the bus that is free the latest before it (fewest buses), with time to
-/// get there and the layover the preferences ask for.
-fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&TourOfDay], keep: &[String]) -> LineLayout {
+/// get there and the layover the preferences ask for. A bus takes a trip of another line where
+/// all its lines interline (`interlines`) and it gets there in time (`interline_gap`) - a bus of
+/// the trip's own line first, as free as late. Each line's layout, its blocks those whose most
+/// trips are of it.
+fn block_lines(c: &Company, wd: u8, lines: &[&str], raw: &[&TourOfDay], current: &[&TourOfDay], keep: &[(String, String)]) -> Vec<LineLayout> {
     let p = &c.planning.flow.prefs;
-    let mut blocks: Vec<st::BlockLayout> = Vec::new();
-    let mut taken: Vec<TripRef> = Vec::new();
-    for t in current.iter().filter(|t| keep.iter().any(|k| same(k, &t.tour))) {
+    let mut kept: Vec<(String, st::BlockLayout)> = Vec::new();
+    let mut taken: Vec<(String, TripRef)> = Vec::new();
+    for t in current.iter().filter(|t| keep.iter().any(|(l, k)| same(l, &t.line) && same(k, &t.tour))) {
         let b = st::layout_of_block(t);
-        taken.extend(b.trips.iter().cloned());
-        blocks.push(b);
+        taken.extend(b.trips.iter().map(|r| (r.line_in(&t.line).to_string(), r.clone())));
+        kept.push((t.line.clone(), b));
     }
+    let is_taken = |l: &str, x: &PlannedTrip| taken.iter().any(|(tl, r)| same(tl, l) && r.is(x));
     // the units: each trip with passengers, with the depot runs before the first of its tour
     // and after the last, the empty runs in the day with the trip before them
     let mut units: Vec<Unit> = Vec::new();
@@ -2453,16 +2608,16 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
         let (Some(&first), Some(&last)) = (counting.first(), counting.last()) else { continue };
         let mut cur: Option<Unit> = None;
         for (k, x) in t.trips.iter().enumerate() {
-            if taken.iter().any(|r| r.is(x)) {
+            if is_taken(&t.line, x) {
                 continue;
             }
             if x.counts() {
                 if let Some(u) = cur.take() {
                     units.push(u);
                 }
-                let mut u = Unit { trips: Vec::new() };
+                let mut u = Unit { line: t.line.clone(), trips: Vec::new() };
                 if k == first {
-                    u.trips.extend(t.trips[..k].iter().filter(|y| !taken.iter().any(|r| r.is(y))).cloned());
+                    u.trips.extend(t.trips[..k].iter().filter(|y| !is_taken(&t.line, y)).cloned());
                 }
                 u.trips.push(x.clone());
                 cur = Some(u);
@@ -2474,7 +2629,7 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
             if k == last {
                 // (what comes after the last trip goes with it)
                 if let Some(u) = cur.as_mut() {
-                    u.trips.extend(t.trips[k + 1..].iter().filter(|y| !taken.iter().any(|r| r.is(y))).cloned());
+                    u.trips.extend(t.trips[k + 1..].iter().filter(|y| !is_taken(&t.line, y)).cloned());
                 }
                 if let Some(u) = cur.take() {
                     units.push(u);
@@ -2484,11 +2639,11 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
         }
     }
     // linked trips one unit
-    let links: Vec<&Link> = c.planning.flow.sheet.links.iter().filter(|l| l.weekday == wd && same(&l.line, line)).collect();
+    let links: Vec<&Link> = c.planning.flow.sheet.links.iter().filter(|l| l.weekday == wd && lines.iter().any(|x| same(&l.line, x))).collect();
     for l in links {
-        let at: Vec<usize> = (0..units.len()).filter(|&i| units[i].trips.iter().any(|x| l.trips.iter().any(|r| r.is(x)))).collect();
+        let at: Vec<usize> = (0..units.len()).filter(|&i| same(&units[i].line, &l.line) && units[i].trips.iter().any(|x| l.trips.iter().any(|r| r.is(x)))).collect();
         if at.len() > 1 {
-            let mut merged = Unit { trips: Vec::new() };
+            let mut merged = Unit { line: l.line.clone(), trips: Vec::new() };
             for &i in at.iter().rev() {
                 merged.trips.extend(units.remove(i).trips);
             }
@@ -2497,18 +2652,36 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
         }
     }
     units.sort_by_key(|u| u.dep());
+    // (the times between places: a line's own trips; and every line's, for a bus that interlines)
     let all: Vec<&PlannedTrip> = raw.iter().flat_map(|t| t.trips.iter()).collect();
-    // (open buses: their trips, closed once back in the depot)
-    let mut open: Vec<(Vec<PlannedTrip>, bool)> = Vec::new();
+    let of_line = |l: &str| raw.iter().filter(|t| same(&t.line, l)).flat_map(|t| t.trips.iter()).collect::<Vec<&PlannedTrip>>();
+    let line_trips: Vec<(String, Vec<&PlannedTrip>)> = lines.iter().map(|l| (l.to_string(), of_line(l))).collect();
+    // (open buses: their trips, closed once back in the depot, and their lines)
+    struct Bus {
+        trips: Vec<PlannedTrip>,
+        closed: bool,
+        lines: Vec<String>,
+    }
+    let mut open: Vec<Bus> = Vec::new();
     for u in units {
-        let mut best: Option<(usize, i32, bool)> = None;
+        let mut best: Option<(usize, i32, bool, bool)> = None;
         if !u.starts_in_depot() {
-            for (bi, (trips, closed)) in open.iter().enumerate() {
-                if *closed {
+            for (bi, bus) in open.iter().enumerate() {
+                if bus.closed || !bus.lines.iter().all(|l| interlines(c, l, &u.line)) {
                     continue;
                 }
-                let Some(last) = trips.last() else { continue };
-                let travel = st::travel(&all, last.end(), &u.trips[0].from);
+                let Some(last) = bus.trips.last() else { continue };
+                let last_line = if last.of_line.trim().is_empty() { bus.lines[0].as_str() } else { last.of_line.as_str() };
+                let own = same(last_line, &u.line);
+                let travel = if own {
+                    let mine = line_trips.iter().find(|(l, _)| same(l, &u.line)).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
+                    deadhead_between(c, raw, mine, last.end(), &u.trips[0].from).minutes
+                } else {
+                    match interline_gap(c, raw, &all, last.end(), &u.trips[0].from) {
+                        Some(m) => m,
+                        None => continue,
+                    }
+                };
                 let free = last.arr + travel;
                 if free > u.dep() {
                     continue;
@@ -2517,30 +2690,53 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
                 if p.layover.on && p.layover.hard && !lay_ok {
                     continue;
                 }
-                // (the bus free the latest; one keeping the layover first)
+                // (the bus free the latest; one keeping the layover first, then one of the line)
+                let mine = bus.lines.iter().all(|l| same(l, &u.line));
                 let better = match best {
                     None => true,
-                    Some((_, at, ok)) => (lay_ok && !ok) || (lay_ok == ok && last.arr > at),
+                    Some((_, at, ok, m)) => (lay_ok && !ok) || (lay_ok == ok && mine && !m) || (lay_ok == ok && mine == m && last.arr > at),
                 };
                 if better {
-                    best = Some((bi, last.arr, lay_ok));
+                    best = Some((bi, last.arr, lay_ok, mine));
                 }
             }
         }
         let closes = u.ends_in_depot();
         match best {
-            Some((bi, _, _)) => {
-                open[bi].0.extend(u.trips);
-                open[bi].1 = closes;
+            Some((bi, _, _, _)) => {
+                let bus = &mut open[bi];
+                if !bus.lines.iter().any(|l| same(l, &u.line)) {
+                    bus.lines.push(u.line.clone());
+                }
+                bus.trips.extend(u.trips);
+                bus.closed = closes;
             }
-            None => open.push((u.trips, closes)),
+            None => open.push(Bus { lines: vec![u.line.clone()], trips: u.trips, closed: closes }),
         }
     }
-    // their names: the timetable tour each runs most of, else a new number
-    let mut names: Vec<String> = blocks.iter().map(|b| b.tour.trim().to_string()).collect();
-    for (trips, _) in open {
+    // each bus to the line most of its trips are of (the first one's on a tie)
+    let mut out: Vec<LineLayout> = lines.iter().map(|l| LineLayout { weekday: wd, line: l.to_string(), blocks: Vec::new(), stack: Vec::new() }).collect();
+    for (line, b) in kept {
+        if let Some(lay) = out.iter_mut().find(|x| same(&x.line, &line)) {
+            lay.blocks.push(b);
+        }
+    }
+    for bus in open {
+        let counted: Vec<&PlannedTrip> = bus.trips.iter().filter(|x| x.counts()).collect();
+        let mut home = bus.lines[0].clone();
+        let mut most = 0;
+        for l in &bus.lines {
+            let n = counted.iter().filter(|x| same(&x.of_line, l)).count();
+            if n > most {
+                most = n;
+                home = l.clone();
+            }
+        }
+        let Some(lay) = out.iter_mut().find(|x| same(&x.line, &home)) else { continue };
+        // its name: the timetable tour of its line it runs most of, else a new number
+        let names: Vec<String> = lay.blocks.iter().map(|b| b.tour.trim().to_string()).collect();
         let mut count: Vec<(String, usize)> = Vec::new();
-        for x in trips.iter().filter(|x| x.counts()) {
+        for x in counted.iter().filter(|x| same(&x.of_line, &home)) {
             match count.iter_mut().find(|c| c.0 == x.origin.trim()) {
                 Some(c) => c.1 += 1,
                 None => count.push((x.origin.trim().to_string(), 1)),
@@ -2554,10 +2750,10 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
             }
             k.to_string()
         });
-        names.push(name.clone());
-        blocks.push(st::BlockLayout { tour: name, trips: trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(), cuts: None, reliefs: Vec::new() });
+        let trips = bus.trips.iter().filter(|x| !x.origin.trim().is_empty()).map(|x| TripRef::kept_in(x, &home)).collect();
+        lay.blocks.push(st::BlockLayout { tour: name, trips, cuts: None, reliefs: Vec::new() });
     }
-    LineLayout { weekday: wd, line: line.to_string(), blocks, stack: Vec::new() }
+    out
 }
 
 /// A piece of work while duties are made: its block and trips, its time and places.
@@ -2820,24 +3016,36 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
             keep.push((t.line.clone(), t.tour.clone()));
         }
     }
-    // the vehicles
+    // the vehicles: the lines that interline together, every other line alone
     let mut layouts: Vec<LineLayout> = Vec::new();
-    for cl in &c.lines {
-        let mine_raw: Vec<&TourOfDay> = raw.iter().filter(|t| same(&t.line, &cl.name)).collect();
-        if mine_raw.is_empty() {
-            continue;
+    let runs: Vec<&str> = c.lines.iter().map(|cl| cl.name.as_str()).filter(|n| raw.iter().any(|t| same(&t.line, n))).collect();
+    if p.optimise_vehicles {
+        let mut groups: Vec<Vec<&str>> = Vec::new();
+        let together: Vec<&str> = runs.iter().copied().filter(|n| interlining(c, n)).collect();
+        if !together.is_empty() {
+            groups.push(together);
         }
-        let mine_now: Vec<&TourOfDay> = current.iter().filter(|t| same(&t.line, &cl.name)).collect();
-        let lay = if p.optimise_vehicles {
-            let k: Vec<String> = keep.iter().filter(|(l, _)| same(l, &cl.name)).map(|(_, t)| t.clone()).collect();
-            block_line(c, wd, &cl.name, &mine_raw, &mine_now, &k)
-        } else {
+        groups.extend(runs.iter().copied().filter(|n| !interlining(c, n)).map(|n| vec![n]));
+        for g in groups {
+            let mine_raw: Vec<&TourOfDay> = raw.iter().filter(|t| g.iter().any(|l| same(&t.line, l))).collect();
+            let mine_now: Vec<&TourOfDay> = current.iter().filter(|t| g.iter().any(|l| same(&t.line, l))).collect();
+            // (a locked bus of another line holding trips of these: kept, its trips taken)
+            let held: Vec<&TourOfDay> = current.iter().filter(|t| !g.iter().any(|l| same(&t.line, l)) && t.lines().iter().any(|tl| g.iter().any(|l| same(tl, l)))).collect();
+            let mut now = mine_now.clone();
+            now.extend(held);
+            let made = block_lines(c, wd, &g, &mine_raw, &now, &keep);
+            layouts.extend(made);
+        }
+        // (the order of the company's lines)
+        layouts.sort_by_key(|l| runs.iter().position(|n| same(n, &l.line)));
+    } else {
+        for name in &runs {
+            let mine_now: Vec<&TourOfDay> = current.iter().filter(|t| same(&t.line, name)).collect();
             let mut now =
-                c.planning.layouts.iter().find(|l| l.weekday == wd && same(&l.line, &cl.name)).cloned().unwrap_or_else(|| LineLayout { weekday: wd, line: cl.name.clone(), ..Default::default() });
+                c.planning.layouts.iter().find(|l| l.weekday == wd && same(&l.line, name)).cloned().unwrap_or_else(|| LineLayout { weekday: wd, line: name.to_string(), ..Default::default() });
             now.blocks = mine_now.iter().map(|t| st::layout_of_block(t)).collect();
-            now
-        };
-        layouts.push(lay);
+            layouts.push(now);
+        }
     }
     let locked_joins: Vec<JoinedDuty> = c
         .planning
@@ -3018,6 +3226,8 @@ pub fn texts() -> Vec<&'static str> {
 /// A duty's own sign-on, sign-off and break points (testers, 2026-10-15).
 pub mod signing;
 
+#[cfg(test)]
+mod interline_tests;
 #[cfg(test)]
 mod lock_tests;
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! A friend's launcher's way to the boss's company server: the addresses of the code tried all at
-//! once (the first that answers is taken); a message posted there, its answer read. (The old
-//! Omsi-Hub then tried the boss's tunnel as posted on openOMSI's relay: that waits for a relay
-//! of Omsi-Hub's own.) A link that stops answering is found again the same
+//! once (the first that answers is taken), then the boss's tunnel as he posted it on the game's
+//! relay under the code's session (`omsi_net::bridge::lookup_tunnel`, signed with his key); a
+//! message posted there, its answer read. A link that stops answering is found again the same
 //! way (`connect`), so a boss's launcher started anew, a new tunnel or a new address is followed.
 //!
 //! How the session stands for the friend (`Link`, Beta 63): the boss closed it (he says so to
@@ -32,7 +32,7 @@ pub fn url_of(base: &str) -> String {
 /// Post `req` to the server at `base`; its answer.
 pub fn send(base: &str, req: &Request, timeout: Duration) -> Result<Value, String> {
     let body = serde_json::to_string(req).map_err(|e| e.to_string())?;
-    let text = post_json(&url_of(base), &body, timeout)?;
+    let text = omsi_net::http::post_json(&url_of(base), &body, timeout)?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
@@ -55,35 +55,13 @@ pub fn connect(code: &CompanyCode, req: &Request) -> Result<(String, Value), Str
             return Ok(found);
         }
     }
-    // (none answered: a tunnel posted on a relay would be next - Omsi-Hub has none yet)
-    Err(UNREACHED.to_string())
-}
-
-/// `body` (JSON) posted to `url` (`http://host:port/path`: plain HTTP, the LAN's or a VPN's);
-/// the answer's body.
-pub fn post_json(url: &str, body: &str, timeout: Duration) -> Result<String, String> {
-    use std::io::{Read, Write};
-    use std::net::ToSocketAddrs;
-    let rest = url.strip_prefix("http://").ok_or_else(|| format!("only http:// is reached: {url}"))?;
-    let (host, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let addr = host.to_socket_addrs().map_err(|e| e.to_string())?.next().ok_or_else(|| format!("no address: {host}"))?;
-    let mut conn = std::net::TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
-    let _ = conn.set_read_timeout(Some(timeout));
-    let _ = conn.set_write_timeout(Some(timeout));
-    let head = format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
-    conn.write_all(head.as_bytes()).and_then(|_| conn.write_all(body.as_bytes())).map_err(|e| e.to_string())?;
-    let mut answer = Vec::new();
-    conn.read_to_end(&mut answer).map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&answer);
-    let (head, body) = text.split_once("\r\n\r\n").ok_or("no answer")?;
-    let status = head.split_whitespace().nth(1).unwrap_or("");
-    if status != "200" {
-        return Err(format!("HTTP {status}"));
+    // (none answered: the tunnel the boss posted)
+    if let Some(url) = omsi_net::bridge::lookup_tunnel(code.session) {
+        if let Ok(v) = send(&url, req, TIMEOUT) {
+            return Ok((url, v));
+        }
     }
-    Ok(body.to_string())
+    Err(UNREACHED.to_string())
 }
 
 /// After this long without an answer of the boss's launcher it is lost (s).

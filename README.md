@@ -16,7 +16,6 @@
   <img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-f58620">
   <img alt="Needs openOMSI 0.2.22 or newer" src="https://img.shields.io/badge/openOMSI-0.2.22%2B-2a75f7">
   <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a142e">
-  <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-34b26e">
 </p>
 
 ---
@@ -26,8 +25,9 @@ company, a career that counts, and friends on the same roads.
 
 This repository is the home of the **Omsi-Hub add-on**: Omsi-Hub as its own app, with its own code.
 It builds on the [openOMSI](https://github.com/openOMSI-org/openOMSI/releases) you already have and
-talks to it through openOMSI's plugin API. It does not replace openOMSI, ships no game of its own and
-contains no openOMSI code.
+talks to it through openOMSI's plugin API. It does not replace openOMSI and ships no game of its own.
+The 3D view, the bus photos and the livery studio read a bus with openOMSI's readers from Luc's fork
+(openOMSI as it was before it became AGPL, under its MIT licence): see `THIRD_PARTY_NOTICES.md`.
 
 > [!NOTE]
 > The add-on is being built here. Until its first release, the download on
@@ -105,6 +105,7 @@ everything else keeps working.
 | `app/`, `ui/`, `crates/`, `plugin/` | The app: its window, its page, its Rust crates and the plugin it puts into openOMSI ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) |
 | `assets/brand/` | The logo for light and dark backgrounds, the icon, the mark alone, and the banner above |
 | `tools/brand.mjs` | Draws the brand files from the one drawing of the mark (the website's `assets/mark.js`) |
+| `tools/installer-art.html`, `tools/installer-art.mjs` | The installers' pictures (`app/installer/`: the Windows installer's side and head, the macOS disk image's window), drawn from the brand files |
 | `tools/banner.html` | The banner's source (rendered to `assets/brand/banner.png` at 1280 × 640, also for GitHub's social preview) |
 
 ## Links
@@ -120,7 +121,9 @@ everything else keeps working.
 
 ## Licence
 
-[MIT](LICENSE) © 2026 Omsi-Hub.
+© 2026 Omsi-Hub. All rights reserved: Omsi-Hub is proprietary software, free to download and
+use ([LICENSE](LICENSE)). Its code up to 19 October 2026 (0.1.0) was published under the MIT
+licence. The code by others it contains keeps its own licence (`THIRD_PARTY_NOTICES.md`).
 
 Omsi-Hub is a fan project. It is not affiliated with the makers or publishers of OMSI 2, and it is a
 separate project from openOMSI.

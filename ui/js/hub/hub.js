@@ -21,6 +21,8 @@ import { OnlineLayer } from './online.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
 import { useUpdates, UpdateDialog, UpdatedNotice } from '../update.js';
 import { GameEndDialogs } from './gameend.js';
+// (the live dashboard while a drive runs, and the way back to it)
+import { DriveDash, LivePill, dashShown } from './dash.js';
 // (Ctrl and the wheel size the launcher, outside RosterFlow)
 import { installZoom } from './zoom.js';
 // (words shortened with an ellipsis: the whole of them as a tooltip)
@@ -40,6 +42,8 @@ S.hub = { step: 'mode', palette: false };
 /** The pages in the sheet as our launcher names them: icon, title and the line under it
  * (`pages::about`); `pages/index.js` gives the rest. */
 export const ABOUT = {
+  multiplayer: ['groups', 'Multiplayer', 'Drive with friends by a code, or on servers that are always on.'],
+  profile: ['badge', 'Service record', 'Everything the logbook kept, from the first duty to the last.'],
   settings: ['settings', 'Settings', 'Every change is saved at once; the game reads them when it starts.'],
   online: ['public', 'Online', 'Friends, the leaderboard and cloud saves. Optional: everything works offline.'],
 };
@@ -150,7 +154,12 @@ export function HubShell({ pages, Toasts }) {
   useUpdates();
   // (the update's dialog and its notice over whatever is drawn, and the word on a game that
   // ended on an error)
-  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} />`;
+  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} /><${LivePill} />`;
+  // (a drive runs: its live dashboard is the window's - still, in the background - until the
+  // driver goes back to the launcher)
+  if (!s.boot?.selftest && dashShown(s)) {
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${DriveDash} still=${!focused} /><${OnlineLayer} />${updates}<${Toasts} /></div>`;
+  }
   // (the launcher rests while a game it started runs and the window is in the background, so
   // that the game has the graphics card to itself)
   const resting = !s.boot?.selftest && s.settings?.launcher_rest !== false && s.poll.instances?.length > 0 && !focused;

@@ -1,9 +1,15 @@
+# Every push: the Rust checks on Linux and the page's scripts (the repository is private, and its
+# Actions minutes count: Windows' twice, macOS' ten times). Everything - the checks on Windows and
+# macOS too, and the app built with its installers on all three, the Linux selftest included - runs
+# by hand (Actions → CI → Run workflow) before a release, and the release builds all three anyway.
 name: CI
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,13 +30,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest", "macos-latest", "ubuntu-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux packages
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
       # (rustup takes the toolchain rust-toolchain.toml pins, with rustfmt and clippy)
+      # (Luc's openOMSI fork, which Cargo fetches, is private: read with the secret OPENOMSI_TOKEN when
+      # there is one - a fine-grained token with "Contents: Read-only" on Luc-nbr/openOMSI)
+      - name: Access to the openOMSI fork
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OPENOMSI_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Luc-nbr/openOMSI".insteadOf "https://github.com/Luc-nbr/openOMSI"
+            echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+          fi
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: cargo fmt
@@ -62,15 +79,17 @@ jobs:
 
   tauri:
     name: Tauri build (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # (the installers too, so that their pictures and settings are checked before a release)
           - os: windows-latest
-            build: --no-bundle
+            build: --bundles nsis
           - os: macos-latest
-            build: --no-bundle
+            build: --bundles dmg
           # (Linux's packages are made too: the AppImage, the updater's, and .deb and .rpm)
           - os: ubuntu-latest
             build: --bundles appimage,deb,rpm
@@ -79,6 +98,17 @@ jobs:
       - name: Linux packages
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS xvfb xdg-utils file
+      # (Luc's openOMSI fork, which Cargo fetches, is private: read with the secret OPENOMSI_TOKEN when
+      # there is one - a fine-grained token with "Contents: Read-only" on Luc-nbr/openOMSI)
+      - name: Access to the openOMSI fork
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OPENOMSI_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Luc-nbr/openOMSI".insteadOf "https://github.com/Luc-nbr/openOMSI"
+            echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+          fi
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4

@@ -1081,6 +1081,7 @@ mod tests {
             region: None,
             age_from: Default::default(),
             built_auto: None,
+            number_auto: None,
         }
     }
 

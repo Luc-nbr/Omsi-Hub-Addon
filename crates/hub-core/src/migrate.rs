@@ -19,8 +19,11 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-/// The old saves, relative to `~/.openomsi`: folders whose files are taken, and single files.
+/// The old saves, relative to `~/.openomsi`: folders whose files are taken, folders taken whole
+/// with their folders (the livery studio's projects: `liveries/<id>/project.json` and the
+/// pictures brought in), and single files.
 pub const FOLDERS: &[&str] = &["companies", "careers", "trips", "lines", "depots", "cache/busphotos"];
+pub const TREES: &[&str] = &["liveries"];
 pub const FILES: &[&str] = &[
     "hidden-drivers.txt",
     "bus-fonts.json",
@@ -147,7 +150,28 @@ pub fn scan(old: &Path) -> Found {
             found.items.push(Item { path: format!("{dir}/{name}"), bytes });
         }
     }
+    for dir in TREES {
+        let mut files = Vec::new();
+        tree(&old.join(dir), dir, &mut files);
+        files.sort();
+        found.items.extend(files.into_iter().map(|(path, bytes)| Item { path, bytes }));
+    }
     found
+}
+
+/// Every file under `dir` (as `rel/…`, `/` between the names) with its size; a file being
+/// written (`.part`) left out.
+fn tree(dir: &Path, rel: &str, out: &mut Vec<(String, u64)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Ok(m) = e.metadata() else { continue };
+        if m.is_dir() {
+            tree(&e.path(), &format!("{rel}/{name}"), out);
+        } else if m.is_file() && !name.ends_with(".part") {
+            out.push((format!("{rel}/{name}"), m.len()));
+        }
+    }
 }
 
 /// What the setup shows of the old saves before they are copied ([`preview`]).
@@ -438,6 +462,9 @@ mod tests {
         std::fs::write(old.join("lines/Grundorf.json"), r#"{"version":2}"#).unwrap();
         std::fs::write(old.join("depots/oo_Grundorf.hof"), "[name]\r\nGrundorf\r\n").unwrap();
         std::fs::write(old.join("cache/busphotos/0123456789abcdef.png"), b"\x89PNG").unwrap();
+        std::fs::create_dir_all(old.join("liveries/p1/beelden")).unwrap();
+        std::fs::write(old.join("liveries/p1/project.json"), "{}").unwrap();
+        std::fs::write(old.join("liveries/p1/beelden/ab12.png"), b"\x89PNG").unwrap();
         std::fs::write(old.join("bus-fonts.json"), r#"{"buses":{}}"#).unwrap();
         std::fs::write(old.join("launcher.json"), r#"{"root":"C:/OMSI 2","game":"","profile":" Luc "}"#).unwrap();
         std::fs::write(old.join("settings.cfg"), "msaa=4\nbus_lead=12\ndark_mode=true\nlanguage=ENG\n").unwrap();
@@ -453,9 +480,17 @@ mod tests {
         assert_eq!(done.kept, ["careers/Luc.json"]);
         assert_eq!(std::fs::read_to_string(data.join("careers/Luc.json")).unwrap(), "mine");
         assert_eq!(std::fs::read_to_string(data.join("companies/abc.json")).unwrap(), company);
-        for rel in
-            ["companies/abc.live.jsonl", "companies/abc.inbox.json", "trips/luc.jsonl", "lines/Grundorf.json", "depots/oo_Grundorf.hof", "cache/busphotos/0123456789abcdef.png", "bus-fonts.json"]
-        {
+        for rel in [
+            "companies/abc.live.jsonl",
+            "companies/abc.inbox.json",
+            "trips/luc.jsonl",
+            "lines/Grundorf.json",
+            "depots/oo_Grundorf.hof",
+            "cache/busphotos/0123456789abcdef.png",
+            "liveries/p1/project.json",
+            "liveries/p1/beelden/ab12.png",
+            "bus-fonts.json",
+        ] {
             assert!(done.copied.iter().any(|c| c == rel), "{rel}");
             assert_eq!(std::fs::read(old.join(rel)).unwrap(), std::fs::read(data.join(rel)).unwrap(), "{rel}");
         }

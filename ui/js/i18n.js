@@ -42,3 +42,8 @@ export function useLang() {
 export function language() {
   return lang;
 }
+
+// Every kind of dash and the raised dot as a plain hyphen, in the texts drawn on a canvas (the
+// route map's labels: names from the content too).
+const DASHES = /[\u2010-\u2015\u2212\u2E3A\u2E3B\uFE58\uFF0D\u00B7]/g;
+export const plain = (text) => (typeof text === 'string' ? text.replace(DASHES, '-') : text);

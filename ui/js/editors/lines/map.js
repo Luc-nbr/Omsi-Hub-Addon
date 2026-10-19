@@ -1,7 +1,8 @@
 // The line editor's map (`map_background`, `map_layer`, `map_buttons`, `map_pointer`): the
 // chosen map's roads as the game's city map draws them (read by the game program), every bus
 // stop on it, the line's legs over the roads - the direction worked on bright, the other faint,
-// a leg without a way red and straight - and its stops in its colour, the chosen one ringed;
+// a leg without a way red and straight - and its stops as the bus stop signs chosen (larger than
+// the map's other stops, its ends the largest), the chosen one ringed;
 // the names of the direction's ends and of the stop under the mouse beside them.
 //
 // Dragged to move, the wheel to zoom where the mouse is; a stop clicked goes into the line,
@@ -14,6 +15,7 @@ import { useStore } from '../../store.js';
 import { IconBtn, tr } from '../kit.js';
 import { dark } from '../../hub/theme.js';
 import { L, le } from './state.js';
+import { drawStopSign, stopSign } from '../../hub/stopsigns.js';
 
 /** How near the mouse must come to a stop, a dragged point or a leg (points). */
 const STOP_HIT = 10;
@@ -21,8 +23,7 @@ const VIA_HIT = 9;
 const LEG_HIT = 6;
 const DANGER = '#d93a30';
 const LINE = '#ffd23f';
-/** The stops of the map, quiet; the light dots (an end of the line, a dragged point). */
-const STOP_GREY = 'rgba(149, 157, 176, 0.9)';
+/** The light dots (a dragged point of a leg). */
 const LIGHT_DOT = '#e8ebf2';
 /** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
 const ROAD_PX = 1.4;
@@ -205,7 +206,7 @@ export function LineMap() {
       const ok = dirs[cur]?.legs[i]?.ok;
       legs.push([s, ok ? colour : DANGER, 1, ok ? 5 : 3]);
     });
-    g.strokeStyle = darker(css('--hub-accent') || '#f58620', 0.56);
+    g.strokeStyle = darker(css('--hub-accent') || '#2a75f7', 0.56);
     for (const [s, , , w] of legs) {
       poly(s);
       g.lineWidth = w + 4;
@@ -240,23 +241,39 @@ export function LineMap() {
         g.stroke();
       }
     };
-    // the map's stops, quiet; the line's in its colour, the chosen one ringed
-    for (const s of m.stops) dot(s.at, STOP_GREY, 3.2);
+    // a stop as the bus stop sign of the style chosen (`stopsigns.js`), `d` across, ringed
+    // when it is the one chosen
+    const style = stopSign();
+    const sign = (at, d, ring, alpha = 1) => {
+      const [x, y] = [px(at[0]), py(at[1])];
+      g.globalAlpha = alpha;
+      drawStopSign(g, style, x, y, d);
+      g.globalAlpha = 1;
+      if (ring) {
+        g.beginPath();
+        g.arc(x, y, d / 2 + 3, 0, Math.PI * 2);
+        g.strokeStyle = ring;
+        g.lineWidth = 2;
+        g.stroke();
+      }
+    };
+    // the map's stops, quiet; the line's larger, its ends the largest, the chosen one ringed
+    for (const s of m.stops) sign(s.at, 10, null, 0.55);
     dirs.forEach((d, k2) => {
       if (k2 === cur) return;
-      for (const at of d.stops_at || []) dot(at, colour, 4, null, 0.5);
+      for (const at of d.stops_at || []) sign(at, 12, null, 0.6);
     });
     const d = dirs[cur];
     if (d) {
       const n = (d.stops_at || []).length;
       (d.stops_at || []).forEach((at, i) => {
         const end = i === 0 || i + 1 === n;
-        dot(at, end ? LIGHT_DOT : colour, end ? 6.5 : 5, v.sel_stop === i ? LINE : null);
+        sign(at, end ? 19 : 15, v.sel_stop === i ? LINE : null);
       });
       for (const vias of d.vias_at || []) for (const at of vias) dot(at, LIGHT_DOT, 3.5, colour);
     }
     const hover = L.hover >= 0 ? m.stops[L.hover] : null;
-    if (hover) dot(hover.at, LIGHT_DOT, 4.5, LINE);
+    if (hover) sign(hover.at, 15, LINE);
     // the names: the ends of the direction and the stop under the mouse (none while the table
     // lies over the map: `map_layer` is not drawn then)
     const labels = [];

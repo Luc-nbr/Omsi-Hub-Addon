@@ -1,0 +1,39 @@
+_version: 2
+# The bus in 3D, its photos and the livery studio on the page's own renderer (ui/js/hub/bus3d/,
+# the old app's Bus3D; hub-api's content/bus3d). The English text is the key, as in app.yml.
+
+"No preview of this bus":
+  nl: "Geen voorbeeld van deze bus"
+  de: "Keine Vorschau für diesen Bus"
+  fr: "Pas d'aperçu de ce bus"
+  ru: "Для этого автобуса нет превью"
+  uk: "Для цього автобуса немає попереднього перегляду"
+  pl: "Brak podglądu tego autobusu"
+"Preparing the preview…":
+  nl: "Het voorbeeld wordt voorbereid…"
+  de: "Vorschau wird vorbereitet…"
+  fr: "Préparation de l'aperçu…"
+  ru: "Готовим превью…"
+  uk: "Готуємо попередній перегляд…"
+  pl: "Przygotowywanie podglądu…"
+"The livery studio paints the bus with the graphics card: this computer cannot draw with WebGL2 here.":
+  nl: "De livery-studio schildert de bus met de grafische kaart: deze computer kan hier niet tekenen met WebGL2."
+  de: "Das Lackierstudio malt den Bus mit der Grafikkarte: Dieser Computer kann hier nicht mit WebGL2 zeichnen."
+  fr: "Le studio de livrées peint le bus avec la carte graphique : cet ordinateur ne peut pas dessiner ici avec WebGL2."
+  ru: "Студия окраски рисует автобус видеокартой: этот компьютер не может рисовать здесь с WebGL2."
+  uk: "Студія фарбування малює автобус відеокартою: цей комп'ютер не може малювати тут з WebGL2."
+  pl: "Studio malowania maluje autobus kartą graficzną: ten komputer nie może tu rysować z WebGL2."
+"Colour":
+  nl: "Kleur"
+  de: "Farbe"
+  fr: "Couleur"
+  ru: "Цвет"
+  uk: "Колір"
+  pl: "Kolor"
+"Choose a bus":
+  nl: "Kies een bus"
+  de: "Bus auswählen"
+  fr: "Choisir un bus"
+  ru: "Выберите автобус"
+  uk: "Виберіть автобус"
+  pl: "Wybierz autobus"

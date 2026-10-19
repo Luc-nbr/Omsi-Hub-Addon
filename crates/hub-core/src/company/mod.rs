@@ -77,6 +77,8 @@ pub mod pay;
 pub mod plan;
 pub mod plandays;
 pub mod rankings;
+// (service control's ways out worked out from the stops, the blocks and RosterFlow)
+pub mod recovery;
 pub mod registrations;
 pub mod remote;
 pub mod reputation;
@@ -97,6 +99,7 @@ pub mod training;
 pub mod unassign;
 pub mod variations;
 pub mod vehicles;
+pub mod yard;
 
 pub use model::*;
 
@@ -125,6 +128,9 @@ pub struct Founding {
     pub country: String,
     /// The currency its money is shown and typed in (`currency`).
     pub currency: currency::Currency,
+    /// Founded with its land only, the depot built by the player (`depot::start_empty`: the
+    /// game's founding); false keeps the yard rented of before (`depot::Site::default`).
+    pub empty_depot: bool,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -226,6 +232,9 @@ pub fn found(f: &Founding, profile: &str) -> Company {
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
+    if f.empty_depot {
+        depot::start_empty(&mut c);
+    }
     c
 }
 

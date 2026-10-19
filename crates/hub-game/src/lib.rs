@@ -13,6 +13,8 @@
 //! * [`bridge`] - the files between Omsi-Hub and the plugin: the assignment, the handshake, the
 //!   reports, with a fallback through the game's log (ported);
 //! * [`find`] - folders to offer in the first-run setup (Steam's OMSI 2, unpacked releases);
+//! * [`gamesettings`] - openOMSI's own settings (`~/.openomsi/settings.cfg`), changed from
+//!   Omsi-Hub's Settings page;
 //! * [`launch`] - the game's command line, built from openOMSI's official flags only;
 //! * [`process`] - the game started, watched while it runs, and its end told; `--version` asked
 //!   when nothing else said the version.
@@ -21,6 +23,7 @@ pub mod bridge;
 pub mod compat;
 pub mod detect;
 pub mod find;
+pub mod gamesettings;
 pub mod install;
 pub mod launch;
 pub mod process;

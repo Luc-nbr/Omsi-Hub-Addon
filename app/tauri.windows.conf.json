@@ -1,6 +1,28 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "targets": ["nsis"]
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/nsis-header.bmp",
+        "sidebarImage": "installer/nsis-sidebar.bmp",
+        "uninstallerHeaderImage": "installer/nsis-header.bmp",
+        "languages": [
+          "English",
+          "Dutch",
+          "German",
+          "French",
+          "Russian",
+          "Ukrainian"
+        ],
+        "displayLanguageSelector": true,
+        "startMenuFolder": "Omsi-Hub",
+        "compression": "lzma"
+      }
+    }
   }
 }

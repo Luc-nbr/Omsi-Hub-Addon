@@ -29,7 +29,13 @@
 //! * `data/replies.jsonl`: one [`Reply`] a line - a message delivered, read, accepted or
 //!   declined, a canned reply, a quick button to control ([`ReplyReader`]);
 //! * `data/status.json`: how the duty stands, written every few seconds ([`Status`]: the trip,
-//!   its delay, how much of it is left) - what the AI dispatcher looks at.
+//!   its delay, how much of it is left) - what the AI dispatcher looks at;
+//! * `data/traffic.json`: what is on the road, every few seconds ([`Traffic`]: the player's
+//!   bus, the AI vehicles, the timetable's buses, the other players), for the fleet map
+//!   (`lua/traffic.lua`).
+//! * `data/dash.json`: the live dashboard of every drive, every two seconds ([`Dash`]: the bus,
+//!   the duty and its trip's stops, what the drive came to so far) - what Omsi-Hub's window
+//!   shows while the game runs (`lua/dash.lua`).
 //!
 //! A game without `files.write` / `files.append` gets the same lines into its log instead
 //! (`omsi.log`, `[lua omsihub] OMSIHUB-HELLO {...}`, `OMSIHUB-REPORT {...}` and
@@ -56,6 +62,8 @@ pub const REPORTS_FILE: &str = "reports.jsonl";
 pub const MESSAGES_FILE: &str = "messages.json";
 pub const REPLIES_FILE: &str = "replies.jsonl";
 pub const STATUS_FILE: &str = "status.json";
+pub const TRAFFIC_FILE: &str = "traffic.json";
+pub const DASH_FILE: &str = "dash.json";
 /// What the plugin's log lines start with when it cannot write files.
 pub const LOG_HELLO: &str = "OMSIHUB-HELLO ";
 pub const LOG_REPORT: &str = "OMSIHUB-REPORT ";
@@ -576,6 +584,193 @@ pub fn write_inbox(plugin_dir: &Path, inbox: &Inbox) -> std::io::Result<bool> {
 /// How the duty stands, as the plugin last wrote it.
 pub fn read_status(plugin_dir: &Path) -> Option<Status> {
     let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(STATUS_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// What is on the road in the game, as the plugin writes it (`data/traffic.json`): in the
+/// game's map coordinates (metres, x east, y north), headings clockwise from north.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Traffic {
+    /// The real time (Unix seconds) and the game's clock.
+    pub at: f64,
+    pub clock: Option<f64>,
+    /// The map the game drives on (its global.cfg, as the game names it).
+    pub map: String,
+    /// One place of these coordinates given by its tile too: where the map's tiles lie.
+    #[serde(rename = "ref")]
+    pub reference: Option<TilePlace>,
+    pub player: Option<Mover>,
+    /// The AI vehicles but the timetable's buses.
+    #[serde(deserialize_with = "list")]
+    pub vehicles: Vec<Vehicle>,
+    #[serde(deserialize_with = "list")]
+    pub buses: Vec<GameBus>,
+    #[serde(deserialize_with = "list")]
+    pub players: Vec<Mover>,
+}
+
+/// A place in the game's coordinates and the same place by its tile (numbered as global.cfg's
+/// `[map]` list numbers them) and the metres in it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TilePlace {
+    pub x: f64,
+    pub y: f64,
+    pub tile_x: i64,
+    pub tile_y: i64,
+    pub local_x: f64,
+    pub local_y: f64,
+}
+
+/// A vehicle where it is: the player's bus (its speed in km/h; its duty's line and tour, its
+/// delay in seconds and its passengers, as the game has them), another player's (its name).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mover {
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub speed: f64,
+    pub name: String,
+    pub line: String,
+    pub tour: String,
+    pub delay: Option<f64>,
+    pub passengers: Option<f64>,
+}
+
+/// An AI vehicle of the traffic: `kind` as `omsi.traffic.list` has it (car, taxi, bus, truck,
+/// tram, bicycle).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Vehicle {
+    pub id: Option<i64>,
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub kind: String,
+}
+
+/// A bus of the timetable the game's AI drives (`omsi.timetable.buses`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameBus {
+    pub id: Option<i64>,
+    pub x: f64,
+    pub y: f64,
+    pub heading: f64,
+    pub line: String,
+    pub tour: String,
+    pub trip: Option<f64>,
+    pub terminus: String,
+    /// Seconds late (early negative).
+    pub delay: Option<f64>,
+    /// Its fleet number.
+    pub number: String,
+    pub at_stop: bool,
+}
+
+/// A list as the plugin writes it: an empty Lua table comes as `{}`; an entry it cannot read
+/// is left out.
+fn list<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(d: D) -> Result<Vec<T>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(match v {
+        serde_json::Value::Array(items) => items.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect(),
+        _ => Vec::new(),
+    })
+}
+
+/// What is on the road, as the plugin last wrote it.
+pub fn read_traffic(plugin_dir: &Path) -> Option<Traffic> {
+    let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(TRAFFIC_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// The bus as the live dashboard has it (each where the game says it): its speed (km/h), where
+/// it is (the map's metres), its file, the passengers on board, the odometer (km) and the fuel
+/// (litres).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashBus {
+    pub speed: f64,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub file: String,
+    pub passengers: Option<f64>,
+    pub odometer: Option<f64>,
+    pub fuel: Option<f64>,
+}
+
+/// The duty under way, as the game has it (`omsi.duty.get`): its line and tour (the
+/// timetable's), the trip (from 1) of how many, its name, the line its displays show and where it
+/// goes, its departure and arrival (seconds of the day), how late it runs (s, early negative),
+/// the next station (an index into [`Dash::stops`]) and whether the bus stands at it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashDuty {
+    pub line: String,
+    pub tour: String,
+    pub trip: u32,
+    pub trips: u32,
+    pub trip_name: String,
+    pub number: String,
+    pub terminus: String,
+    pub departure: Option<f64>,
+    pub arrival: Option<f64>,
+    pub delay: f64,
+    pub next: usize,
+    pub at_stop: bool,
+}
+
+/// A station of the trip under way: when the bus is due and leaves (seconds of the day), and
+/// whether it stops there (false: it passes).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashStop {
+    pub name: String,
+    pub arrival: f64,
+    pub departure: f64,
+    pub stops: bool,
+}
+
+/// What the drive came to so far: seconds and metres driven, jolts and collisions, passengers
+/// who got on, the stops served on its trips and how many of them early, on time and late (as
+/// a trip's report judges them), and the metres since the bus left its last stop.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashDrive {
+    pub seconds: f64,
+    pub metres: f64,
+    pub jolts: u32,
+    pub crashes: u32,
+    pub boarded: u32,
+    pub served: u32,
+    pub early: u32,
+    pub on_time: u32,
+    pub late: u32,
+    pub since_stop: f64,
+}
+
+/// The live dashboard of a drive (`data/dash.json`), written by the plugin every two seconds
+/// while the player is in a bus, assignment or none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Dash {
+    /// The assignment it drives (0: none).
+    pub issued: u64,
+    /// The real time it was written (Unix seconds) and the game's clock (seconds of the day).
+    pub at: f64,
+    pub clock: Option<f64>,
+    pub bus: DashBus,
+    /// None: no duty under way (a free drive, or one not started yet).
+    pub duty: Option<DashDuty>,
+    pub stops: Vec<DashStop>,
+    pub drive: DashDrive,
+}
+
+/// The plugin's live dashboard, if it wrote one.
+pub fn read_dash(plugin_dir: &Path) -> Option<Dash> {
+    let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(DASH_FILE)).ok()?;
     serde_json::from_str(&text).ok()
 }
 

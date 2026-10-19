@@ -1,8 +1,12 @@
 # Architecture
 
-Omsi-Hub is its own desktop app. It contains no openOMSI code: it works with the openOMSI the
-player installed (0.2.22 or newer) through openOMSI's command line and its plugin API, and reads
-OMSI 2's files with its own readers. See `PLAN.md` for why, `INVENTORY.md` for what is ported.
+Omsi-Hub is its own desktop app. It works with the openOMSI the player installed (0.2.22 or newer)
+through openOMSI's command line and its plugin API, and reads OMSI 2's files with its own readers -
+except the bus as the game reads it (its meshes, textures, liveries and the look its scripts give
+it) for the 3D view, the photos and the livery studio: that is read with openOMSI's own readers
+and vehicle simulation, from Luc's fork of openOMSI (git dependencies pinned in `Cargo.toml`;
+openOMSI as it was before it became AGPL, under its MIT licence: `THIRD_PARTY_NOTICES.md`, Luc's
+decision of 2026-10-18). See `PLAN.md` for why, `INVENTORY.md` for what is ported.
 
 It runs on **Windows, macOS and Linux** from the first version. The platform specifics are
 collected under [Platforms](#platforms).
@@ -15,7 +19,9 @@ ui/             the page: Preact + htm (vendor/), our api.js, store.js, i18n.js,
 crates/
   hub-omsi      our OMSI 2 readers and writers (no openOMSI code)
   hub-core      the domain: the company, RosterFlow, careers; our timetable types; data folder
-  hub-api       the commands: call(cmd, args) routed by prefix
+  hub-api       the commands: call(cmd, args) routed by prefix; the 3D view's bus (content/bus3d,
+                b3d_*) and the livery studio (lak, lak_*) on openOMSI's readers (omsi-*)
+  hub-livery    the livery studio's core (the old omsihub-livery): projects, bake, paint, export
   hub-game      the player's openOMSI: found, checked, started; the plugin installed; the bridge
   hub-locales   the texts (ported as they were)
   hub-online    the account, friends, leaderboard, cloud saves (ported as they were)
@@ -48,7 +54,15 @@ hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
     `ServiceTrip` and `ServiceStop`.
 - `map`: `GlobalCfg`, `Calendar` (`Holidays.txt`: `is_holiday`, `in_holiday_range`),
   `ChronoDir`, `active_chrono_dirs`, `chrono_deactivated_lines`, `AiLists`/`AiGroup`/
-  `TypGroup`, `depot_hof_on`, `date_code`.
+  `TypGroup`, `depot_hof_on`, `date_code`; `GlobalCfg.tile_files`, `version`,
+  `world_coordinates` and `tile_edge()`.
+- `roads`: a map's roads from its tiles (`[spline]`, `[spline_h]`, `[object]`,
+  `[splineAttachement]`) and their `.sli` lanes (`[path]`), as openOMSI's `docs/FORMATS.md`
+  describes the files: `MapRoads::read`, `roads()` (each spline's street lanes as a line with its
+  width), `route(track)` (a `.ttr`'s lanes in their directions, a junction object bridged
+  straight), `object(tile, id)` (a stop's place) and `joins()` (how many splines meet their next
+  one: the check of the geometry on a real map, logged when the app reads a map; the ignored
+  `real_data` test asserts it on an installed OMSI 2).
 - `hof`: `Hof { name, service_trip, global_strings, string_count_*, termini, bus_stops,
   info_trips, info_busstop_lists }` with `Terminus`, `BusStop`, `InfoTrip` and `Comments`;
   `load`, `parse`, `read_name`, `to_text`, `has_line`, `depot_files`.
@@ -152,15 +166,15 @@ installed here):
 
 | Prefix | Module | Now |
 |---|---|---|
-| `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts) |
+| `hub_` | `hub`, `drive`, `live`, `content` | Boot, texts, first-run setup, migration, drives and their live dashboard; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
-| `co_` | `company` | Ported (`co_more_*` too); bus photos, fleet-map roads, duty map: not available |
+| `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: kept by `co_photo_save`, taken by the page from the 3D model (`ui/js/hub/photos.js`) |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
 | `ol_` | `online` | Ported |
 | `cs_` | `cloud` | Ported |
-| `tt_` | `timetable` | Not ported |
-| `de_` | `depot` | Not ported |
+| `tt_` | `timetable` | Ported: a map's lines and tours, saved into the content folder's copy of its `TTData`, and the reset |
+| `de_` | `depot` | Ported: the player's own depot files (`hub_core::owndepot`), one open at a time |
 
 **`hub-game`** (the game):
 
@@ -169,10 +183,12 @@ installed here):
   home, cache)`, which asks `openomsi --version` once when no file says the version.
 - `compat::{FIRST_SUPPORTED = 0.2.22, estimate, negotiate, check}`.
 - `install::{install, disable, status, plugin_dir}`.
-- `bridge::{Assignment, Leg, Hello, Report, write_assignment, read_hello, ReportReader, ReplyReader, from_log}`.
-- `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`).
+- `bridge::{Assignment, Leg, Hello, Report, Dash, write_assignment, read_hello, read_dash, ReportReader, ReplyReader, from_log}`.
+- `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`); `export_glb` adds `--export-glb <file>`.
+- `process::export_glb(exe, spec, wait)`: the bus written as glTF by the player's openOMSI (not used by the pages: the 3D view reads the bus itself, `content::bus3d`).
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
+- `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).
 
 ## The data folder
 
@@ -252,6 +268,16 @@ them) and the language; `launcher.json`'s profile becomes the settings' `driver`
      the on-time brief goes to `data/ontime.json` from `data/live.json`
      (`company::ontime::refresh`); notices go to `data/notices.json` as they come
      (`addon::notify_game`); the plugin's texts are `texts.lua`.
+   - **The live dashboard** (`hub/dash.js`, `hub-api`'s `live.rs`): the page gets `game-started`
+     (with the way it is driven: `company`, `shift`, `tour`, `free`) for every drive and shows
+     the dashboard in place of the launcher while the game runs. The plugin writes
+     `data/dash.json` every two seconds on any drive (`dash.lua`, `bridge::Dash`: the bus's
+     speed, place and passengers, the duty under way and its trip's stops, what the drive came
+     to); the bridge's loop samples it (`live::sample`: the speed and delay over the drive, the
+     way the bus went, the notices and messages); `hub_live` gives the view, with the duty's plan
+     from the map's timetable of the day (`timetable_for`, the legs' lengths for the distance to
+     each stop), a company's sheet (signing on and off, breaks) and the driver's week and month
+     from `trips/<driver>.jsonl`.
    - When it ends, the page gets `game-ended` (`code`, `seconds`, and what was `booked`).
    - `crates/hub-api/tests/drive.rs` drives a company's duty end to end against a fake openOMSI
      (`tests/support/fake_openomsi.rs`, Cargo's `fake-openomsi` program) that writes the

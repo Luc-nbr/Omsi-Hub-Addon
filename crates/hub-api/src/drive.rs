@@ -12,12 +12,13 @@
 //!    parked it off) and given the drive's assignment (`addon::give`): what the command line
 //!    cannot say - the company and its duty, the duty's parts (legs), a free route, the sheet,
 //!    the controls, the fare, the contract, the crew, the display font and the IBIS;
-//! 3. the game started with official flags only (`hub_game::launch::LaunchSpec`);
+//! 3. the game started with official flags only (`hub_game::launch::LaunchSpec`), and the page
+//!    told (`game-started`, with the way it is driven: the live dashboard, `live.rs`);
 //! 4. **the bridge's loop** on a thread of its own, every [`EVERY`] while the game runs: the
 //!    plugin's reports booked (`addon::book`), the company told (`company::after_booking`), its
 //!    own work done (the replies, the status, the inbox for the plugin: `messages::tick`), the
-//!    on-time brief written (`company::ontime::refresh`); the notices go to the plugin as they
-//!    come (`addon::notify_game`);
+//!    on-time brief written (`company::ontime::refresh`), the live dashboard sampled
+//!    (`live::sample`); the notices go to the plugin as they come (`addon::notify_game`);
 //! 5. the game ended: the reports booked once more, then the page told (`game-ended`, with what
 //!    was booked).
 
@@ -47,6 +48,12 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
         s.tutorial = Some(t);
         return s;
     }
+    // (the driver whose personnel file the game writes, as the old launcher started it)
+    #[cfg(feature = "native")]
+    let driver = crate::drivers::launch_driver(d.profile.as_deref());
+    #[cfg(not(feature = "native"))]
+    let driver: Option<String> = None;
+    s.driver = driver.as_ref().map(|n| format!("Drivers/{n}.odr"));
     if let Some(sit) = some(&d.situation) {
         s.situation = Some(sit);
         return s;
@@ -98,7 +105,8 @@ pub fn launch_spec(d: &Duty, root: &Path) -> LaunchSpec {
             l.strip_prefix("join").map(|r| Lan::Join(Some(r.trim_start_matches(':').trim()).filter(|r| !r.is_empty()).unwrap_or("auto").to_string()))
         }
     });
-    s.lan_name = some(&d.lan_name);
+    // (the name the others see: the driver's, as the old launcher gave it)
+    s.lan_name = some(&d.lan_name).or_else(|| s.lan.as_ref().and(driver));
     s.no_menu = s.map.is_some() && s.bus.is_some();
     s
 }
@@ -129,9 +137,10 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
     }
     // the plugin given the drive (a drive without it still starts: the command line alone)
     let data = hub_core::data_dir();
-    let issued = match crate::addon::ready(&checked.install.plugins_dir) {
-        Some(dir) => match crate::addon::give(&dir, d, &data) {
-            Ok(a) => Some(a.issued),
+    let plugin = crate::addon::ready(&checked.install.plugins_dir);
+    let assignment = match &plugin {
+        Some(dir) => match crate::addon::give(dir, d, &data) {
+            Ok(a) => Some(a),
             Err(e) => {
                 hub_core::log_line(&format!("drive: {e}"));
                 None
@@ -142,14 +151,26 @@ pub fn start(d: &Duty, p: &dyn Platform) -> Answer {
             None
         }
     };
+    let issued = assignment.as_ref().map(|a| a.issued);
     let spec = launch_spec(d, Path::new(&s.omsi2_folder));
-    let g = process::start(&checked.install.exe, &spec).map_err(|e| e.to_string())?;
+    let g = process::start(&checked.install.exe, &spec).map_err(|e| match e {
+        #[cfg(feature = "native")]
+        process::StartError::Blocked => crate::online::tr(process::BLOCKED),
+        // (the website starts no game)
+        #[cfg(not(feature = "native"))]
+        process::StartError::Blocked => crate::company::words::tr(process::BLOCKED),
+        e => e.to_string(),
+    })?;
     let pid = g.pid();
     hub_core::log_line(&format!("drive: openOMSI started (pid {pid}): {}", spec.args().unwrap_or_default().join(" ")));
     *game = Some(g);
     drop(game);
+    // (the live dashboard of the drive: `live.rs`)
+    crate::live::began(d, assignment.as_ref(), plugin.as_deref());
+    let mode = crate::live::mode_of(d, assignment.as_ref());
+    p.emit("game-started", json!({ "pid": pid, "mode": mode }));
     watch(p.emitter());
-    Ok(json!({ "started": true, "pid": pid, "issued": issued }))
+    Ok(json!({ "started": true, "pid": pid, "issued": issued, "mode": mode }))
 }
 
 /// One look of the bridge: the reports booked, the company told, the on-time brief written.
@@ -158,6 +179,7 @@ pub fn look() -> crate::addon::Booked {
     let b = crate::addon::book();
     crate::company::after_booking(&b);
     crate::company::ontime::refresh();
+    crate::live::sample();
     b
 }
 
@@ -268,6 +290,17 @@ mod tests {
         assert!(launch_spec(&join, Path::new("r")).args().unwrap().windows(2).any(|w| w == ["--lan-join", "auto"]));
         let tut = Duty { tutorial: Some(2), ..duty() };
         assert_eq!(launch_spec(&tut, Path::new("r")).args().unwrap(), ["--root", "r", "--tutorial", "2"]);
+    }
+
+    #[test]
+    fn the_driver_drives_and_is_named_in_a_lan_game() {
+        let host = Duty { lan: Some("host".into()), profile: Some("Luc".into()), ..duty() };
+        let a = launch_spec(&host, Path::new("r")).args().unwrap();
+        let has = |f: &str, v: &str| a.windows(2).any(|w| w[0] == f && w[1] == v);
+        assert!(has("--driver", "Drivers/Luc.odr") && has("--lan-name", "Luc"), "{a:?}");
+        // (alone: the driver, no name for others)
+        let alone = launch_spec(&Duty { profile: Some("Luc".into()), ..duty() }, Path::new("r")).args().unwrap();
+        assert!(alone.windows(2).any(|w| w == ["--driver", "Drivers/Luc.odr"]) && !alone.iter().any(|x| x == "--lan-name"), "{alone:?}");
     }
 
     #[test]

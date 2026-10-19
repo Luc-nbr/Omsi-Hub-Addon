@@ -252,7 +252,7 @@ fn buses(s: &mut Session, c: &Company) -> Value {
                 }
             };
             json!({
-                "id": v.id, "number": v.number, "name": v.name, "file": v.bus, "livery": v.livery,
+                "id": v.id, "number": v.number, "auto": v.number_auto.as_ref().unwrap_or(&v.number), "own": v.number_auto.is_some(), "name": v.name, "file": v.bus, "livery": v.livery,
                 "age": trf("%{n} years old", &[("n", &format!("{:.0}", v.age_years(&c.date).max(0.0)))]),
                 "cond": cond, "cond_tone": if cond >= 0.7 { "ok" } else if cond >= 0.5 { "warn" } else { "danger" },
                 "word": tr(if cond >= 0.7 { "Good condition" } else if cond >= 0.5 { "Worn: repaired soon" } else { "Worn out: to the workshop" }),
@@ -262,6 +262,7 @@ fn buses(s: &mut Session, c: &Company) -> Value {
         .collect();
     json!({
         "page": "buses", "head": head(BUSES, sub, Some(("Buy a bus", "add"))), "order": order, "cards": cards,
+        "number_tip": tr("The bus's fleet number: type your own, or leave it empty for the automatic one."),
         "empty": empty("directions_bus", "No bus yet", "Buy your first bus in the shop: the buses that fit your lines come first, and it drives from the next morning.", Some(("Buy a bus", "add", json!({ "kind": "open", "tab": SHOP })))),
     })
 }

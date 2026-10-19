@@ -46,7 +46,7 @@ export async function selftest(check, errors) {
   // editor, joining a company, the editor)
   let e = await step('mode');
   const greeting = $('.hub-greeting')?.textContent || '';
-  check('hub: the start', !e && $$('.hub-mode').length === 4 && $$('.hub-link').length === 5, e || `${greeting} | ${$$('.hub-mode').length} tiles, ${$$('.hub-link').length} links`);
+  check('hub: the start', !e && $$('.hub-mode').length === 4 && !!$('.hub-record') && $$('.hub-link').length === 7, e || `${greeting} | ${$$('.hub-mode').length} tiles, ${$$('.hub-link').length} links`);
   await globalThis.hubProbeScales('the start');
   // Ctrl and the wheel size the launcher (`zoom.js`): a notch up, then Ctrl 0 (the setting as it was)
   {
@@ -68,7 +68,7 @@ export async function selftest(check, errors) {
 
   // every step, for a tour, a work shift and a free drive
   for (const [mode, patch, steps] of [
-    ['tour', { free: false, composed: false }, ['map', 'day', 'duty', 'bus']],
+    ['tour', { free: false, composed: false }, ['profile', 'map', 'day', 'duty', 'bus']],
     ['shift', { free: false, composed: true }, ['duty']],
     ['free', { free: true, composed: false }, ['start', 'day', 'bus']],
   ]) {
@@ -81,7 +81,7 @@ export async function selftest(check, errors) {
   }
   await globalThis.hubProbeScales('the duty step');
   // the pages in our sheet, each one's layout (and the Settings page's tabs)
-  for (const page of ['settings', 'online']) {
+  for (const page of ['multiplayer', 'profile', 'settings', 'online']) {
     go(page);
     await sleep(600);
     globalThis.hubProbe(`page ${page}`);

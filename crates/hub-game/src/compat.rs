@@ -79,6 +79,13 @@ pub static FEATURES: &[Feature] = &[
     },
     Feature { id: "message_sound", label: "A sound for each message", needs: &["audio.play"], essential: false, fallback: "Messages come without a sound" },
     Feature { id: "closed_stops", label: "Closed stops struck through on the navigator", needs: &["duty.set_closed_stops"], essential: false, fallback: "The on-time card lists the stops closed" },
+    Feature {
+        id: "live_map",
+        label: "The game's buses and traffic on the fleet map",
+        needs: &["traffic.list", "timetable.buses"],
+        essential: false,
+        fallback: "The fleet map places the buses by the timetable",
+    },
 ];
 
 /// The notes [`Compat`] gives, for the player (English: the app translates them).

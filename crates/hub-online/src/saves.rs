@@ -196,6 +196,12 @@ pub fn compress(archive: &[u8]) -> Result<Packed, Error> {
     Ok(Packed { sha256: sha256_hex(&bytes), bytes })
 }
 
+/// Bytes compressed with zstd as a save is, without the save's limit (the content beside it goes
+/// up in pieces: hub-api's `cloud_content`).
+pub fn zstd(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    zstd::bulk::compress(bytes, LEVEL).map_err(|_| Error::Code("server"))
+}
+
 /// A downloaded save decompressed (at most `MAX_UNPACKED`; anything else is `bad_save`).
 pub fn decompress(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     use std::io::Read;
@@ -206,6 +212,11 @@ pub fn decompress(bytes: &[u8]) -> Result<Vec<u8>, Error> {
         return Err(Error::Code("bad_save"));
     }
     Ok(out)
+}
+
+/// A file of the content beside a save: `content.json`, or a part `content-<kind>-<hex>.<n>`.
+pub fn content_name(name: &str) -> bool {
+    name == "content.json" || (name.starts_with("content-") && name.len() <= 80 && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'))
 }
 
 /// A name as it is kept: no control characters, at most 64 characters.
@@ -253,6 +264,35 @@ impl Transfer {
             429 => Error::Code("too_many"),
             _ => Error::Code("upload_failed"),
         })
+    }
+
+    /// A content file up (`Client::content_file`'s address), replacing what was there.
+    pub fn put_file(&self, at: &(String, String), bytes: &[u8]) -> Result<(), Error> {
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(Error::Code("too_large"));
+        }
+        let r = self.http.send("POST", &at.0, &self.key, Some(&at.1), Body::Bytes(bytes, "application/octet-stream"), &[("x-upsert", "true"), ("cache-control", "no-cache")], false, false)?;
+        if r.ok() {
+            return Ok(());
+        }
+        Err(match codes::storage_status(r.status, &r.body) {
+            413 => Error::Code("too_large"),
+            429 => Error::Code("too_many"),
+            _ => Error::Code("upload_failed"),
+        })
+    }
+
+    /// A content file down (None: not there).
+    pub fn get_file(&self, at: &(String, String)) -> Result<Option<Vec<u8>>, Error> {
+        let r = self.http.send("GET", &at.0, &self.key, Some(&at.1), Body::None, &[], true, false)?;
+        if r.ok() {
+            return Ok(Some(r.bytes));
+        }
+        match codes::storage_status(r.status, &r.body) {
+            400 | 404 => Ok(None),
+            429 => Err(Error::Code("too_many")),
+            _ => Err(Error::Code("server")),
+        }
     }
 
     /// The file of `saves_download`, its size and sha256 checked; still compressed.
@@ -316,6 +356,30 @@ impl Client {
         } else {
             Err(codes::of_storage(r.status, &r.body))
         }
+    }
+
+    /// Where a file of the content sent beside a slot's save is (`slot<n>/content…`, for the
+    /// website's bus company: hub-api's `cloud_content`), and the token to reach it with; the
+    /// transfer itself goes through [`Transfer::put_file`] / [`Transfer::get_file`].
+    pub fn content_file(&mut self, slot: u8, name: &str, read: bool) -> Result<(String, String), Error> {
+        if !content_name(name) {
+            return Err(Error::Code("bad_input"));
+        }
+        let path = format!("{}/{name}", self.folder(slot)?);
+        let token = self.access_token()?;
+        if !self.may_send() {
+            return Err(Error::Code("privacy"));
+        }
+        Ok((self.object(&path, read), token))
+    }
+
+    /// Content files of a slot deleted (the parts no longer named by its `content.json`).
+    pub fn content_remove(&mut self, slot: u8, names: &[String]) -> Result<u64, Error> {
+        if names.iter().any(|n| !content_name(n)) {
+            return Err(Error::Code("bad_input"));
+        }
+        let folder = self.folder(slot)?;
+        self.remove(&names.iter().map(|n| format!("{folder}/{n}")).collect::<Vec<_>>())
     }
 
     /// The transfers' half, for the launcher's own thread.

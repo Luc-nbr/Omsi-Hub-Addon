@@ -37,8 +37,8 @@ export function Placeholder({ title, sub, what }) {
 // --- the fields the ported pages use (the drive's steps, the company's dialogs) -------------
 
 /** A text field: `onInput(text)` on every key. */
-export function Input({ value, onInput, placeholder = '', raw, id, style }) {
-  return html`<input id=${id} class="input" style=${style} value=${value ?? ''} placeholder=${raw ? placeholder : t(placeholder)} spellcheck="false" onInput=${(e) => onInput?.(e.currentTarget.value)} />`;
+export function Input({ value, onInput, onKeyDown, placeholder = '', raw, id, style }) {
+  return html`<input id=${id} class="input" style=${style} value=${value ?? ''} placeholder=${raw ? placeholder : t(placeholder)} spellcheck="false" onInput=${(e) => onInput?.(e.currentTarget.value)} onKeyDown=${onKeyDown} />`;
 }
 
 /** A search field: its magnifier on the left. */

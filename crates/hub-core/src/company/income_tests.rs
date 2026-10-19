@@ -289,6 +289,7 @@ fn a_full_bus_leaves_people_behind() {
         origin: String::new(),
         last: String::new(),
         part: None,
+        of_line: String::new(),
     };
     let tour = TourOfDay { line: c.lines[0].name.clone(), number: "5".into(), tour: "1".into(), ai_group: String::new(), trips: vec![trip(0), trip(1)], unplanned: false, cuts: None };
     let r = day::close_day(&mut c, vec![tour], &[]);

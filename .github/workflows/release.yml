@@ -1,26 +1,42 @@
-# Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon and Intel) and Linux,
-# built by Tauri and put in a DRAFT release named after the version (`v<version>`). Luc publishes
-# the draft by hand (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
+# Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon; Intel Macs no longer) and Linux,
+# built by Tauri and put in a DRAFT release named after the version (`v<version>`) in the PUBLIC
+# repository Luc-nbr/Omsi-Hub-Releases (this one is private: players could not download from it;
+# the app's updater and the website read the releases there). Luc publishes the draft by hand
+# (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
+#
+# Writing there takes the secret OMSI_HUB_RELEASES: a fine-grained token of Luc's with "Contents: Read
+# and write" on Luc-nbr/Omsi-Hub-Releases only (this repository's own token cannot write to another).
+#
+# A pre-release (for testers) is the same draft with GitHub's pre-release mark: run by hand with
+# "pre-release" on (the default), or a tag whose version has a `-` in it. Published, it stays a
+# pre-release: players download it themselves, and the app offers it to nobody.
 #
 # The updater files are signed and `latest.json` is attached only once the signing key is set up
 # (the secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, and the public key
 # in app/tauri.conf.json: docs/UPDATES.md "What Luc sets up"). Without them the installers are
 # built all the same, and the app offers "Download from GitHub" instead of installing itself.
 #
-# Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json), or by hand.
+# Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json, checked), or by
+# hand (Actions → Release → Run workflow). Run again, it uploads to the same draft.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "A pre-release (for testers; the app offers it to nobody)"
+        type: boolean
+        default: true
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# (this repository is only read: the release goes to Omsi-Hub-Releases with OMSI_HUB_RELEASES)
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,10 +56,6 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          - name: macOS Intel
-            os: macos-latest
-            target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
           # (the oldest Ubuntu we support: an AppImage runs on the same glibc or newer)
           - name: Linux x64
             os: ubuntu-22.04
@@ -66,6 +78,17 @@ jobs:
           toolchain: "1.99.0"
           targets: ${{ matrix.target }}
 
+      # (Luc's openOMSI fork, which Cargo fetches, is private: read with the secret OPENOMSI_TOKEN when
+      # there is one - a fine-grained token with "Contents: Read-only" on Luc-nbr/openOMSI)
+      - name: Access to the openOMSI fork
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OPENOMSI_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Luc-nbr/openOMSI".insteadOf "https://github.com/Luc-nbr/openOMSI"
+            echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+          fi
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
@@ -73,6 +96,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # (the version the release is named after, the same in Cargo.toml and tauri.conf.json, and
+      # the tag's when a tag started it; whether it is a pre-release)
+      - name: Version and kind
+        id: kind
+        shell: bash
+        env:
+          ASKED: ${{ inputs.prerelease }}
+        run: |
+          app=$(node -p "require('./app/tauri.conf.json').version")
+          cargo=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          if [ "$app" != "$cargo" ]; then
+            echo "::error::app/tauri.conf.json has $app, Cargo.toml has $cargo: make them the same"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$app" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME is not v$app, the version in Cargo.toml and app/tauri.conf.json"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then pre="$ASKED"; else case "$app" in *-*) pre=true ;; *) pre=false ;; esac; fi
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "::notice::Omsi-Hub $app, pre-release: $pre"
+
+      # (the releases' repository can be written to)
+      - name: Releases repository token
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::The secret OMSI_HUB_RELEASES is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
+            exit 1
+          fi
 
       # (the updater files signed and latest.json attached only when the key is set up)
       - name: Updater signing set up?
@@ -93,23 +149,29 @@ jobs:
       - name: Build and upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
+          owner: Luc-nbr
+          repo: Omsi-Hub-Releases
+          # (the tag is made there, from its own main: this repository's commits are not in it)
+          commitish: main
           tauriScript: npx --yes @tauri-apps/cli@2
           tagName: v__VERSION__
           releaseName: Omsi-Hub __VERSION__
           releaseBody: |
-            Omsi-Hub __VERSION__: the add-on for openOMSI.
+            ${{ steps.kind.outputs.prerelease == 'true' && '**A pre-release, for testing.** The app does not offer it as an update: install it yourself. Something wrong? Tell us at info@omsihub.com or with "Report a bug" on omsihub.com.' || '' }}
+
+            Omsi-Hub __VERSION__: the add-on for openOMSI. More at [omsihub.com](https://omsihub.com).
 
             Needs openOMSI 0.2.22 or newer and an original OMSI 2. Omsi-Hub does not replace openOMSI: it builds on the openOMSI you have installed.
 
             - Windows: `Omsi-Hub_<version>_x64-setup.exe`
-            - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon) or `_x64.dmg` (Intel). The app is not notarised: the first time, right-click it and choose Open.
+            - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon; Intel Macs are not built). The app is not notarised: the first time, right-click it and choose Open.
             - Linux: `Omsi-Hub_<version>_amd64.AppImage` (updates itself), or the `.deb` / `.rpm`.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
           includeUpdaterJson: ${{ steps.signing.outputs.json == 'true' }}
           args: ${{ matrix.args }} ${{ steps.signing.outputs.config }}

@@ -179,7 +179,7 @@ export function ColourPicker({ value, onChange, ink = '#fff' }) {
       take([Math.min(x, 0.9999) * 360, grey ? Math.max(s0, 0.8) : s0, grey ? Math.max(v0, 0.85) : v0]);
     })}><i style=${`left:${(h / 360) * 100}%`}></i></div>
     <div class="row">
-      <${Field} raw value=${s.hex} placeholder="#f58620" onInput=${(t) => {
+      <${Field} raw value=${s.hex} placeholder="#2a75f7" onInput=${(t) => {
         s.hex = t;
         const code = t.trim().replace(/^#/, '');
         if (/^[0-9a-f]{6}$/i.test(code)) {

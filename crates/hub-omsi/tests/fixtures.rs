@@ -348,12 +348,12 @@ fn a_depot_file_is_read() {
     assert_eq!((h.name.as_str(), h.service_trip.as_str(), h.codepage), ("Testdorf", "Betriebsfahrt", Some(Codepage::Windows1252)));
     assert_eq!(h.global_strings, ["Testdorf", "Testdorf_Rollband"]);
     assert_eq!((h.string_count_terminus, h.string_count_busstop), (3, 2));
-    // (the indented [addterminus] is the comment's example)
+    // (the indented [addterminus] is the comment's example; a destination's name is also the stop it ends at)
     assert_eq!(h.termini.len(), 3);
     let t = |i: usize| (h.termini[i].code, h.termini[i].texture_id.as_str(), h.termini[i].terminus_stop.as_deref(), h.termini[i].all_exit, h.termini[i].strings.clone());
     assert_eq!(t(0), (0, "Leerfahrt", None, true, vec!["LEERFAHRT".into(), "".into(), "Blank.tga".into()]));
     assert_eq!(t(1), (104, "Kirche", Some("Kirche"), false, vec!["KIRCHE".into(), "   KIRCHE   ".into(), "Kirche.tga".into()]));
-    assert_eq!(t(2), (101, "Depot", None, false, vec!["DEPOT".into(), "DEPOT".into(), "Depot.tga".into()]));
+    assert_eq!(t(2), (101, "Depot", Some("Depot"), false, vec!["DEPOT".into(), "DEPOT".into(), "Depot.tga".into()]));
     assert_eq!(
         h.bus_stops.iter().map(|b| (b.ident.as_str(), b.strings.clone())).collect::<Vec<_>>(),
         [("Grünau Markt", vec!["GRÜNAU MARKT".to_string(), "Grünau Markt".to_string()]), ("Kirche", vec!["KIRCHE".to_string(), "Kirche".to_string()])]

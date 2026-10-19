@@ -51,8 +51,10 @@ export function Home() {
   const on = current(c);
   const level = p ? Math.max(0, Math.min(1, (p.xp - Math.max(0, p.level - 1) ** 2 * 250) / Math.max(1, p.next_level_xp - Math.max(0, p.level - 1) ** 2 * 250))) : 0;
   const links = [
+    [tr('Driver: %{name}', { name }), 'person', () => goStep('profile')],
     [tr('Settings'), 'settings', () => go('settings')],
     [tr('Timetable'), 'schedule', openTimetable],
+    [tr('Multiplayer'), 'groups', () => go('multiplayer')],
     [tr('Depot editor'), 'departure_board', () => openDepotEditor()],
     // (blocked for now: `company/gate.js`)
     togetherOn() ? [tr('Join a company'), 'garage', () => enterCompany({ chooser: 'join' })] : [`${tr('Join a company')} · ${blockedLabel()}`, 'lock', () => {}],
@@ -87,7 +89,7 @@ export function Home() {
         </button>`}
         <div class="hub-links">
           ${links.map(([label, icon, onClick, away]) => html`<button type="button" class="hub-link" onClick=${onClick}><${Icon} name=${icon} size=${16} /><span>${label}</span>${away && html`<${Icon} class="away" name="open_in_new" size=${14} />`}</button>`)}
-          <button type="button" class="hub-link long" onClick=${openEditor}><${Icon} name="construction" size=${16} /><span>${tr('Editor: the timetable and depot files')}</span></button>
+          <button type="button" class="hub-link long" onClick=${openEditor}><${Icon} name="construction" size=${16} /><span>${tr("Editor: lines, liveries, the timetable and the map's objects")}</span></button>
         </div>
       </div>
     </div></section>

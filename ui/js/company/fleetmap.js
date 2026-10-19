@@ -1,6 +1,6 @@
 // The fleet map, as our game-drawn launcher's (`company/map.rs`): the company's map - its roads
-// as the game's city map draws them, read by the game program (`co_more_map`, as upstream's
-// `routemap.js` and the line editor read theirs) - with every line the company runs drawn in its
+// as the game's city map draws them, read from the map's tiles (`co_more_map`, as `routemap.js`
+// reads its own) - with every line the company runs drawn in its
 // colour, and every bus of today's plan where it is at the map's clock (placed by
 // `company::fleetmap` in Rust, asked for four times a second). The panel over the map's left
 // side has the clock (live, or running by itself ten or sixty times as fast) and the lines with
@@ -12,14 +12,23 @@
 // glide instead of jumping; their size is the screen's at every zoom. A bus clicked opens its
 // card beside it, which follows it as it drives and as the map moves: everything about the bus
 // (`fleetmap::bus_card`). Closed with its ×, Escape or a click on the empty map.
+//
+// While the game runs on the company's map, the game's traffic is under them (`v.traffic`, what
+// the plugin writes): its cars, trams and bicycles small and grey, the buses of the lines the
+// company does not run grey with their line, the other players' buses with their names. A switch
+// in the panel hides the traffic.
 
 import { html, useEffect, useRef, useState, useSize, Btn, Plate, Meter, IconBtn, Icon, rgbOf, inkOn, setCo, goTab, tr } from './kit.js';
 import { useMore, actMore, TextIn, box } from './more.js';
 import { Photo } from './fleet.js';
 import { cmd } from './kit.js';
 import { dark } from '../hub/theme.js';
-import { S } from '../store.js';
+import { S, useStore } from '../store.js';
+import { drawStopSign, stopSign } from '../hub/stopsigns.js';
 import { useMemo } from '../../vendor/preact-htm.js';
+
+/** The stops are drawn as signs below this many metres a point (zoomed in that far). */
+const STOP_SIGNS_MPP = 4;
 
 /** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
 const ROAD_PX = 1.4;
@@ -33,9 +42,37 @@ const NOTCH = 1.12;
 
 /** A bus moved further than this (metres) between two answers jumps there (the clock was set). */
 const SNAP_M = 2500;
-/** A bus glides to where the next answer has it over the time between answers, within these. */
+/** A bus glides to where the next answer has it over the time since it last moved, within these
+ * (the game's places come every two seconds). */
 const GLIDE_MIN = 120;
-const GLIDE_MAX = 1200;
+const GLIDE_MAX = 2500;
+
+/** The game's vehicles as drawn: their length and width in points, their colour. */
+const KINDS = {
+  car: [9, 4.6, 'grey'],
+  taxi: [9, 4.6, '#e3b631'],
+  truck: [14, 5.4, 'grey'],
+  bus: [15, 5.4, 'grey'],
+  tram: [24, 5.6, '#9a7fd1'],
+  bicycle: [4.5, 2.2, 'grey'],
+};
+
+/** Whether the game's traffic is shown (this viewer's choice, kept where the browser lets it). */
+let showTraffic = (() => {
+  try {
+    return localStorage.getItem('omsihub.fleetmap.traffic') !== '0';
+  } catch {
+    return true;
+  }
+})();
+function setShowTraffic(on) {
+  showTraffic = on;
+  try {
+    localStorage.setItem('omsihub.fleetmap.traffic', on ? '1' : '0');
+  } catch {
+    // (a viewer without storage: for this page only)
+  }
+}
 /** The card's width, and how far from its bus it stands. */
 const CARD_W = 280;
 const CARD_GAP = 22;
@@ -95,7 +132,7 @@ export function FleetMapPage() {
   return html`<div class="cm-page cm-fleetmap" ref=${ref}>${body}</div>`;
 }
 
-/** The map and the routes of today's trips (`co_more_map`), read by the game program once the
+/** The map and the routes of today's trips (`co_more_map`), read from the map's tiles once the
  * timetable is, kept by company map and day. */
 function useRoads(v) {
   const [map, setMap] = useState(null);
@@ -224,6 +261,24 @@ function drawBus(g, x, y, h, b, pal, picked, accent) {
   }
 }
 
+/** A vehicle of the game's traffic at (x, y) pointing `h` degrees: a small grey body of its
+ * kind's size, the front lighter. */
+function drawCar(g, x, y, h, kind, pal) {
+  const [l, w, colour] = KINDS[kind] || KINDS.car;
+  g.save();
+  g.translate(x, y);
+  g.rotate((h * Math.PI) / 180);
+  rounded(g, -w / 2, -l / 2, w, l, Math.min(1.6, w / 2));
+  g.fillStyle = colour === 'grey' ? (dark() ? '#8790a0' : '#8c8478') : colour;
+  g.fill();
+  g.lineWidth = 0.8;
+  g.strokeStyle = pal.edge;
+  g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  g.fillRect(-w / 2 + 0.8, -l / 2 + 0.8, w - 1.6, Math.min(2.2, l / 4));
+  g.restore();
+}
+
 /** The tag beside a bus: its line's number on the line's colour, a dot in its delay's colour
  * when it runs late or early. Its box, for the clicks. */
 function drawTag(g, x, y, b, font, widths) {
@@ -273,7 +328,6 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const ptr = useRef({ down: null, moved: 0 });
   // (the buses as drawn: key -> { from, to, t0, dur, b }; when the last answer came)
   const anim = useRef(new Map());
-  const lastAnswer = useRef(0);
   const hits = useRef([]);
   const hover = useRef(null);
   const [pick, setPick] = useState(v.picked || null);
@@ -282,9 +336,10 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const size = useRef({ W, H, left });
   size.current = { W, H, left };
   const look = dark();
+  const signs = useStore((s) => s.settings?.stop_style);
   // (the accent and the page's font, read when the look changed: not every frame)
   const kept = useRef({});
-  if (kept.current.look !== look) kept.current = { look, accent: css('--hub-accent') || '#f58620', font: null };
+  if (kept.current.look !== look) kept.current = { look, accent: css('--hub-accent') || '#2a75f7', font: null };
   // (the whole of today's routes in view, right of the panel; the map when there are none)
   const fit = () => {
     let lo = map.lo;
@@ -363,7 +418,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     }
     // the company's lines, each trip's route once in its line's colour on a dark casing
     g.lineCap = 'round';
-    g.strokeStyle = darker(css('--hub-accent') || '#f58620', 0.56);
+    g.strokeStyle = darker(css('--hub-accent') || '#2a75f7', 0.56);
     for (const l of map.lines || []) {
       poly(l.p);
       g.lineWidth = 8;
@@ -374,6 +429,12 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
       g.strokeStyle = l.colour;
       g.lineWidth = 4;
       g.stroke();
+    }
+    // their stops as the bus stop signs chosen (`stopsigns.js`), once near enough to tell them
+    // apart (further out they would cover the lines)
+    if (k.mpp < STOP_SIGNS_MPP) {
+      const style = stopSign();
+      for (const st of map.stops || []) if (st.at) drawStopSign(g, style, X(st.at[0]), Y(st.at[1]), 13);
     }
   };
   /** The buses where they are this frame, their tags, and the card beside the one picked. */
@@ -391,7 +452,22 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     const accent = kept.current.accent;
     const widths = drawBuses.widths || (drawBuses.widths = new Map());
     const list = [];
+    const grey = dark() ? '#7c8597' : '#9a9286';
     for (const a of anim.current.values()) {
+      // (the game's traffic, under the company's buses, while it is shown)
+      if (a.b.car || a.b.game) {
+        if (!showTraffic) continue;
+        const [mx, my, hd] = glide(a, t);
+        const x = X(mx);
+        const y = Y(my);
+        if (x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
+        if (a.b.car) drawCar(g, x, y, hd, a.b.car, pal);
+        else {
+          drawBus(g, x, y, hd, { ...a.b, colour: grey }, pal, false, accent);
+          if (a.b.tag && cam.current.mpp < 3) drawTag(g, x, y, { ...a.b, colour: grey }, font, widths);
+        }
+        continue;
+      }
       const [mx, my, hd] = glide(a, t);
       const x = X(mx);
       const y = Y(my);
@@ -405,9 +481,14 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     // (the one picked and the one under the mouse on top)
     const rank = (e) => (e.a.b.key === pickRef.current ? 2 : e.a.b.key === hover.current ? 1 : 0);
     list.sort((p, q) => rank(p) - rank(q));
-    for (const e of list) if (!e.off) drawBus(g, e.x, e.y, e.hd, e.a.b, pal, e.a.b.key === pickRef.current, accent);
+    for (const e of list) if (!e.off) drawBus(g, e.x, e.y, e.hd, e.a.b.other ? { ...e.a.b, colour: accent } : e.a.b, pal, e.a.b.key === pickRef.current, accent);
     for (const e of list) {
       if (e.off) continue;
+      // (another player's bus: its name on the accent, not to be picked)
+      if (e.a.b.other) {
+        drawTag(g, e.x, e.y, { ...e.a.b, colour: accent }, font, widths);
+        continue;
+      }
       const tag = drawTag(g, e.x, e.y, e.a.b, font, widths);
       out.push({ key: e.a.b.key, x: e.x, y: e.y, tag });
     }
@@ -442,24 +523,31 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     }
     el.style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px)`;
   };
-  // the answers: each bus glides from where it is drawn to where the answer has it
+  // the answers: each bus glides from where it is drawn to where the answer has it, over the time
+  // since it last moved (the company's buses every answer, the game's every two seconds)
   useEffect(() => {
     const t = performance.now();
-    const since = lastAnswer.current ? t - lastAnswer.current : GLIDE_MIN;
-    lastAnswer.current = t;
-    const dur = Math.max(GLIDE_MIN, Math.min(GLIDE_MAX, since));
     const seen = new Set();
-    for (const b of v.buses) {
-      seen.add(b.key);
-      const to = [b.at[0], b.at[1], b.h];
-      const a = anim.current.get(b.key);
+    const put = (key, to, b) => {
+      seen.add(key);
+      const a = anim.current.get(key);
       if (!a) {
-        anim.current.set(b.key, { from: to, to, t0: t, dur, b });
-        continue;
+        anim.current.set(key, { from: to, to, t0: t, dur: GLIDE_MIN, b, moved: t });
+        return;
       }
+      a.b = b;
+      if (a.to[0] === to[0] && a.to[1] === to[1] && a.to[2] === to[2]) return;
+      const dur = Math.max(GLIDE_MIN, Math.min(GLIDE_MAX, t - a.moved));
       const now = glide(a, t);
       const far = Math.hypot(to[0] - now[0], to[1] - now[1]) > SNAP_M;
-      anim.current.set(b.key, { from: far ? to : now, to, t0: t, dur, b });
+      anim.current.set(key, { from: far ? to : now, to, t0: t, dur, b, moved: t });
+    };
+    for (const b of v.buses) put(b.key, [b.at[0], b.at[1], b.h], { ...b, co: true });
+    const tr8 = v.traffic;
+    if (tr8) {
+      for (const b of tr8.buses || []) put(b.key, [b.at[0], b.at[1], b.h], { ...b, game: true, state: 'service', tone: 'ok' });
+      for (const b of tr8.players || []) put(b.key, [b.at[0], b.at[1], b.h], { ...b, other: true, state: 'service', tone: 'ok' });
+      if (!mini) for (const [id, x, y, h, kind] of tr8.vehicles || []) put('v|' + id, [x, y, h], { key: 'v|' + id, car: kind });
     }
     for (const k of [...anim.current.keys()]) if (!seen.has(k)) anim.current.delete(k);
   }, [v]);
@@ -481,7 +569,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   useEffect(() => {
     cam.current = null;
   }, [map]);
-  useEffect(drawBase, [map, W, H, left, look]);
+  useEffect(drawBase, [map, W, H, left, look, signs]);
   // (the small map's buttons: zoom on its middle, the whole of it, a bus centred)
   if (ctl)
     ctl.current = {
@@ -658,6 +746,7 @@ function Card({ c, tip, onClose }) {
 /** The panel over the map (`map::side`): the clock and its speed, and the lines with their buses
  * on the road. */
 function Side({ v, r }) {
+  const [, redraw] = useState(0);
   const iw = r.w - 32;
   const ih = r.h - 28;
   const bw = (iw - 18) / 4;
@@ -679,6 +768,16 @@ function Side({ v, r }) {
       ${parts}
       <div style=${`position:absolute;left:0;right:0;top:${y}px;bottom:0;display:flex;flex-direction:column`}>
         <p class="co-note" style="flex:none;margin-bottom:12px">${v.counts}</p>
+        ${v.traffic &&
+        html`<label class="co-note" style="flex:none;margin:-4px 0 12px;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <input type="checkbox" checked=${showTraffic} onChange=${(e) => {
+            setShowTraffic(e.target.checked);
+            redraw((x) => x + 1);
+          }} />
+          <${Icon} name="traffic" size=${15} />
+          <span class="cut grow">${v.traffic.label}</span>
+          <b>${(v.traffic.vehicles?.length || 0) + (v.traffic.buses?.length || 0)}</b>
+        </label>`}
         ${!v.legend.length
           ? html`<p class="co-para" style="font-size:10.75px">${v.no_lines}</p>`
           : html`<div class="co-scroll" style="flex:1;min-height:0;height:auto">

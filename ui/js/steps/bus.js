@@ -9,7 +9,7 @@ import { S, set, useStore } from '../store.js';
 import { choose, curBus, loadSituations } from '../hub/drive.js';
 import { toggleFavourite } from '../hub/drive.js';
 // (Omsi-Hub Bus3D: the bus drawn by the page's own renderer, `bus3d/viewer.js`)
-import { Bus3D } from '../hub/later.js';
+import { Bus3D } from '../hub/bus3d/viewer.js';
 import { Search, Select, Input } from '../ui.js';
 import { Actions, Foot, Head, Icon, Switch, tr, Button } from '../hub/bits.js';
 import { goStep, previousOf, hubStart } from '../hub/flow.js';

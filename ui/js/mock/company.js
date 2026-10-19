@@ -4,6 +4,8 @@
 // choose. The shapes follow the old Rust views (`serde_json::json!` there), the words come ready
 // in English. A little state is kept so that the clock runs, messages are read and actions show.
 
+import { moduleAt, spot, whyNot } from '../company/depot3d/yard.js';
+
 // --- what the company is ----------------------------------------------------------------------
 
 const PALETTE = ['#f28c28', '#e03c31', '#c2185b', '#7b1fa2', '#283593', '#1e88e5', '#00897b', '#43a047', '#fdd835', '#6d4c41', '#455a64', '#f5f5f5'];
@@ -19,7 +21,7 @@ const companies = [
   { id: 'ruhrau-verkehr', name: 'Ruhrau Verkehr', short: 'RV', colours: ['#43a047', '#f5f5f5'], map: 'maps/Ruhrau/global.cfg', map_name: 'Ruhrau', depot: 'Betriebshof Ruhrau', mode: 'casual', cash: 4210000, trophies: 3, reputation: 48, date: '2026-05-02', minute: 9 * 60, played: 60 * 26 },
 ];
 
-const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
+const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, friendsJoin: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
 const co = () => companies.find((c) => c.id === st.open) || null;
 const bump = () => (st.gen += 1);
 const say = (text, error = false) => st.notices.push({ text, error });
@@ -138,7 +140,7 @@ function chooser() {
     modes: {
       title: 'How do you want to play?', text: 'Your own company in a time of its own, or one run together with others.',
       single: { title: 'Singleplayer', text: 'Found and run your own companies, in a time of their own that runs while you play.', foot: n === 1 ? '1 company on this computer' : `${n} companies on this computer` },
-      multi: { title: 'Join a company', text: 'A friend runs a bus company: join it with their session code, get a role, and drive its duties in your own game.', foot: 'With a session code', tip: 'The boss shares the company on its Multiplayer page and sends you the code.', off: 'Multiplayer - coming soon (beta)' },
+      multi: { title: 'Join a company', text: 'A friend runs a bus company: join it with their session code, get a role, and drive its duties in your own game.', foot: 'With a session code', tip: 'The boss shares the company on its Multiplayer page and sends you the code.', off: null },
     },
     companies: {
       back: 'Play mode',
@@ -236,7 +238,7 @@ function shell() {
       label: 'COMPANY TIME', date: dayLabel(c.date), time: hm(), live: st.realtime, in_game: false, lead: null, speed: st.speed, real: st.realtime,
       tip: st.realtime ? 'In step with the real clock: the company\'s time goes on while Omsi-Hub is closed, and is caught up when you open the company.' : "The company's time stands still while it is closed: the real clock is off in the company's settings.",
     },
-    rail: casual ? [CASUAL_PAGES.slice(0, 5).map(([tab, name, icon]) => ({ tab, icon, name, tip: name, badge: null, away: false }))] : rail, pages: casual ? CASUAL_PAGES.slice(0, 5).map((x) => x[0]) : pages, together: { on: false, label: 'Multiplayer - coming soon (beta)' }, bell: unread() + 2,
+    rail: casual ? [CASUAL_PAGES.slice(0, 5).map(([tab, name, icon]) => ({ tab, icon, name, tip: name, badge: null, away: false }))] : rail, pages: casual ? CASUAL_PAGES.slice(0, 5).map((x) => x[0]) : pages, together: { on: true, label: '' }, bell: unread() + 2,
     names: TABS, casual, cover: null, asking: false, reports: !!st.reports, away: false, launch: !!st.launch, sheet: false,
     casual_pages: casual ? { pages: Object.fromEntries([[HOME_TAB, 'Home', 'home', HOME_TAB], ...CASUAL_PAGES].map(([tab, name, icon, parent]) => [tab, { name, icon, parent }])), home: `${c.name} · Casual` } : null,
     today_read: true,
@@ -416,8 +418,9 @@ function fleet(a) {
   } else {
     body = {
       kind: 'buses', order: 'An MAN NL202 is on order: delivered on Mon 2 Nov', empty: 'No bus yet.', to_dealer: 'To the dealer',
+      number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
       buses: BUSES.map((b) => ({
-        id: b.id, number: b.number, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
         sub: `${b.plate}  ·  ${b.kind}`, facts: `${grouped(b.km)} km  ·  ${2026 - b.year} years`,
         condition: { frac: b.cond, tone: condTone(b.cond), tip: `Condition ${Math.round(b.cond * 100)} %` },
         tone: b.workshop ? 'danger' : b.id === 4 ? 'warn' : 'ok', status: b.workshop ? 'In the workshop until Wed' : TOURS.some((t) => t.bus === b.id) ? 'On line ' + TOURS.find((t) => t.bus === b.id).line : 'In the depot',
@@ -779,6 +782,7 @@ function settings(a) {
     buying: { caps: 'BUYING BUSES', mode: 1, modes: ['Simple', 'By contract'], say: 'Haggle with the dealer, agree on extras and sign a contract; new buses are delivered.' },
     currency: { caps: 'CURRENCY', value: 0, codes: ['EUR', 'GBP', 'PLN'], options: ['Euro (€)', 'Pound (£)', 'Złoty (zł)'], say: 'Money is shown in this currency.' },
     vehicles: null,
+    friends: { caps: 'MULTIPLAYER', on: st.friendsJoin, label: 'Friends can join without an invite', say: st.friendsJoin ? 'While you share the company, your Omsi-Hub friends see a Join button in their friends list: no session code needed.' : 'Off: friends join when you invite them from your friends list, or with the session code.' },
     date_caps: "THE COMPANY'S DATE", now: `${dayLabel(c.date)}  ·  ${hm()}`,
     realtime: { on: st.realtime, label: 'In step with the real clock', say: "The company's time goes on while Omsi-Hub is closed." },
     date: a.date || c.date, earliest: null, warn: 'Moving the date does not simulate the days between.',
@@ -920,7 +924,7 @@ function sidePanel(sel, arm, today) {
  * tools, a line's sheet opened -, the research's, the workshop's and the sheet's. */
 function moreAct(a) {
   if (String(a.act || '').startsWith('pe_')) return planEditAct(a);
-  const other = researchAct(a) || workshopAct(a);
+  const other = researchAct(a) || workshopAct(a) || depotAct(a);
   if (other) {
     bump();
     return other;
@@ -991,9 +995,19 @@ function dayPanel(arm) {
   };
 }
 
-// - Casual's pages (its home; the others are left out of the mock) -
+// - Casual's pages (its home and its buses; the others are left out of the mock) -
 
 function casual(a) {
+  if (a.page === 'buses') {
+    return {
+      page: 'buses', order: null, number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
+      head: { name: 'Buses', sub: `${BUSES.length} buses · repairs and services happen by themselves`, action: ['Buy a bus', 'add'], help: { icon: 'help', title: 'Buses', text: 'Your buses.', unlock: '', go: null }, help_tip: 'What is this page?' },
+      cards: BUSES.map((b) => ({
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, age: `${2026 - b.year} years old`,
+        cond: b.cond, cond_tone: condTone(b.cond), word: b.cond >= 0.7 ? 'Good condition' : 'Worn: repaired soon', doing: b.workshop ? 'In the workshop: back on Wed' : 'Free today', tone: b.workshop ? 'warn' : 'dim',
+      })),
+    };
+  }
   if ((a.page || 'home') !== 'home') return {};
   const c = co();
   const go = (tab) => ({ kind: 'open', tab });
@@ -1053,7 +1067,13 @@ function ops() {
     buses: [{ kind: 'bus', sev: { key: 'medium', label: 'Medium' }, plate: plate(l101), bus: '18', delay: '+7 min', at: 'Marktplatz', cause: 'Traffic', detail: 'Road works on the Hauptstraße', map: 'bus:2', to: { key: 'staff:2', label: 'Anke Müller' }, min: 7,
       options: [{ icon: 'fast_forward', short: 'Short turn', label: 'Turn short at the Kirche', effect: 'Back on time at the next trip; 2 stops not served', best: true, good: true, args: { bus: 2, way: 'short' } }, { icon: 'hourglass_empty', short: 'Wait', label: 'Let it run late', effect: 'About 7 minutes late until the end', best: false, good: false, args: { bus: 2, way: 'none' } }] }],
     breaks: [{ kind: 'break', sev: { key: 'high', label: 'High' }, plate: null, bus: '2571', delay: '—', at: 'Depot', cause: 'Breakdown', detail: 'Starter motor', done: 'Bus 31 runs in its place', none: null, options: [] }],
-    drivers: [], msgs: [],
+    // (a late driver someone covers, and a duty nobody drives: `ops::open_json`)
+    drivers: [{ kind: 'driver', sev: { key: 'ok', label: 'Cover sent' }, plate: plate(lineOf('205')), bus: '22', delay: '+30 min', at: 'at Bahnhof', cause: 'Driver late', detail: 'Jonas Weber signs on at 08:10', done: 'Anke Müller drives the first trips until 08:10', options: [] }],
+    open: [{ kind: 'open', sev: { key: 'high', label: 'High' }, plate: plate(lineOf('102')), bus: '31', delay: 'from 08:05', at: 'at Bahnhof', cause: 'No driver', detail: 'Ill · 6 trips lost if nobody covers it', map: 'bus:3', nothing: 'Left as it is: 6 trips dropped, €0.00 in penalties, −0.4 reputation.',
+      options: [{ icon: 'person', short: 'Tim Becker', label: 'Tim Becker drives it (standby: free all day)', effect: 'Saves 6 trips (−€0.00)', best: true, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'colleague', id: 7 } } },
+        { icon: 'badge', short: 'Agency driver', label: 'The agency sends a driver for it', effect: 'Saves 6 trips (−€0.00); costs €148.00', best: false, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'agency' } } },
+        { icon: 'close', short: 'Drop trips', label: 'Drop its trips still to come today', effect: 'Left as it is: 6 trips dropped', best: false, good: false, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'drop' } } }] }],
+    msgs: [],
     normal: [{ plate: plate(lineOf('102')), time: '07:31', age: 11 }, { plate: plate(lineOf('205')), time: '07:20', age: 22 }],
     map: { title: 'LIVE NETWORK MAP', sub: 'Every bus where it is', legend: [['ok', 'On time'], ['warn', 'Late'], ['danger', 'Very late'], ['dim', 'In the depot']], zoom_in: 'Zoom in', zoom_out: 'Zoom out', fit: 'Show all' },
     diversions: { title: 'DIVERSIONS AND ROADWORKS', sub: 'Planned diversions: the lines take the way round on those days.', events: ['Road works on the Hauptstraße: line 101 over the Kirchweg until Fri 23 Oct'], rows: [], none: 'No diversions planned.',
@@ -1090,7 +1110,7 @@ function reputation(a) {
       head: { title: 'REPUTATION', info: 'From 0 to 100: it moves passengers, tenders and the authority.', frac: c.reputation / 100, value: c.reputation.toFixed(1), under: 'of 100', say_tone: 'ok', say_icon: 'trending_up', say: 'Good and rising', by: '+2.1 this week', chart_title: 'THE LAST WEEKS', chart: [['W38', 55], ['W39', 57], ['W40', 58], ['W41', 61], ['W42', 63]], trend: 'Rising for five weeks', trend_tone: 'ok', caps: 'Above 70 the authority prefers your bids.' },
       log_title: 'WHAT MOVED IT', log: [{ date: '16 Oct', text: 'Grundorfer Anzeiger: "Clean buses, friendly drivers"', change: '+1.5', tone: 'ok' }, { date: '14 Oct', text: '6 trips dropped on line 102', change: '-0.8', tone: 'danger' }],
       effects_title: 'WHAT RAISES AND LOWERS IT', effects_info: 'Each week', positive_title: 'RAISES IT', negative_title: 'LOWERS IT',
-      positive: [{ icon: 'schedule', name: 'Punctuality', text: '91 % on time', value: '+1.2' }, { icon: 'cleaning_services', name: 'Clean buses', text: 'Cleaned every night', value: '+0.6' }],
+      positive: [{ icon: 'schedule', name: 'Punctuality', text: '91 % on time', value: '+1.2' }, { icon: 'airline_seat_recline_normal', name: 'Clean buses', text: 'Cleaned every night', value: '+0.6' }],
       negative: [{ icon: 'event_busy', name: 'Trips dropped', text: '6 this week', value: '-0.8' }, { icon: 'directions_bus', name: 'Old buses', text: 'Average age 21 years', value: '-0.3' }],
       drives: 'Punctuality weighs most.', week_title: 'THIS WEEK BY CAUSE', week_any: true, week_none: 'Nothing this week.',
       week: [{ label: 'Punctuality', frac: 0.8, tone: 'ok', value: '+1.2', zero: false }, { label: 'Cleanliness', frac: 0.4, tone: 'ok', value: '+0.6', zero: false }, { label: 'Trips dropped', frac: 0.55, tone: 'danger', value: '-0.8', zero: false }, { label: 'Complaints', frac: 0, tone: 'dim', value: '0', zero: true }],
@@ -1132,15 +1152,115 @@ function contracts() {
       kind: 'goals',
       offered: { title: 'OFFERED', until: 'Until Sunday', empty: 'No goals offered.', cards: [{ id: 3, icon: 'groups', tone: 'accent', title: '25,000 passengers this week', rule: 'Every line of the company counts.', trophies: '2', reward: '€1,500', days: '7 days', take: 'Take it', primary: true }] },
       running: { title: 'RUNNING', empty: 'No goal runs.', cards: [{ id: 2, icon: 'schedule', tone: 'ok', title: '95 % on time this week', rule: 'Within two minutes of the timetable', bar: { frac: 0.72, tone: 'ok', label: '91 % of 95 %' }, trophies: '3', reward: '€2,500', when: '5 days left', when_tone: 'soft', give_up: 'Give up' }] },
-      finished: { title: 'FINISHED', empty: 'None finished yet.', rows: [{ icon: 'cleaning_services', tone: 'ok', title: 'A clean fleet', what: 'Every bus cleaned for a week', done: true, trophies: '1', reward: '€800', ago: '9 days ago' }] },
+      finished: { title: 'FINISHED', empty: 'None finished yet.', rows: [{ icon: 'airline_seat_recline_normal', tone: 'ok', title: 'A clean fleet', what: 'Every bus cleaned for a week', done: true, trophies: '1', reward: '€800', ago: '9 days ago' }] },
     },
   };
 }
 
+// (the yard laid out, as `hub_core::company::yard` keeps it: its levels, the modules where they
+// stand, the land bought; the build mode's actions change them)
+// (`?mock&empty=1`: a company founded now, its land only and its building credit)
+const EMPTY = new URLSearchParams(location.search).has('empty');
+const SITE = EMPTY
+  ? { parking: 0, workshop: 0, wash: 0, fuel: 0, offices: 0, charging: 0, land: 0, next: 0, modules: [], upgrades: [], credit: 471000, look: { wall: null, roof: null, trim: null, door: null, finish: 'cladding' } }
+  : { parking: 2, workshop: 2, wash: 2, fuel: 4, offices: 2, charging: 2, land: 0, next: 0, modules: [], upgrades: ['gantry', 'carports', 'paint_booth', 'bulk_tank', 'canteen', 'solar'], credit: 0, look: { wall: null, roof: null, trim: null, door: null, finish: 'brick' } };
+/** What can be added to each area (`depot::Upgrade`): key, icon, label, what it does, price. */
+const UPGRADES = {
+  parking: [['lights', 'videocam', 'Lights and cameras', 'The staff feel safer, the buses are daubed on less', '€29,300'], ['carports', 'home', 'Carports', 'The buses stand dry: they stay clean longer', '€94,800'], ['hall', 'garage', 'Parking hall', 'The buses stand indoors: they stay clean much longer', '€474,300']],
+  workshop: [['paint_booth', 'livery_brush', 'Paint booth', 'Liveries painted in house: 30 % cheaper', '€158,100'], ['inspection_lane', 'speed', 'Inspection lane', 'Repairs found sooner: 15 % cheaper', '€84,300'], ['tyre_store', 'build', 'Tyre store', 'Repairs and overhauls 7 % cheaper', '€42,200']],
+  wash: [['gantry', 'local_car_wash', 'Wash gantries', 'Every lane washes four times the buses a night', '€200,300'], ['interior', 'airline_seat_recline_normal', 'Interior cleaning', 'A wash cleans inside too: it does more', '€47,400'], ['underbody', 'rainy', 'Underbody wash', 'The buses stay clean longer', '€36,900'], ['autorenew', 'autorenew', 'Water recycling', 'The wash lanes cost 40 % less to keep', '€63,200']],
+  fuel: [['bulk_tank', 'local_gas_station', 'Bulk tank', 'Diesel bought in bulk: 3 % cheaper at the depot', '€73,800'], ['adblue', 'water_drop', 'AdBlue dispenser', 'No detours for AdBlue: 1 % cheaper at the depot', '€12,600']],
+  offices: [['canteen', 'group', 'Canteen', 'The staff are more satisfied', '€94,800'], ['control_room', 'monitor', 'Control room', 'The service watched: the passengers notice', '€126,500'], ['training_room', 'school', 'Training room', 'The staff are a little more satisfied', '€63,200']],
+  charging: [['solar', 'wb_sunny', 'Solar roof', 'Power for the chargers 8 % cheaper', '€147,600']],
+};
+const upgradesOf = (a) =>
+  (UPGRADES[a] || []).map(([key, icon, label, what, cost]) => {
+    const built = SITE.upgrades.includes(key);
+    return { key, icon, label, what, built, ...(built ? {} : SITE[a] ? { cost, busy: false, tip: '21 days of work' } : { needs: `Build the ${a} first` }) };
+  });
+const SHAPES = { parking: { w: 24, h: 10, front: 5, back: 0 }, workshop: { w: 4, h: 14, front: 6, back: 0 }, wash: { w: 6, h: 14, front: 4, back: 3 }, fuel: { w: 10, h: 10, front: 4, back: 2 }, offices: { w: 10, h: 12, front: 2, back: 0 } };
+const TITLES = { parking: ['Parking spaces', '12 spaces'], workshop: ['Workshop bays', 'A bay: one bus worked on at once'], wash: ['Washing bay', 'A lane: washes 40 buses a night'], fuel: ['Diesel station', 'Fills 15 diesel buses a night'], offices: ['Offices and rest rooms', 'Room for 20 people'] };
+const wantedOf = (lv, a) => (a === 'parking' || a === 'workshop' || a === 'wash' ? lv[a] : lv[a] > 0 ? 1 : 0);
+const yardNow = () => ({ cell: 2, cols: 48 + 20 * SITE.land, rows: 64, max_cols: 88, gate: { x: 20, y: 54, w: 8, h: 10 }, shapes: SHAPES, modules: SITE.modules });
+
+function yardOf(lv) {
+  for (const a of Object.keys(SHAPES)) {
+    while (SITE.modules.filter((m) => m.area === a).length > wantedOf(lv, a)) SITE.modules.splice(SITE.modules.map((m) => m.area).lastIndexOf(a), 1);
+  }
+  for (const a of ['offices', 'workshop', 'wash', 'fuel', 'parking']) {
+    while (SITE.modules.filter((m) => m.area === a).length < wantedOf(lv, a)) {
+      const at = spot(yardNow(), a);
+      if (!at) {
+        if (SITE.land < 2) SITE.land++;
+        else break;
+        continue;
+      }
+      SITE.modules.push(moduleAt(yardNow(), ++SITE.next, a, at.x, at.y, at.rot, { title: TITLES[a][0], what: TITLES[a][1] }));
+    }
+  }
+  return { ...yardNow(), land: SITE.land < 2 ? { cost: SITE.land ? '€216,000' : '€162,000', can: true, tip: '40 m more land beside the yard, yours at once' } : null };
+}
+
+function depotAct(a) {
+  const L = yardNow();
+  switch (a.act) {
+    case 'depot_build_at': {
+      if (whyNot(L, a.area, a.x, a.y, a.rot)) return {};
+      SITE[a.area] += 1;
+      SITE.modules.push(moduleAt(L, ++SITE.next, a.area, a.x, a.y, a.rot, { title: TITLES[a.area][0], what: TITLES[a.area][1] }));
+      return { ok: true };
+    }
+    case 'depot_move': {
+      const m = SITE.modules.find((x) => x.id === a.id);
+      if (!m || whyNot(L, m.area, a.x, a.y, a.rot, m.id)) return {};
+      Object.assign(m, moduleAt(L, m.id, m.area, a.x, a.y, a.rot, { title: m.title, what: m.what }));
+      return { ok: true };
+    }
+    case 'depot_demolish': {
+      const k = SITE.modules.findIndex((x) => x.id === a.id);
+      if (k < 0) return {};
+      const [m] = SITE.modules.splice(k, 1);
+      SITE[m.area] = m.area === 'parking' || m.area === 'workshop' || m.area === 'wash' ? SITE[m.area] - 1 : 0;
+      return { ok: true };
+    }
+    case 'depot_build':
+      if (SITE[a.area] !== undefined) SITE[a.area] += 1;
+      return {};
+    case 'depot_upgrade':
+      if (!SITE.upgrades.includes(a.key)) SITE.upgrades.push(a.key);
+      return { ok: true };
+    case 'depot_look':
+      SITE.look = { wall: a.wall || null, roof: a.roof || null, trim: a.trim || null, door: a.door || null, finish: a.finish || 'cladding' };
+      return { ok: true };
+    case 'depot_land':
+      if (SITE.land < 2) SITE.land++;
+      return { ok: true };
+    default:
+      return null;
+  }
+}
+
 function depot() {
   const c = co();
-  const busAt = (b) => ({ id: b.id, number: b.number, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
+  const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', file: b.file, paint: b.livery, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
   const bld = (head, works = null) => ({ built: true, head, works });
+  // (`?mock&buses=120`: a full yard, for the 3D depot's speed)
+  const many = Number(new URLSearchParams(location.search).get('buses')) || 0;
+  if (many && !depot.inner) {
+    depot.inner = true;
+    const kinds = [['Vehicles/MAN_NL_NG/NL202.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Weiss'], ['Vehicles/MAN_NG/NG272.bus', 'Grundorf'], ['Vehicles/MAN_NL_NG/NL202.bus', 'BVG'], ['Vehicles/MAN_NL_NG/NL202.bus', 'Hamburg']];
+    const fleet = Array.from({ length: many }, (_, k) => {
+      const [file, paint] = kinds[k % 7 === 0 ? 2 : k % 5 === 0 ? 3 : k % 3 === 0 ? 1 : k % 11 === 0 ? 4 : 0];
+      return { id: 1000 + k, number: String(100 + k), size: /NG272/.test(file) ? 'articulated' : 'solo', file, paint, tip: `${100 + k} MAN  ·  ${paint}` };
+    });
+    if (!depot.full) {
+      depot.full = true;
+      Object.assign(SITE, { parking: 8, workshop: 6, offices: 3 });
+    }
+    const v = depot();
+    depot.inner = false;
+    return { ...v, plan: { ...v.plan, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8) } };
+  }
   return {
     figures: [
       { label: 'Parking', value: '3 / 12', under: '9 spaces free', tone: 'text' },
@@ -1150,18 +1270,25 @@ function depot() {
     ],
     plan: {
       title: 'The depot from above', colour: c.colours[0],
-      offices: { ...bld('OFFICES'), floors: 1, room: 'room for 8' }, hall: { ...bld('WORKSHOP'), bays: 2, max: 4 }, wash: { ...bld('WASHING BAY'), gates: false }, fuel: { ...bld('DIESEL STATION'), pumps: 2 },
-      parking: { label: 'PARKING', works: null, blocks: 4, built: 1, building: false, per: 12, chargers: 0 },
-      in_ws: BUSES.filter((b) => b.workshop).map(busAt), parked: BUSES.filter((b) => !b.workshop).map(busAt),
+      offices: { ...bld('OFFICES'), built: SITE.offices > 0, floors: SITE.offices, room: 'room for 50' }, hall: { ...bld('WORKSHOP'), built: SITE.workshop > 0, bays: SITE.workshop, max: 6 }, wash: { ...bld('WASHING BAY'), built: SITE.wash > 0, lanes: SITE.wash, gates: SITE.upgrades.includes('gantry') }, fuel: { ...bld('DIESEL STATION'), built: SITE.fuel > 0, pumps: SITE.fuel },
+      parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: SITE.charging * 2 },
+      layout: yardOf(SITE),
+      in_ws: EMPTY ? [] : BUSES.filter((b) => b.workshop).map(busAt), parked: EMPTY ? [] : BUSES.filter((b) => !b.workshop).map(busAt),
+      upgrades: SITE.upgrades, look: SITE.look,
+      staff: EMPTY ? { drivers: 0, mechanics: 0, cleaners: 0, office: 0, service: 0, inspectors: 0, researchers: 0 } : { drivers: 14, mechanics: 3, cleaners: 2, office: 3, service: 1, inspectors: 1, researchers: 1 },
     },
     build: {
       title: 'Build',
       rows: [
-        { key: 'parking', icon: 'local_parking', label: 'Parking', level: 'level 1 of 4', effect: '12 spaces', cost: '€45,000', locked: false, tip: 'Build the next level: 30 days of work, then €300 a month' },
-        { key: 'workshop', icon: 'construction', label: 'Workshop', level: 'level 1 of 4', effect: '2 bays', cost: '€80,000', locked: false, tip: 'Build the next level: 45 days of work, then €500 a month' },
-        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
-        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', effect: 'Diesel 4 % cheaper', complete: 'Complete' },
+        { key: 'parking', icon: 'local_parking', label: 'Parking', level: `level ${SITE.parking} of 8`, lv: SITE.parking, max: 8, effect: `${SITE.parking * 12} spaces`, cost: '€70,300', locked: false, place: true, tip: 'Build the next level: 14 days of work, then €350 a month', upgrades: upgradesOf('parking') },
+        { key: 'workshop', icon: 'construction', label: 'Workshop', level: `level ${SITE.workshop} of 6`, lv: SITE.workshop, max: 6, effect: `${SITE.workshop} bays`, cost: '€210,800', locked: false, place: true, tip: 'Build the next level: 30 days of work, then €2,110 a month', upgrades: upgradesOf('workshop') },
+        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: `level ${SITE.wash} of 4`, lv: SITE.wash, max: 4, effect: SITE.wash ? `${SITE.wash} lanes: washes ${SITE.wash * (SITE.upgrades.includes('gantry') ? 40 : 10)} buses a night` : 'None: the fleet is cleaned by hand', cost: '€94,800', locked: false, place: true, tip: 'Build the next level: 21 days of work, then €470 a month', upgrades: upgradesOf('wash') },
+        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: `level ${SITE.fuel} of 6`, lv: SITE.fuel, max: 6, effect: `Fills ${SITE.fuel * 15} diesel buses a night`, cost: SITE.fuel ? '€31,600' : '€126,500', locked: false, place: !SITE.fuel, tip: 'Build the next level: 7 days of work, then €160 a month', upgrades: upgradesOf('fuel') },
+        { key: 'charging', icon: 'bolt', label: 'Charging points', level: `level ${SITE.charging} of 10`, lv: SITE.charging, max: 10, effect: `Charges ${SITE.charging * 2} electric buses a night`, cost: '€52,700', locked: false, place: false, tip: 'Build the next level: 10 days of work, then €260 a month', upgrades: upgradesOf('charging') },
+        { key: 'offices', icon: 'groups', label: 'Offices and rest rooms', level: `level ${SITE.offices} of 3`, lv: SITE.offices, max: 3, effect: `Room for ${[0, 20, 50, 120][SITE.offices]} people`, cost: '€232,000', locked: false, place: !SITE.offices, tip: 'Build the next level: 45 days of work, then €1,160 a month', upgrades: upgradesOf('offices') },
       ],
+      credit: SITE.credit ? { amount: `€${SITE.credit.toLocaleString('en')}`, tip: 'Building credit: what your company was given to build its first depot with, spent before your cash' } : null,
+      hint: EMPTY && !SITE.modules.length ? 'Your land is empty: build parking spaces, a workshop, a diesel station and offices to start with.' : null,
     },
     workshop: {
       title: 'Workshop', empty: null, cancel_tip: 'Take the job back',
@@ -1390,16 +1517,64 @@ function workshopAct(a) {
   }
 }
 
-/** The fleet map's panel and buses (`fleetmap::view`): the buses are placed on the routes the game
- * program read, which the add-on has not (`co_more_map` is not available) - so, as in the app, the
- * map is not built and no bus is on it; the panel has the clock and the lines. */
+/** The mock's map: a grid of roads, the company's line along it. */
+const GRID = [[0, 0, 2400, 0], [0, 800, 2400, 800], [0, 1600, 2400, 1600], [0, 0, 0, 1600], [800, 0, 800, 1600], [1600, 0, 1600, 1600], [2400, 0, 2400, 1600]];
+const ROUTE = [200, 0, 800, 0, 800, 800, 1600, 800, 1600, 1600, 2300, 1600];
+
+/** Where a vehicle is `m` metres along the line `p` (to and fro), and its heading. */
+function along(p, m) {
+  const seg = [];
+  let len = 0;
+  for (let i = 0; i + 3 < p.length; i += 2) {
+    const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
+    seg.push([p[i], p[i + 1], p[i + 2], p[i + 3], l]);
+    len += l;
+  }
+  let d = ((m % (2 * len)) + 2 * len) % (2 * len);
+  const back = d > len;
+  if (back) d = 2 * len - d;
+  for (const [x0, y0, x1, y1, l] of seg) {
+    if (d <= l) {
+      const f = d / l;
+      const h = (Math.atan2(x1 - x0, y1 - y0) * 180) / Math.PI + (back ? 180 : 0);
+      return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, (h + 360) % 360];
+    }
+    d -= l;
+  }
+  return [p[0], p[1], 0];
+}
+
+/** The fleet map's panel and buses (`fleetmap::view`): two of the company's buses on its line, and
+ * the game's traffic as the plugin writes it while the game runs (`v.traffic`), moving with the
+ * real clock. */
 function fleetmap() {
+  const s = Date.now() / 1000;
+  const l = LINES[0];
+  const bus = (key, m, tone) => {
+    const [x, y, h] = along(ROUTE, m);
+    return { key, at: [x, y], h, colour: l.colour, tag: l.number, state: 'service', tone, min: 0, player: false, on: false };
+  };
+  // (the plugin's places every two seconds)
+  const t2 = Math.floor(s / 2) * 2;
+  const vehicles = GRID.flatMap((p, k) => [0, 1].map((j) => {
+    const [x, y, h] = along(p, t2 * (9 + k + j * 3) + j * 700 + k * 300);
+    return [`${k}-${j}`, Math.round(x), Math.round(y), Math.round(h), ['car', 'car', 'taxi', 'truck', 'car', 'tram', 'bicycle'][(k + j) % 7]];
+  }));
+  const g = along(GRID[2], t2 * 8 + 400);
+  const p = along(GRID[4], t2 * 10);
   return {
-    built: false, title: 'FLEET MAP', live: { text: "Live: the company's time", tone: 'accent2' }, clock: `${hhmm(co().minute)}:00`, secs: co().minute * 60, playing: false, is_live: true, speed: 0,
+    built: true, title: 'FLEET MAP', live: { text: "Live: the game's time", tone: 'ok' }, clock: `${hhmm(co().minute)}:00`, secs: co().minute * 60, playing: false, is_live: true, speed: 0,
     tips: { run: 'Run the clock', stop: 'Stop the clock', x10: 'Ten times as fast', x60: 'Sixty times as fast', now: 'Back to now', close: 'Close' },
-    counts: 'On the road: 0  ·  at a terminus: 0  ·  tours today: 0',
-    legend: LINES.map((l) => ({ plate: plate(l), colour: l.colour, caption: l.caption, n: 0 })), no_lines: 'The company runs no line on this day.',
-    buses: [], picked: null, card: null,
+    counts: 'On the road: 2  ·  at a terminus: 0  ·  tours today: 2',
+    legend: LINES.map((x, i) => ({ plate: plate(x), colour: x.colour, caption: x.caption, n: i ? 0 : 2 })), no_lines: 'The company runs no line on this day.',
+    buses: [bus(`${l.name}|1`, s * 9, 'ok'), bus(`${l.name}|2`, s * 9 + 2600, 'warn')],
+    traffic: {
+      label: "The game's traffic",
+      vehicles,
+      buses: [{ key: 'game|62|4|1205', at: [g[0], g[1]], h: g[2], tag: '62' }],
+      players: [{ key: 'player|Sam', at: [p[0], p[1]], h: p[2], tag: 'Sam' }],
+    },
+    picked: null, card: null,
   };
 }
 
@@ -1541,6 +1716,10 @@ function doAct(a) {
       st.realtime = !!a.on;
       bump();
       return {};
+    case 'friends_join':
+      st.friendsJoin = !!a.on;
+      bump();
+      return {};
     case 'rosterflow':
       st.rosterflow = !!a.on;
       bump();
@@ -1618,6 +1797,17 @@ function doAct(a) {
       if (a.date) c.date = a.date;
       bump();
       return {};
+    case 'bus_number': {
+      // (`market::set_number`: an empty one back to the automatic number)
+      const b = BUSES.find((x) => x.id === Number(a.id));
+      const n = String(a.number || '').trim();
+      if (!b) return {};
+      if (BUSES.some((x) => x !== b && x.number === n)) return { popup: { icon: 'error', title: 'This cannot be done', text: 'Another bus of the fleet has this number.', unlock: '', go: null } };
+      if (!n || n === b.auto) [b.number, b.auto] = [b.auto ?? b.number, undefined];
+      else [b.number, b.auto] = [n, b.auto ?? b.number];
+      bump();
+      return {};
+    }
     case 'new_take':
       return { joined: 5 };
     case 'design_livery':
@@ -1704,8 +1894,10 @@ export const companyAnswers = {
     return f ? f(a) : {};
   },
   co_more_act: (a) => (co() ? moreAct(a) : {}),
-  // (as in the app: the roads were read by the old game program - `company::NOT_AVAILABLE`)
-  co_more_map: () => {
-    throw 'not available: the game drew this for the old launcher, and the add-on has no game renderer';
-  },
+  co_more_map: () => ({
+    roads: GRID.map((p, k) => ({ p, w: 8, main: k === 1 })),
+    lines: [{ p: ROUTE, colour: LINES[0].colour }],
+    stops: [{ at: [800, 0], k: -1 }, { at: [800, 800], k: -1 }, { at: [1600, 800], k: -1 }],
+    lo: [0, 0], hi: [2400, 1600],
+  }),
 };

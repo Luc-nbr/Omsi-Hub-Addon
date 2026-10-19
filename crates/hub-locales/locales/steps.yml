@@ -1,0 +1,32 @@
+_version: 2
+# The drive's steps in the bar (ui/js/hub/flow.js `STEPS`, drawn by bar.js): the names openOMSI's own
+# tables gave the old app, from Luc's fork (Map's and Profile's Dutch our own).
+
+"Profile":
+  nl: "Profiel"
+  de: "Profil"
+  fr: "Profil"
+  ru: "Профиль"
+  uk: "Профіль"
+  pl: "Profil"
+"Mode":
+  nl: "Modus"
+  de: "Modus"
+  fr: "Mode"
+  ru: "Режим"
+  uk: "Режим"
+  pl: "Tryb"
+"Map":
+  nl: "Kaart"
+  de: "Karte"
+  fr: "Carte"
+  ru: "Карта"
+  uk: "Мапа"
+  pl: "Mapa"
+"Day & weather":
+  nl: "Dag & weer"
+  de: "Tag & Wetter"
+  fr: "Jour et météo"
+  ru: "День и погода"
+  uk: "День і погода"
+  pl: "Dzień i pogoda"

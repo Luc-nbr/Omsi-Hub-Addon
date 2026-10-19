@@ -743,7 +743,7 @@ fn a_renamed_line_keeps_its_duty_notes_and_the_draft_its_blocks() {
     // (an own line's new number is a new timetable name: `plan::rename_line`)
     let mut c = company();
     let w = wd(&c);
-    let piece = |line: &str| PieceRef { line: line.into(), tour: "1".into(), first: TripRef { tour: "1".into(), name: "5 1-0".into(), dep: 360 } };
+    let piece = |line: &str| PieceRef { line: line.into(), tour: "1".into(), first: TripRef { tour: "1".into(), name: "5 1-0".into(), dep: 360, ..Default::default() } };
     set_duty_lock(&mut c, w, &piece("Linie5"), true);
     set_block_lock(&mut c, w, "Linie5", "2", true);
     // a draft not saved yet: its own blocks, joined duty and lock

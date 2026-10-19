@@ -13,7 +13,21 @@ use crate::company::{dates, day, depot, found, Founding};
 const LINE: &str = "Linie5";
 
 fn trip(name: String, dep: i32, arr: i32, km: f64, empty: bool) -> PlannedTrip {
-    PlannedTrip { name, line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km, stops: if empty { 0 } else { 12 }, empty, origin: String::new(), last: String::new(), part: None }
+    PlannedTrip {
+        name,
+        line: "5".into(),
+        from: "A".into(),
+        to: "B".into(),
+        dep,
+        arr,
+        km,
+        stops: if empty { 0 } else { 12 },
+        empty,
+        origin: String::new(),
+        last: String::new(),
+        part: None,
+        of_line: String::new(),
+    }
 }
 
 /// A tour of eight trips of 50 minutes (24 km each: the data's operator ran some 31 km an hour of

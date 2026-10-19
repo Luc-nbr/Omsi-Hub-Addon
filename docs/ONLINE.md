@@ -8,6 +8,36 @@ An account is optional. Without one, Omsi-Hub plays fully local and only the onl
 missing (friends, online state, invites). A player signs in with email and a password, or with a
 Google account. Nothing else (Luc, 2026-10-16: "we doen alleen google of email", website and app).
 
+**One account, one driver** (Luc, 2026-10-18). The account on a computer belongs to one driver:
+the first sign-in makes or chooses the driver of the account's display name and keeps it as the
+account's (`account_driver` in the settings, `hub-api` `drivers::link_account`). The account's
+features - the friends and the online state, the leaderboard, the cloud saves - are that driver's;
+every other driver on the computer plays locally (`drivers::plays_online`: no heartbeat, no stats,
+no cloud sync, `ol_state` says `mode: local` with `account_of`). Signing out or deleting the account
+undoes the link; the account's driver cannot be deleted while it is signed in. The welcome asks it
+on the first start: sign in, or "Continue locally without sync".
+
+**The leaderboard's figures** are sent by the app itself (`online.rs` `report_due`): at every
+heartbeat the account's driver's service record - points and level (the service record's
+experience), the duties, the minutes driven and the kilometres - is worked out
+(`drivers::board_stats`: openOMSI's sessions of the driver, else the trips the plugin reported,
+grouped into drives) and sent with `report_stats` when it changed since it was last sent. Nothing
+is sent for another driver, signed out, or before the privacy statement is agreed to; whether the
+player stands on the public board stays their own switch.
+
+**The profile photo** is the same in the app and on the website (`hub-online`'s `avatar.rs`, the
+website's migration `supabase/migrations/20261018120000_avatars.sql` and its test
+`supabase/tests/avatars.test.mjs`): one small square picture (the page draws it at 256 px, WebP or
+JPEG, at most 1 MB) in the public bucket `avatars`, in a folder only its owner knows
+(`profiles.avatar_key`, never handed out: the photo's address carries no user id;
+`my_avatar_folder()`). A new photo goes under a new name, `set_avatar(name)` makes it the
+profile's `avatar` (only a picture in the player's own folder that is there) and answers the one it
+replaced for the caller to delete; `clear_avatar()` takes it away. `hub_leaderboard` and
+`my_friends` carry `avatar`, and its address is `/storage/v1/object/public/avatars/<avatar>`. In
+the app it is chosen in the account panel ("Your profile") or by a click on the account's driver's
+picture in the service record; the friends list shows the friends' photos. Deleting the account
+deletes the folder first.
+
 ## Moving to Supabase
 
 The online side moves from Neon to Supabase. The **website runs on Supabase**, and so does the app's
@@ -38,7 +68,12 @@ What changed for the app's client ("The app's side" below):
 ### Google
 
 Besides email and a password, a player can sign in with Google (Luc, 2026-10-16). Discord and Steam
-were tried the same day and dropped: Google or email only, on the website and in the app.
+were tried the same day and dropped. **Discord is back on the website** (Luc, 2026-10-19: "een
+functie om met discord in te loggen en om discord te koppelen aan je website account"): Supabase
+Auth's Discord provider on account.html, and any account can link a Discord account for the roles
+and the tickets on the Omsi-Hub Discord server (the website's `discord/README.md`). The app still
+signs in with Google or email only: an account made with Discord on the website gets a password
+for the app through "Forgot your password?" (Discord in the app is still to come).
 
 - Google is a Supabase Auth provider. The website sends the player to
   `/auth/v1/authorize?provider=google&redirect_to=<page>` and gets the session back in the address.

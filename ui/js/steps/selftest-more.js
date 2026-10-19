@@ -75,6 +75,25 @@ export async function selftest(check, errors, step) {
     set({ hub: { ...S.hub, busView: 'tiles' } });
   }
 
+  // the welcome: its steps drawn (closed again without `welcome_done`)
+  try {
+    const before = errors.length;
+    const { welcomeStep } = await import('../hub/welcome.js');
+    const seen = [];
+    for (const id of ['language', 'animations', 'signs', 'account', 'driver', 'ready']) {
+      welcomeStep(id);
+      await sleep(450);
+      globalThis.hubProbe?.(`the welcome, ${id}`);
+      seen.push(`${id}${$('.hub-welcome') ? '' : ' (missing)'}`);
+    }
+    const tiles = (welcomeStep('language'), await sleep(300), $$('.hub-wlang').length);
+    set({ hubWelcome: null });
+    await sleep(200);
+    check('hub: the welcome', errors.length === before && tiles === (S.boot?.languages || []).length, errors.length > before ? errors.slice(before).join('; ') : `${tiles} languages; ${seen.join(', ')}`);
+  } catch (x) {
+    check('hub: the welcome', false, x.message);
+  }
+
   // the guided tour: started, two stops on, skipped (the page and the step back as they were)
   try {
     const before = errors.length;

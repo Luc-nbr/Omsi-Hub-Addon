@@ -731,10 +731,10 @@ fn data() -> PathBuf {
     hub_core::data_dir()
 }
 
-/// The driver's name the companies are kept under (`profile` in the settings; empty: every
-/// company is the driver's).
+/// The driver's name the companies are kept under (`driver` in the settings, as the drive and
+/// the company's chooser read it; none chosen: every company is the driver's).
 fn profile() -> String {
-    hub_core::settings::Settings::load().other.get("profile").and_then(Value::as_str).unwrap_or("").to_string()
+    hub_core::settings::Settings::load().other.get("driver").and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 /// How often a changed cloud company goes up, and the cloud is listed again.
@@ -793,6 +793,10 @@ fn sync_now(id: &str) {
     let r = Engine { data: &d, remote: &mut Online }.sync(id);
     note(&r);
     let gone = trf("%{name} is no longer in the cloud: it stays on this PC as a local save.", &[("name", &name_of(id))]);
+    // (the content beside the save, for the website's bus company: `cloud_content`)
+    if matches!(r, Ok(Decision::Synced)) {
+        content_of(&d, id);
+    }
     let mut st = state();
     st.busy.remove(id);
     st.tried.insert(id.to_string(), now());
@@ -815,6 +819,18 @@ fn sync_now(id: &str) {
     }
 }
 
+/// The content beside a cloud company's save sent into its slot (at most every half hour;
+/// `cloud_content::send`). What goes wrong stays in the log: the save itself went up.
+fn content_of(d: &Path, id: &str) {
+    let s = sync_of(d, id);
+    if s.place != Place::Cloud {
+        return;
+    }
+    if let Err(e) = crate::cloud_content::send(d, id, s.slot) {
+        crate::launcher::log_to_file(&format!("cloud content of {id}: {e:?}"));
+    }
+}
+
 fn name_of(id: &str) -> String {
     files::load(&data(), id).map(|c| files::text(&c, "name")).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string())
 }
@@ -824,7 +840,8 @@ fn name_of(id: &str) -> String {
 fn worker() {
     loop {
         // (signed in with the privacy statement agreed to: before, the cloud is not asked)
-        let signed = online::with(|c| c.signed_in() && !c.privacy_needed());
+        // (another driver than the account's plays locally: `drivers::plays_online`)
+        let signed = online::with(|c| c.signed_in() && !c.privacy_needed()) && crate::drivers::plays_online();
         if signed {
             let stale = { now().saturating_sub(state().listed_at) >= LIST_EVERY };
             if stale {
@@ -1062,7 +1079,11 @@ fn put(id: &str, replace: Option<u8>) -> Value {
     state().listed_at = 0;
     let _ = relist(&mut Online);
     match r {
-        Ok(Put::Done(slot)) => json!({ "ok": true, "slot": slot.slot, "message": trf("%{name} is in the cloud now.", &[("name", &name)]) }),
+        Ok(Put::Done(slot)) => {
+            let id = id.to_string();
+            let _ = std::thread::Builder::new().name("omsihub cloud content".into()).spawn(move || content_of(&data(), &id));
+            json!({ "ok": true, "slot": slot.slot, "message": trf("%{name} is in the cloud now.", &[("name", &name)]) })
+        }
         Ok(Put::Limit(slots)) => json!({
             "limit": true, "text": tr(Error::Code("limit").text()),
             "slots": slots.iter().map(|s| slot_json(s, None)).collect::<Vec<_>>(),
@@ -1120,6 +1141,10 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
     let slot = args.get("slot").and_then(Value::as_u64).map(|n| n.min(255) as u8);
     // (an id is a file's name in the companies' folder: nothing that reaches outside it)
     let ok_id = !id.is_empty() && !id.contains(['/', '\\', '.']) && files::path_of(&data(), &id).exists();
+    // (the cloud saves are the account's driver's: another driver keeps theirs here)
+    if matches!(cmd, "cs_resolve" | "cs_put" | "cs_sync" | "cs_download" | "cs_remove") && !crate::drivers::plays_online() {
+        return Ok(error(Error::Code("not_signed_in")));
+    }
     Ok(match cmd {
         "cs_state" => view(),
         "cs_companies" => companies(),

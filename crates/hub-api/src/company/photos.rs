@@ -1,8 +1,7 @@
-//! The buses' photos on the fleet's, the dealer's and Casual's tiles: the PNGs our game-drawn
-//! launcher took with the game's own renderer (`omsi-launcher-ui/src/busphoto.rs`) and keeps
-//! under `~/.openomsi/cache/busphotos/`. The page asks for a bus's photo in a paint once
-//! (`co_photo`) and shows the bus's initials while there is none; one never taken is taken by
-//! the game program for the page (`hub_photo`, Omsi-Hub 6/6) and kept there the same way.
+//! The photos our game-drawn launcher took of the buses with the game's renderer
+//! (`omsi-launcher-ui/src/busphoto.rs`), in the data folder's `cache/busphotos/` (the migration
+//! brings them along): `co_photo`, shown on a tile while the page takes its own photo of the bus
+//! (`content::bus3d::photo`, `ui/js/hub/photos.js`).
 
 use crate::launcher as core;
 use std::path::{Path, PathBuf};
@@ -42,10 +41,8 @@ pub(super) fn png(bus: &str, paint: &str) -> Result<Vec<u8>, String> {
     if bus.trim().is_empty() {
         return Err("no bus".into());
     }
-    // (the photos the old game took, where the old launcher's cache was imported; no new ones:
-    // see `NOT_AVAILABLE`)
     let root = core::load_config().root;
-    std::fs::read(photo_file(&root, bus, paint)).map_err(|_| super::NOT_AVAILABLE.to_string())
+    std::fs::read(photo_file(&root, bus, paint)).map_err(|_| "no photo taken yet".to_string())
 }
 
 #[cfg(test)]

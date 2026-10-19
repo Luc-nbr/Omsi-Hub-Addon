@@ -1,85 +1,271 @@
-// A trip's route on the map's roads, as the drive's steps and the company's duty show it beside
-// their sheet: the roads in grey, the route in the accent, its stops as dots with their names,
-// and the map's entry points to choose from where the step offers them.
-//
-// The drawing comes from hub-api (`hub_route_map {map, date, trip}`, or `read()` the page
-// gives): `{ roads: [{ p: [x, y, x, y …], w, main }], route: [[x, y …]], lo: [x, y],
-// hi: [x, y], entries: [{ index, name, at: [x, y] }] }` in the map's metres, y north.
+// The route preview (the old launcher's `routemap.js`): the map's roads as the game's own city
+// map draws them (`hub_route_map`: hub-api's content/mapview.rs, on the map's own lanes), the
+// trip's route in the map's red on the very lanes the game drives, its stops with their times,
+// and the entry points - one clicked is where the bus starts. Dragged to move, the wheel (or the
+// step's zoom buttons, which send it) to zoom where the mouse is.
 
-import { html, useEffect, useState } from '../../vendor/preact-htm.js';
+import { html, useEffect, useRef, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
-import { tr } from './bits.js';
+import { t, plain } from '../i18n.js';
+import { Spinner } from '../ui.js';
+import { useStore } from '../store.js';
+import { drawStopSign, stopSign } from './stopsigns.js';
 
 const cache = new Map();
 
+/** The stop objects stand beside the road; their dots go onto the route itself: the nearest
+ * point of the route's lanes (within 40 m - a stop the route misses stays where it is). */
+function onRoute(d) {
+  for (const s of d.stops) {
+    let best = null;
+    let bd = 40 * 40;
+    for (const p of d.route) {
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const [ax, ay, bx, by] = [p[i], p[i + 1], p[i + 2], p[i + 3]];
+        const vx = bx - ax;
+        const vy = by - ay;
+        const l = vx * vx + vy * vy || 1;
+        const k = Math.max(0, Math.min(1, ((s.at[0] - ax) * vx + (s.at[1] - ay) * vy) / l));
+        const x = ax + vx * k;
+        const y = ay + vy * k;
+        const dd = (x - s.at[0]) ** 2 + (y - s.at[1]) ** 2;
+        if (dd < bd) (bd = dd), (best = [x, y]);
+      }
+    }
+    if (best) s.at = best;
+  }
+  return d;
+}
+
 function load(map, date, trip, read) {
   const key = `${map}|${date}|${trip}`;
-  if (!cache.has(key)) cache.set(key, (read ? read() : call('hub_route_map', { map, date, trip })).catch((e) => ({ error: e.message })));
+  // Omsi-Hub: `read` reads the map another way (the company's duty: every trip's route at once)
+  if (!cache.has(key)) cache.set(key, (read ? read() : call('hub_route_map', { map, date, trip })).then((d) => onRoute({ roads: [], route: [], stops: [], entries: [], ...d }), (e) => ({ error: e.message })));
   return cache.get(key);
 }
 
-/** The box the route takes (or, without one, the whole map), with some room round it. */
-function frame(d) {
-  let lo = [Infinity, Infinity];
-  let hi = [-Infinity, -Infinity];
-  const take = (p) => {
-    for (let i = 0; i + 1 < p.length; i += 2) {
-      lo = [Math.min(lo[0], p[i]), Math.min(lo[1], p[i + 1])];
-      hi = [Math.max(hi[0], p[i]), Math.max(hi[1], p[i + 1])];
+// Omsi-Hub: `colors` ([casing, road, main road, route]) in place of the game's map colours
+export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340, colors, read, onView }) {
+  const box = useRef();
+  const cv = useRef();
+  const [data, setData] = useState(null);
+  const view = useRef(null);
+  const [hover, setHover] = useState(-1);
+  // (the stops' signs in the style chosen: `stopsigns.js`)
+  const signs = useStore((s) => s.settings?.stop_style);
+
+  useEffect(() => {
+    if (!map) return;
+    let alive = true;
+    load(map, date, trip, read).then((d) => {
+      if (!alive) return;
+      setData(d);
+      view.current = null;
+    });
+    return () => (alive = false);
+  }, [map, date, trip]);
+
+  // the picture, drawn again whenever anything it shows changes
+  const draw = () => {
+    const c = cv.current;
+    const d = data;
+    if (!c || !d || d.error) return;
+    // (times the Launcher size the stage is scaled by, so the canvas stays sharp)
+    const dpr = (window.devicePixelRatio || 1) * stageScale();
+    const W = box.current.clientWidth;
+    const H = box.current.clientHeight;
+    if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) Object.assign(c, { width: Math.round(W * dpr), height: Math.round(H * dpr) });
+    if (!view.current) {
+      // the trip's own route when there is one, else the map
+      let lo = d.lo;
+      let hi = d.hi;
+      if (d.route.length) {
+        lo = [Infinity, Infinity];
+        hi = [-Infinity, -Infinity];
+        for (const p of d.route) for (let i = 0; i < p.length; i += 2) {
+          lo = [Math.min(lo[0], p[i]), Math.min(lo[1], p[i + 1])];
+          hi = [Math.max(hi[0], p[i]), Math.max(hi[1], p[i + 1])];
+        }
+      }
+      const span = Math.max((hi[0] - lo[0]) / (W - 80), (hi[1] - lo[1]) / (H - 60), 0.2);
+      view.current = { cx: (lo[0] + hi[0]) / 2, cy: (lo[1] + hi[1]) / 2, mpp: span };
+    }
+    const v = view.current;
+    // Omsi-Hub: the metres a pixel holds, for a scale bar of ours beside the map
+    onView?.(v.mpp);
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    const X = (x) => W / 2 + (x - v.cx) / v.mpp;
+    const Y = (y) => H / 2 - (y - v.cy) / v.mpp;
+    const line = (p) => {
+      g.beginPath();
+      for (let i = 0; i < p.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, X(p[i]), Y(p[i + 1]));
+    };
+    g.lineCap = g.lineJoin = 'round';
+    const [casing, road, main, red] = colors || d.colors;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const r of d.roads) {
+        line(r.p);
+        g.strokeStyle = pass ? (r.main ? main : road) : casing;
+        g.lineWidth = Math.max((r.w + (pass ? 0 : 2)) / v.mpp, pass ? 1.4 : 2.4);
+        g.stroke();
+      }
+    }
+    g.strokeStyle = red;
+    g.lineWidth = 4.5;
+    for (const p of d.route) {
+      line(p);
+      g.stroke();
+    }
+    // stops - the bus stop sign of the style chosen -, with their times and names
+    const style = stopSign();
+    const SIGN = 15;
+    g.font = '600 11.5px Inter, sans-serif';
+    // (a label that would cover one already written goes to the left of its stop, else away)
+    const taken = [];
+    const free = (x, y, w) => !taken.some((r) => x < r[0] + r[2] && x + w > r[0] && y < r[1] + 20 && y + 20 > r[1]);
+    for (const s of d.stops) {
+      const x = X(s.at[0]);
+      const y = Y(s.at[1]);
+      drawStopSign(g, style, x, y, SIGN);
+      const st = stops[s.k];
+      if (st) {
+        const label = `${st.time}  ${st.name}`;
+        const w = g.measureText(label).width + 10;
+        const lx = [x + SIGN / 2 + 4, x - SIGN / 2 - 4 - w].find((lx) => free(lx, y - 10, w));
+        if (lx === undefined) continue;
+        taken.push([lx, y - 10, w]);
+        g.fillStyle = 'rgba(14,14,14,0.86)';
+        g.beginPath();
+        g.roundRect(lx, y - 10, w, 20, 4);
+        g.fill();
+        g.fillStyle = '#e8a030';
+        g.fillText(plain(st.time), lx + 5, y + 4);
+        g.fillStyle = '#ececec';
+        g.fillText(plain(st.name), lx + 5 + g.measureText(`${st.time}  `).width, y + 4);
+      }
+    }
+    // entry points: amber, the hovered one ringed grey, the chosen one white
+    d.entries.forEach((e, i) => {
+      const x = X(e.at[0]);
+      const y = Y(e.at[1]);
+      g.fillStyle = '#e8a030';
+      g.beginPath();
+      g.arc(x, y, 4, 0, Math.PI * 2);
+      g.fill();
+      if (i === hover || e.index === entry) {
+        g.strokeStyle = e.index === entry ? '#ffffff' : '#a0a0a0';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(x, y, e.index === entry ? 10 : 7.5, 0, Math.PI * 2);
+        g.stroke();
+      }
+    });
+    if (hover >= 0 && d.entries[hover]) {
+      const e = d.entries[hover];
+      g.font = '500 12px Inter, sans-serif';
+      const w = g.measureText(e.name).width + 12;
+      g.fillStyle = 'rgba(14,14,14,0.9)';
+      g.beginPath();
+      g.roundRect(X(e.at[0]) - w / 2, Y(e.at[1]) - 34, w, 22, 4);
+      g.fill();
+      g.fillStyle = '#ffffff';
+      g.fillText(plain(e.name), X(e.at[0]) - w / 2 + 6, Y(e.at[1]) - 19);
     }
   };
-  (d.route || []).forEach(take);
-  if (!isFinite(lo[0])) {
-    if (d.lo && d.hi) [lo, hi] = [d.lo, d.hi];
-    else (d.roads || []).forEach((r) => take(r.p));
-  }
-  if (!isFinite(lo[0])) return null;
-  const pad = Math.max(hi[0] - lo[0], hi[1] - lo[1], 200) * 0.08;
-  return [lo[0] - pad, lo[1] - pad, hi[0] - lo[0] + 2 * pad, hi[1] - lo[1] + 2 * pad];
-}
-
-const points = (p) => {
-  let s = '';
-  for (let i = 0; i + 1 < p.length; i += 2) s += `${p[i]},${-p[i + 1]} `;
-  return s;
-};
-
-/** `stops`: [{ name, at: [x, y] }]; `entry`/`onEntry`: the entry point chosen and the choice;
- * `colors`: [ground, road, main road, route]; `onView(metres a pixel)` for a scale bar. */
-export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340, colors, read, onView }) {
-  const [data, setData] = useState(null);
+  const latest = useRef(draw);
+  latest.current = draw;
+  useEffect(draw, [data, hover, entry, signs, stops.map((x) => `${x.time} ${x.name}`).join('|')]);
   useEffect(() => {
-    if (!map) return undefined;
-    let alive = true;
-    setData(null);
-    load(map, date, trip, read).then((d) => alive && setData(d));
+    const redraw = () => latest.current();
+    const ro = new ResizeObserver(redraw);
+    ro.observe(box.current);
+    document.fonts?.ready.then(redraw);
+    const scale = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    scale.addEventListener('change', redraw);
     return () => {
-      alive = false;
+      ro.disconnect();
+      scale.removeEventListener('change', redraw);
     };
-  }, [map, date, trip]);
-  const [ground, road, main, route] = colors || ['transparent', 'var(--hub-rail)', 'var(--hub-track)', 'var(--hub-accent)'];
-  const box = data && !data.error ? frame(data) : null;
-  const style = `background:${ground};${height ? `height:${height}px` : 'height:100%'}`;
-  // (the map's metres a screen unit holds, about: the drawing is 600 units across)
-  const unit = box ? Math.max(box[2], box[3]) / 600 : 0;
-  useEffect(() => {
-    if (unit) onView?.(unit);
-  }, [unit]);
-  if (!box) {
-    return html`<div class="routemap empty" style=${style}><p class="faint">${data?.error ? tr('The map is not drawn yet.') : map ? tr('Reading the map…') : ''}</p></div>`;
-  }
-  const [x0, y0, w, h] = box;
-  // (y north on the map, down on the screen)
-  const view = `${x0} ${-(y0 + h)} ${w} ${h}`;
-  return html`<div class="routemap" style=${style}>
-    <svg viewBox=${view} preserveAspectRatio="xMidYMid meet" width="100%" height="100%">
-      ${(data.roads || []).map((r) => html`<polyline points=${points(r.p)} fill="none" stroke=${r.main ? main : road} stroke-width=${Math.max(r.w || 6, unit * 1.5)} stroke-linecap="round" stroke-linejoin="round" />`)}
-      ${(data.route || []).map((p) => html`<polyline points=${points(p)} fill="none" stroke=${route} stroke-width=${unit * 4.5} stroke-linecap="round" stroke-linejoin="round" />`)}
-      ${(onEntry ? data.entries || [] : []).map((e) => html`<circle cx=${e.at[0]} cy=${-e.at[1]} r=${unit * (e.index === entry ? 7 : 5)} fill=${e.index === entry ? route : 'var(--hub-text-dim)'} style="cursor:pointer" onClick=${() => onEntry(e.index)}><title>${e.name}</title></circle>`)}
-      ${stops.filter((s) => s.at).map((s) => html`<g>
-        <circle cx=${s.at[0]} cy=${-s.at[1]} r=${unit * 4} fill="var(--hub-panel)" stroke=${route} stroke-width=${unit * 2} />
-        <text x=${s.at[0] + unit * 7} y=${-s.at[1] + unit * 4} font-size=${unit * 11} fill="var(--hub-text)">${s.name}</text>
-      </g>`)}
-    </svg>
+  }, []);
+
+  // how much bigger the map shows than its own lengths: Omsi-Hub's stage is scaled as a whole
+  // (the setting Launcher size, a CSS transform), the mouse moves in the scaled pixels
+  const stageScale = () => {
+    const b = box.current;
+    const r = b?.getBoundingClientRect();
+    return b?.clientWidth && r?.width ? r.width / b.clientWidth : 1;
+  };
+  // the mouse in the map's own pixels (those it draws and zooms in)
+  const at = (e) => {
+    const r = cv.current.getBoundingClientRect();
+    const k = stageScale();
+    return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
+  };
+  const entryAt = ([px, py]) => {
+    const d = data;
+    const v = view.current;
+    if (!d?.entries || !v) return -1;
+    const W = box.current.clientWidth;
+    const H = box.current.clientHeight;
+    let best = -1;
+    let bd = 12 * 12;
+    d.entries.forEach((e, i) => {
+      const dx = W / 2 + (e.at[0] - v.cx) / v.mpp - px;
+      const dy = H / 2 - (e.at[1] - v.cy) / v.mpp - py;
+      if (dx * dx + dy * dy < bd) (bd = dx * dx + dy * dy), (best = i);
+    });
+    return best;
+  };
+  const drag = useRef(null);
+  return html`<div class="routemap" ref=${box} style=${height ? `height:${height}px` : ''}
+      onPointerDown=${(e) => {
+        drag.current = { p: at(e), moved: 0 };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove=${(e) => {
+        const p = at(e);
+        const d = drag.current;
+        if (d && view.current) {
+          const dx = p[0] - d.p[0];
+          const dy = p[1] - d.p[1];
+          d.moved += Math.abs(dx) + Math.abs(dy);
+          d.p = p;
+          view.current.cx -= dx * view.current.mpp;
+          view.current.cy += dy * view.current.mpp;
+          draw();
+        } else {
+          const h = entryAt(p);
+          if (h !== hover) setHover(h);
+        }
+      }}
+      onPointerUp=${(e) => {
+        const d = drag.current;
+        drag.current = null;
+        if (d && d.moved < 5) {
+          const i = entryAt(at(e));
+          if (i >= 0) onEntry?.(data.entries[i].index);
+        }
+      }}
+      onPointerLeave=${() => setHover(-1)}
+      onWheel=${(e) => {
+        e.preventDefault();
+        const v = view.current;
+        if (!v) return;
+        const [px, py] = at(e);
+        const W = box.current.clientWidth;
+        const H = box.current.clientHeight;
+        const wx = v.cx + (px - W / 2) * v.mpp;
+        const wy = v.cy - (py - H / 2) * v.mpp;
+        v.mpp = Math.min(Math.max(v.mpp * (e.deltaY > 0 ? 1.15 : 1 / 1.15), 0.15), 200);
+        v.cx = wx - (px - W / 2) * v.mpp;
+        v.cy = wy + (py - H / 2) * v.mpp;
+        draw();
+      }}>
+    <canvas ref=${cv}></canvas>
+    ${!data && html`<div class="state"><${Spinner} /> ${t('Reading the map…')}</div>`}
+    ${data?.error && html`<div class="state">${data.error}</div>`}
+    ${data && !data.error && html`<div class="legend">${t('%{roads} roads | %{stops} stops | %{entries} entry points', { roads: data.roads.length, stops: data.stops.length, entries: data.entries.length })}</div>`}
   </div>`;
 }

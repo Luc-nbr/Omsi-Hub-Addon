@@ -15,9 +15,9 @@ import { Head, Icon, tr } from '../hub/bits.js';
 import { EditorHub } from './hub.js';
 import { TimetablePage } from './timetable.js';
 import { DepotsPage, depotsBack } from './depots.js';
-import { LinesPage, linesBack } from '../hub/later.js';
+import { LinesPage, linesBack } from './lines/index.js';
 // (the livery studio on the page's own GPU, the game program's where the page cannot draw)
-import { LiveryEditor } from '../hub/later.js';
+import { LiveryEditor } from '../hub/bus3d/lak/page.js';
 
 // (our editors' look, after omsihub.css: style sheets of their own, loaded with them)
 for (const sheet of ['editors.css', 'editors-hof.css', 'editors-depots.css', 'editors-lines.css']) {

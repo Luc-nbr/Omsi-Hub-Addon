@@ -11,7 +11,7 @@ import { dark } from '../hub/theme.js';
 
 /** The map's colours on our ground: casing, road, main road, route. */
 export function mapColors() {
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--hub-accent').trim() || '#f58620';
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--hub-accent').trim() || '#2a75f7';
   return dark() ? ['#06102a', '#24345a', '#2d4170', accent] : ['#cfc6ba', '#ffffff', '#ffffff', accent];
 }
 

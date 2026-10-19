@@ -477,7 +477,7 @@ fn the_invites_are_the_ones_sent_to_the_player() {
     assert_eq!(inv[0].key(), "3");
     let p = c.profile().unwrap().unwrap();
     assert_eq!((p.display_name.as_str(), p.friend_code.as_str(), p.on_board), ("Luc", "AB12CD34", true));
-    assert!(m.calls().iter().any(|c| c == "GET /rest/v1/profiles?select=user_id,display_name,friend_code,on_board&user_id=eq.me&limit=1"));
+    assert!(m.calls().iter().any(|c| c == "GET /rest/v1/profiles?select=user_id,display_name,friend_code,on_board,avatar&user_id=eq.me&limit=1"));
 }
 
 #[test]

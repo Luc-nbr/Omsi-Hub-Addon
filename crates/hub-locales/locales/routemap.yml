@@ -1,0 +1,11 @@
+_version: 2
+# The route map's legend (ui/js/hub/routemap.js: the old launcher's route preview, whose texts were
+# openOMSI's own tables).
+
+"%{roads} roads | %{stops} stops | %{entries} entry points":
+  nl: "%{roads} wegen | %{stops} haltes | %{entries} startpunten"
+  de: "%{roads} Straßen | %{stops} Haltestellen | %{entries} Einstiegspunkte"
+  fr: "%{roads} routes | %{stops} arrêts | %{entries} points d'entrée"
+  ru: "Дорог: %{roads} | остановок: %{stops} | точек входа: %{entries}"
+  uk: "Доріг: %{roads} | зупинок: %{stops} | точок входу: %{entries}"
+  pl: "%{roads} dróg | %{stops} przystanków | %{entries} punktów wejścia"

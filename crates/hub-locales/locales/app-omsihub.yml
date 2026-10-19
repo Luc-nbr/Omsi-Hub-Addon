@@ -181,8 +181,12 @@ _version: 2
 "Done":
   nl: "Klaar"
 "Leave":
+  nl: "Verlaten"
+  de: "Verlassen"
+  fr: "Quitter"
   ru: "Выйти"
   uk: "Вийти"
+  pl: "Opuść"
 "Weather cycle":
   nl: "Wisselend weer"
 "Clear the AI traffic (a jam)":
@@ -1334,6 +1338,11 @@ _version: 2
   uk: "Показує %{screen}"
   pl: "Pokazuje %{screen}"
 "Connected":
+  nl: "Verbonden"
+  de: "Verbunden"
+  fr: "Connecté"
+  ru: "Подключено"
+  uk: "Підключено"
   pl: "Połączono"
 "No device paired yet.":
   nl: "Nog geen toestel gekoppeld."
@@ -4269,8 +4278,11 @@ _version: 2
   uk: "Перо"
   pl: "Pióro"
 "Mirror":
+  nl: "Spiegelen"
   de: "Spiegeln"
   fr: "Miroir"
+  ru: "Зеркально"
+  uk: "Дзеркально"
   pl: "Lustro"
 "Decals on one side are copied onto the other":
   nl: "Wat op de ene kant staat, komt ook op de andere"

@@ -4,10 +4,13 @@
 // accepts any folder whose name contains "openOMSI" (a version in the name, as
 // `openOMSI-0.2.30`) and "OMSI 2"; what it keeps stays in this browser (`localStorage`), so a
 // reload opens the start. `?intro=off` leaves the opening out, `?page=<page>` opens a page
-// (`settings`, `bus company`, `drive:bus` … as `OMSIHUB_PAGE` would).
+// (`settings`, `bus company`, `drive:bus` … as `OMSIHUB_PAGE` would); `?drive` opens it with a
+// drive running (its live dashboard: ./mock/live.js).
 
 import { companyAnswers } from './mock/company.js';
 import { rosterflowAnswers } from './mock/rosterflow.js';
+import { liveAnswers, mockDriveAtStart, startMockDrive } from './mock/live.js';
+import { depotAtlas, depotHas } from './mock/depotmodels.js';
 
 const listeners = {};
 const params = new URLSearchParams(location.search);
@@ -97,8 +100,8 @@ const LINES = [
 
 // --- the editors: a timetable to edit and a depot file of the player's ---------------------
 
-const ttLine = (l) => ({ path: `maps/Grundorf/TTData/${l.name}.ttl`, name: l.name, user_allowed: l.user_allowed, priority: 1, own: false, tours: l.tours.map((t) => ({ number: t.number, ai_group: t.ai_group, extra: 'Mo-Fr', trips: t.trips.map((x) => ({ trip: x.name, profile: 0, departure: x.departure / 60 })) })) });
-const TT = { dir: 'maps/Grundorf/TTData', folder: 'TTData', lines: LINES.map(ttLine), trips: LINES.flatMap((l) => [0, 1].map((k) => ({ name: l.tours[0].trips[k].name, line: l.name, terminus: l.tours[0].trips[k].terminus, profiles: ['0', '1'] }))) };
+const ttLine = (l) => ({ path: `maps/Grundorf/TTData/${l.name}.ttl`, name: l.name, user_allowed: l.user_allowed, priority: 1, own: false, tours: l.tours.map((t) => ({ number: t.number, ai_group: t.ai_group, days: 31, trips: t.trips.map((x) => ({ trip: x.name, profile: 0, departure: x.departure / 60 })) })) });
+const TT = { dir: 'maps/Grundorf', folder: 'Grundorf', lines: LINES.map(ttLine), trips: LINES.flatMap((l) => [0, 1].map((k) => ({ name: l.tours[0].trips[k].name, line: l.name, terminus: l.tours[0].trips[k].terminus, profiles: ['0', '1'] }))) };
 
 const DEPOT = {
   key: 'grundorf-eigen', file: 'grundorf-eigen.hof', name: 'Grundorf (own)', map: 'maps/Grundorf/global.cfg', dirty: false,
@@ -116,8 +119,24 @@ const DEPOT = {
 };
 const DEPOTS = [{ key: DEPOT.key, name: DEPOT.name, map: DEPOT.map, termini: DEPOT.termini.length }];
 
+const GAME_CFG = { msaa: '4', fullscreen: '1' };
+const GAME_FIELDS = [
+  ['Graphics', [['msaa', 'Anti-aliasing (MSAA)', 'choice', [['1', 'Off'], ['2', '2×'], ['4', '4×'], ['8', '8×']]], ['fullscreen', 'Full screen', 'switch'], ['shadows', 'Shadows', 'switch'], ['view_distance', 'View distance (metres)', 'number', [100, 10000, 50, null]], ['render_scale', 'Render scale', 'text', 'auto, or a fraction such as 0.75']]],
+  ['Screen and navigator', [['ui_scale', "Size of the game's menus", 'number', [0.5, 2, 0.05, 1]], ['navigator', 'Navigator', 'switch']]],
+  ['Language', [['language', "The game's language", 'choice', [['ENG', 'English'], ['DEU', 'Deutsch'], ['FRA', 'Français']]]]],
+  ['Driving and controls', [['drive_keys', 'Driving keys', 'choice', [['simple', 'Simple'], ['wasd', 'W A S D'], ['arrows', 'Arrow keys'], ['omsi', 'As in OMSI 2']]], ['wheel_range', "Steering wheel's turn (degrees)", 'number', [180, 1080, 10, 900]]]],
+  ['Passengers and traffic', [['boarding', 'Boarding', 'choice', [['auto', 'Automatic'], ['pay', 'Passengers pay at the driver'], ['walk', 'Passengers walk in']]]]],
+];
+const gameSettings = () => ({
+  path: '~/.openomsi/settings.cfg', exists: true, running: false,
+  groups: GAME_FIELDS.map(([title, fields]) => ({
+    title,
+    fields: fields.map(([key, label, kind, x]) => ({ key, label, kind, value: GAME_CFG[key] ?? null, ...(kind === 'choice' ? { options: x } : kind === 'number' ? { min: x[0], max: x[1], step: x[2], default: x[3] } : kind === 'text' ? { hint: x } : {}) })),
+  })),
+});
+
 const answers = {
-  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.7.0', bridge: 1 }),
+  hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.8.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
   hub_texts: () => ({}),
   // (`?migrate` offers the old saves once, as `hub_setup_state` does when ~/.openomsi has some)
@@ -146,6 +165,7 @@ const answers = {
   hub_game_state: () => ({ running: false }),
   hub_log: () => null,
   // (the online account and the cloud saves, signed out: everything works offline)
+  ol_avatar: () => ({ ok: true, message: 'Profile photo saved.' }),
   ol_state: () => ({ mode: 'out', friends: [], invites: [], requests: [], badge: 0, online_count: 0, offline: false, together: false, hosting: false, privacy: { version: 2, needed: false } }),
   ol_refresh: () => ({ ok: true }),
   ol_seen: () => ({ ok: true }),
@@ -164,6 +184,9 @@ const answers = {
   addon_texts: () => ({ language: settings.language || 'en' }),
   addon_reports: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
   addon_poll: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
+  // (openOMSI's settings.cfg, a few of each group, kept in this page only)
+  addon_game_settings: () => gameSettings(),
+  addon_game_setting: (a) => ((a.value == null || a.value === '' ? delete GAME_CFG[a.key] : (GAME_CFG[a.key] = String(a.value))), gameSettings()),
 
   // the drive
   hub_maps: () => MAPS,
@@ -196,6 +219,21 @@ const answers = {
   hub_more_font_view: () => ({ failed: true, options: [] }),
   // (a text on the bus's own display font, drawn by the game program: not in a browser)
   hub_display_preview: () => ({ failed: true }),
+  // (the bus in 3D is written by the player's openOMSI: not in a browser)
+  // (the 3D view reads the bus from the OMSI 2 folder: the mock has none)
+  b3d_env: () => ({ cloudSize: 2000 }),
+  b3d_open: () => {
+    throw 'The 3D view reads the bus from your OMSI 2 folder: open Omsi-Hub itself';
+  },
+  b3d_look: () => {
+    throw 'The 3D view reads the bus from your OMSI 2 folder: open Omsi-Hub itself';
+  },
+  b3d_photo_has: () => ({ has: false }),
+  // (the 3D depot's bus models: drawn by the mock, `mock/depotmodels.js`)
+  b3d_depot_has: (a) => depotHas(a),
+  // (the livery studio: no liveries begun in the mock, the studio's own fonts)
+  lak_projects: () => [],
+  lak_fonts: () => ['Hanken Grotesk', 'Roboto'],
   hub_more_weather_read: (a) => ({ custom: { raw: a.weather, vis: 1200, br: 0.8, wd: 270, ws: 6.5, temp_c: -3, rh: 88, p: 1013, c: 0.75, cb: 50, precip: 2, pi: 120, wet: 0.4, snow_cover: 1, snow_on_road: 0 } }),
   hub_more_weather_write: (a) => ({ weather: a.custom?.raw || 'custom:' }),
   hub_more_bus_best: () => null,
@@ -204,34 +242,79 @@ const answers = {
     rows: [{ key: 'Grundorf.hof', name: 'Grundorf.hof', file: 'Grundorf.hof', map: 'Grundorf', maps: true, destinations: 3, known: 3, fit: { kind: 'maps' } }],
     used: { row: 0 }, own: [], own_in_use: null, refusal: null, source: null, source_name: '', source_destinations: 0, recommended: 0,
   }),
-  hub_route_map: () => ({ roads: [{ p: [0, 0, 400, 0, 400, 300, 900, 300], w: 8, main: true }, { p: [400, 0, 400, -200], w: 6 }], route: [[0, 0, 400, 0, 400, 300, 900, 300]] }),
+  hub_route_map: () => ({
+    roads: [{ p: [0, 0, 400, 0, 400, 300, 900, 300], w: 8, main: true }, { p: [400, 0, 400, -200], w: 6 }], route: [[0, 0, 400, 0, 400, 300, 900, 300]],
+    stops: [{ k: 0, at: [0, 0] }, { k: 1, at: [400, 150] }, { k: 2, at: [900, 300] }], entries: [{ index: 0, name: 'Depot', at: [400, -200] }],
+    lo: [0, -200], hi: [900, 300], colors: ['#06102a', '#24345a', '#2d4170', '#f58620'],
+  }),
   hub_drive: (a) => {
-    setTimeout(() => backend.emit('game-ended', { code: 0, seconds: 4 }), 4000);
-    return { started: true, args: ['--map', a.duty.map] };
+    // (the drive runs until it is ended: hub_game_stop, ./mock/live.js)
+    const d = a.duty || {};
+    const mode = d.company ? 'company' : (d.legs || []).length ? 'shift' : d.line && d.tour ? 'tour' : 'free';
+    startMockDrive(mode, emit);
+    return { started: true, pid: 4242, mode, args: ['--map', d.map] };
   },
-  hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Addon', auto: false }),
+  hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Releases', auto: false }),
   hub_drive_args: (a) => ({ args: ['--root', settings.openomsi_folder, '--map', a.duty.map, '--bus', a.duty.bus, ...(a.duty.line ? ['--line', a.duty.line, '--tour', a.duty.tour || ''] : []), '--time', a.duty.time] }),
-  hub_update_act: (a) => ({ kind: 'none', line: a.what === 'check' ? 'Omsi-Hub 0.1.0 is the newest.' : '', repo: 'github.com/Luc-nbr/Omsi-Hub-Addon', auto: false }),
+  hub_update_act: (a) => ({ kind: 'none', line: a.what === 'check' ? 'Omsi-Hub 0.1.0 is the newest.' : '', repo: 'github.com/Luc-nbr/Omsi-Hub-Releases', auto: false }),
 
   // the timetable editor
   tt_load: (a) => (/grundorf/i.test(a.map || '') ? TT : { dir: '', folder: '', lines: [], trips: [] }),
   tt_save: (a) => ({ saved: (a.lines || []).length, error: null, lines: (a.lines || []).map((l) => ({ name: l.name, path: l.path, line: l })) }),
-  tt_edit: (a) => ({ line: a.line, tour: a.tour || 0 }),
-  tt_reset: () => ({ done: 0, own: 0, own_error: null }),
+  tt_edit: (a) => ({ line: a.line, tour: a.tour || 0, made: 0 }),
+  tt_reset: () => ({ done: "The timetable of Grundorf is the map's own again (the edited copy was removed)", own: 0, own_error: null }),
 
   // the depot editor
   de_show: () => ({ entries: DEPOTS, view: DEPOT, changed_elsewhere: null, error: null }),
   de_open: () => DEPOT,
-  de_view: () => DEPOT,
   de_edit: () => ({ view: DEPOT, sel: null }),
-  de_save: () => ({ view: { ...DEPOT, dirty: false } }),
-  de_delete: () => ({ entries: [], view: null }),
-  de_sources: () => ({ map: [{ file: 'Grundorf.hof', name: 'Grundorf' }], bus: [], own: DEPOTS }),
+  de_save: () => ({ view: { ...DEPOT, dirty: false }, entries: DEPOTS, copies: 0, name: DEPOT.name }),
+  de_delete: () => ({ entries: [], name: DEPOT.name }),
+  de_sources: () => [
+    { source: { kind: 'empty', path: null }, text: "Empty, laid out as OMSI's own", args: {} },
+    { source: { kind: 'map', path: 'Vehicles/MAN_SD200/Grundorf.hof' }, text: "A copy of the map's: %{hof}", args: { hof: 'Grundorf.hof' } },
+    { source: { kind: 'own', path: 'depots/grundorf-eigen.hof' }, text: 'A copy of mine: %{name}', args: { name: DEPOT.name } },
+  ],
   de_make: () => ({ entries: DEPOTS, view: DEPOT }),
+  tg_gate: () => ({ on: true, label: '' }),
+  hub_lan_check: ({ text }) => (/^OMSI-/i.test(text || '') ? { ok: true, text: 'A session code: the host is found over the internet or here at home.', local: [] } : { ok: false, text: 'Not a session code or an address', local: [] }),
+  hub_lan_query: ({ address }) => ({ name: address === 'openomsi' ? 'openOMSI | Official Server' : 'Luc\'s game', motd: '', map: 'maps/Grundorf/global.cfg', players: 2, max_players: 8, version: '0.2.30', icon: null, time: '08:15', weather: '', password: false, vehicles: [], reached_at: '' }),
+  hub_lan_servers: () => [{ name: 'openOMSI | Official Server', address: 'openomsi' }],
+  hub_lan_servers_save: () => true,
+  hub_lan_tunnel: () => null,
+  hub_lan_hosted: () => [],
+  hub_profiles: () => ({ names: DRIVERS.slice(), current: DRIVERS[0] || '' }),
+  hub_profile: ({ name }) => driverRecord(name),
+  hub_profile_select: ({ name }) => ({ profile: name }),
+  hub_profile_personnel: ({ make }) => (make ? { number: '416207', code: '3851' } : null),
+  hub_profile_create: ({ name }) => {
+    if (!DRIVERS.includes(name)) DRIVERS.push(name);
+    return driverRecord(name);
+  },
+  hub_profile_delete: ({ name }) => {
+    const k = DRIVERS.indexOf(name);
+    if (k >= 0) DRIVERS.splice(k, 1);
+    return true;
+  },
 
   ...companyAnswers,
   ...rosterflowAnswers,
+  ...liveAnswers(emit),
 };
+
+// (the drivers on this computer, as `hub_profiles` lists them, and a service record of each)
+const DRIVERS = ['Luc', 'OMSI-Fan'];
+const RUN = { time: Math.floor(Date.now() / 1000) - 3600, driver: 'Luc', map: 'maps/Grundorf/global.cfg', bus: 'Vehicles/MAN_SD200/SD202.bus', line: '5', tour: '1', seconds: 2460, metres: 14200, stops: 18, early: 1, late: 2, tickets: 9, cash: 14.4, crashes: 0, hurt: 0, jolts: 3, driving: 94, comfort: 88, ticketing: 100 };
+const driverRecord = (name) => ({
+  name, file: `Drivers/${name}.odr`, hours: name === 'Luc' ? 12.6 : 0, km: name === 'Luc' ? 431.5 : 0, xp: name === 'Luc' ? 1460 : 0, level: name === 'Luc' ? 3 : 1, next_level_xp: name === 'Luc' ? 2250 : 250,
+  stops: 640, early: 31, late: 58, tickets: 412, cash: 655.2, crashes: 3, hurt: 0, rating_driving: 91, rating_comfort: 86, rating_tickets: 97,
+  sessions: name === 'Luc' ? [RUN, { ...RUN, time: RUN.time - 86400, line: null, tour: null, metres: 5100, seconds: 900 }] : [], exists: true,
+  record: { runs: name === 'Luc' ? 2 : 0, first: RUN.time - 86400, maps: [], buses: [], hours: Array(24).fill(0), jolts: 3, km: 19.3 },
+  trips: [], trip_totals: { trips: 0, timed: 0, stops: 0, early: 0, late: 0, average: null, worst: null, spotless: 0 },
+});
+function emit(event, payload) {
+  backend.emit(event, payload);
+}
 
 export const backend = {
   async call(cmd, args) {
@@ -243,7 +326,8 @@ export const backend = {
     }
     return a(args || {});
   },
-  async callBytes(cmd) {
+  async callBytes(cmd, args) {
+    if (cmd === 'b3d_depot') return depotAtlas(args || {});
     (globalThis.__OMSIHUB_MOCK_MISSING__ ||= {})[`bytes:${cmd}`] = 1;
     throw `not ported yet: ${cmd}`;
   },
@@ -256,3 +340,5 @@ export const backend = {
     for (const f of listeners[event] || []) f(payload);
   },
 };
+
+mockDriveAtStart(emit);

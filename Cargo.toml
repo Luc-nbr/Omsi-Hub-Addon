@@ -7,8 +7,11 @@ members = [
     "crates/hub-game",
     "crates/hub-locales",
     "crates/hub-online",
+    "crates/hub-livery",
     "plugin/harness",
     "app",
+    # (the website's bus company: built for wasm32-wasip1, `crates/hub-web`)
+    "crates/hub-web",
 ]
 # (the app builds with `cargo build -p omsi-hub`; plain `cargo build` builds the libraries)
 default-members = [
@@ -18,24 +21,45 @@ default-members = [
     "crates/hub-game",
     "crates/hub-locales",
     "crates/hub-online",
+    "crates/hub-livery",
     "plugin/harness",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 authors = ["Omsi-Hub"]
-repository = "https://github.com/Luc-nbr/Omsi-Hub-Addon"
+repository = "https://github.com/Omsi-Hub/Omsi-Hub-Addon"
 rust-version = "1.90"
 
 [workspace.dependencies]
 hub-omsi = { path = "crates/hub-omsi" }
-hub-core = { path = "crates/hub-core" }
-hub-api = { path = "crates/hub-api" }
+# (without "native": the company and RosterFlow as plain logic, as the website runs them in the browser)
+hub-core = { path = "crates/hub-core", default-features = false }
+hub-api = { path = "crates/hub-api", default-features = false }
 hub-game = { path = "crates/hub-game" }
 hub-locales = { path = "crates/hub-locales" }
 hub-online = { path = "crates/hub-online" }
+hub-livery = { path = "crates/hub-livery" }
+
+# openOMSI's readers and its vehicle simulation, as Luc's fork of openOMSI has them: the code of
+# openOMSI from before it became AGPL (2026-10-14), under its MIT licence, with Luc's own changes
+# (THIRD_PARTY_NOTICES.md). The 3D view, the photos and the livery studio read a bus with them as
+# the game reads it. Pinned to one commit of the fork.
+omsi-cfg = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-model = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-net = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-o3d = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-sim = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-texture = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-vehicle = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-geometry = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-map = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-scenery = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-timetable = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-world = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
+omsi-content = { git = "https://github.com/Luc-nbr/openOMSI", rev = "f69f2aea9d18e6b17247d3cb83c84860ab950656" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -46,9 +70,34 @@ ring = "0.17"
 encoding_rs = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 dirs = "6"
+glam = "0.30"
+log = "0.4"
+rayon = "1.10"
+hashbrown = "0.17"
+parking_lot = "0.12"
+ab_glyph = "0.2"
+# (tests only: pictures written and read back)
+image = { version = "0.25", default-features = false, features = ["png"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+
+# (the dependencies without debug info and our own crates with line tables only: with openOMSI's
+# crates the test binaries' debug info filled the CI runner's disk)
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"
 codegen-units = 4
 strip = "debuginfo"
+
+# (the website's bus company, `crates/hub-web`: small rather than fast - the browser downloads it)
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

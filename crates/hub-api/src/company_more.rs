@@ -10,8 +10,8 @@
 //! * `co_more_view`: the view of what a page shows (`view`: "depot", "workshop" ...), every
 //!   text translated and every amount written in the page's language;
 //! * `co_more_act`: what a click does (`act`), its refusal the popup that says why;
-//! * `co_more_map`: the fleet map's roads and the routes of the company's trips, read by the
-//!   game program (`mapview`'s export, through the launcher service).
+//! * `co_more_map`: the fleet map's roads and the routes of the company's trips, read from the
+//!   map's tiles (`content::mapview`).
 //!
 //! What the pages keep between their views besides the session (the fleet map's clock, the
 //! lines' weeks the concessions read) lives in `More`, locked after the session.
@@ -114,7 +114,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     Some(match cmd {
         "co_more_view" => with(|s| view(s, args)),
         "co_more_act" => with(|s| act(s, args)),
-        // (the game program reads the map: the session is not held meanwhile)
+        // (the map's roads read: the session is not held meanwhile)
         "co_more_map" => fleetmap::roads(args, p),
         _ => return None,
     })

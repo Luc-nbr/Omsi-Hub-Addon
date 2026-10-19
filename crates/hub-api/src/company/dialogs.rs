@@ -90,6 +90,10 @@ fn settings(s: &mut Session, args: &Value) -> Value {
         }),
         "date_caps": tr("The company's date").to_uppercase(),
         "now": trf("Today it is %{date}, %{time}.", &[("date", &day_label(&c.date)), ("time", &ck::hhmm(ck::now(&c)))]),
+        "friends": {
+            "caps": tr("Multiplayer").to_uppercase(), "on": c.together.friends_join, "label": tr("Friends can join without an invite"),
+            "say": tr(if c.together.friends_join { "While you share the company, your Omsi-Hub friends see a Join button in their friends list: no session code needed." } else { "Off: friends join when you invite them from your friends list, or with the session code." }),
+        },
         "realtime": { "on": on, "label": tr("Run with the real clock, also while Omsi-Hub is closed"), "say": tr(if on { "When you open the company, the time since is simulated, a month at most. Fast-forwarding moves it ahead of the real clock." } else { "Off: the company's time stands still while it is closed." }) },
         "date": date, "date_label": day_label(&date),
         "earliest": ck::earliest_date(&c).map(|e| trf("Not before %{date}: the company's last booking.", &[("date", &day_label(&e))])),
@@ -1001,6 +1005,19 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
                 }
                 Err(p) => Ok(json!({ "popup": p })),
             }
+        }
+        "friends_join" => {
+            let on = args.get("on").and_then(Value::as_bool).unwrap_or(false);
+            let r = apply(s, |c| {
+                c.together.friends_join = on;
+                Ok(())
+            });
+            // (the website has no friends list to tell: `online` is the desktop's)
+            #[cfg(feature = "native")]
+            if r.is_ok() {
+                crate::online::friends_join_changed(on);
+            }
+            done(r)
         }
         "realtime" => {
             let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);

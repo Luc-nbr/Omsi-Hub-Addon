@@ -23,7 +23,7 @@ export async function selftest(check, errors, shown) {
   const pages = [
     // (with the add-on on, RosterFlow takes the page: `rosterflow/selftest.js` checks it)
     [5, 'the planning', () => ($('.pl') ? `${$$('.pl-day').length} days, ${$$('.pl-head').length} lines, ${$$('.pl-duty, .pl-issue').length} duties and issues` : $('.rf') ? 'RosterFlow takes it' : !!$('.co-body') && 'handed over (RosterFlow)')],
-    [7, 'the depot', () => $('.cm-plan') && `${$$('.cm-bus').length} buses on the yard`],
+    [7, 'the depot', () => $('.cm-plan') && `${$('.cm-plan3d') ? `${$('.cm-plan3d').dataset.buses} buses and ${$('.cm-plan3d').dataset.people} of the staff on the yard in 3D` : $$('.cm-bus').length + ' buses on the yard'}`],
     [8, 'the concessions', () => $$('.co-pg-card').length >= 3 && `${$$('.cm-tender').length} tenders`],
     [9, 'the fleet map', () => $('.cm-panel') && ($('.cm-mapbox') ? 'map and panel' : 'panel')],
     // (Beta 65's pages: a tile a topic, a table row a spare part)

@@ -32,6 +32,8 @@ pub struct Profile {
     pub friend_code: String,
     /// Standing on the public leaderboard (the player's choice, off until switched on).
     pub on_board: bool,
+    /// The photo's name in the bucket `avatars` (`avatar_url`), None without one.
+    pub avatar: Option<String>,
 }
 
 /// A row of `my_friends()`: a friend, or a request either way.
@@ -51,6 +53,8 @@ pub struct Friend {
     pub incoming: bool,
     /// When they were last seen (the server's timestamp, RFC 3339).
     pub last_seen: Option<String>,
+    /// Their photo's name in the bucket `avatars`, None without one.
+    pub avatar: Option<String>,
 }
 
 /// An invite to a friend's company session.
@@ -164,6 +168,11 @@ impl Client {
             (Some((user, v)), Some(me)) if user == me => Some(*v),
             _ => None,
         }
+    }
+
+    /// Whether a request may go out: the privacy statement agreed to (or not needed).
+    pub(crate) fn may_send(&self) -> bool {
+        self.free || self.agreed()
     }
 
     fn agreed(&self) -> bool {
@@ -298,7 +307,7 @@ impl Client {
     }
 
     /// The account deleted, after the password typed again: signed in afresh with it (which checks
-    /// it), the cloud saves deleted through Storage, then `delete_my_account()` (the user, and with
+    /// it), the cloud saves and the profile photos deleted through Storage, then `delete_my_account()` (the user, and with
     /// it the profile, the friendships and the invites), then signed out here. Nothing is deleted
     /// when the password is wrong; a cloud save that will not go keeps the account. An account
     /// without a password (Google: the server's own word on it) is deleted with the session it
@@ -321,7 +330,7 @@ impl Client {
         }
         // (deleting is open whether the privacy statement was agreed to or not)
         self.free = true;
-        let r = self.saves_delete_all().and_then(|_| self.rpc("delete_my_account", json!({})));
+        let r = self.saves_delete_all().and_then(|_| self.avatars_delete_all()).and_then(|_| self.rpc("delete_my_account", json!({})));
         self.free = false;
         r?;
         self.forget();
@@ -459,12 +468,13 @@ impl Client {
     pub fn profile(&mut self) -> Result<Option<Profile>, Error> {
         self.access_token()?;
         let me = self.user_id().ok_or(Error::Code("server"))?.to_string();
-        let v = self.data("GET", &format!("/profiles?select=user_id,display_name,friend_code,on_board&user_id=eq.{}&limit=1", encode(&me)), None)?;
+        let v = self.data("GET", &format!("/profiles?select=user_id,display_name,friend_code,on_board,avatar&user_id=eq.{}&limit=1", encode(&me)), None)?;
         Ok(v.as_array().and_then(|a| a.first()).map(|row| Profile {
             user_id: me,
             display_name: text(row, &["display_name"]).unwrap_or_default(),
             friend_code: text(row, &["friend_code"]).unwrap_or_default(),
             on_board: field(row, &["on_board"]).and_then(Value::as_bool).unwrap_or(false),
+            avatar: text(row, &["avatar"]).filter(|a| !a.is_empty()),
         }))
     }
 
@@ -571,6 +581,7 @@ fn friend_of(row: &Value) -> Option<Friend> {
         relation: text(row, &["relation", "friendship", "state"]).unwrap_or_else(|| "accepted".into()),
         incoming: field(row, &["incoming"]).and_then(Value::as_bool).unwrap_or(false),
         last_seen: text(row, &["last_seen"]),
+        avatar: text(row, &["avatar"]).filter(|a| !a.is_empty()),
     })
 }
 

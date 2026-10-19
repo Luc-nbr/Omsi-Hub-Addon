@@ -12,8 +12,8 @@
 //! * `hub_ibis {bus, hof, line}` - what to type into the IBIS: the routes the depot file has
 //!   for the line;
 //! * `hub_situations {map}` - the situations to continue: none yet (`[]`);
-//! * `hub_route_map {map, date, trip}` - the map's frame and entry points (without a road
-//!   reader: no roads, no route);
+//! * `hub_route_map {map, date, trip}` - the map's roads, the trip's route (`a|b`: each trip's),
+//!   its frame and entry points, as the game's city map has them (see [`mapview`]);
 //! * `hub_map_picture {map}` (bytes) - the map folder's `picture.jpg`;
 //! * `hub_settings_patch {patch}` - settings changed (the look's keys go to `Settings.other`);
 //! * `hub_shifts`, `hub_duty_extras` - see [`shifts`];
@@ -22,13 +22,24 @@
 //! * `hub_more_bus_best` - see [`busbest`]; `hub_more_weather_read`, `hub_more_weather_write` -
 //!   see [`weather`]; `hub_more_bus_options`, `hub_more_bus_option_set`, `hub_more_setvars` -
 //!   see [`busoptions`]; `hub_more_font_*` and `hub_display_preview` - see [`fonts`];
+//! * `b3d_*` - the bus in 3D, its photos and the livery studio's bus, read as the game reads it
+//!   with openOMSI's readers (the old app's Bus3D): see [`bus3d`];
 //! * `hub_le` - the line editor: not available yet (it needs the map's lane graph).
 
+#[cfg(feature = "native")]
+pub mod bus3d;
 pub mod busbest;
+#[cfg(feature = "native")]
 pub mod busoptions;
 pub mod depots;
 pub mod facts;
 pub mod fonts;
+#[cfg(feature = "native")]
+pub mod mapview;
+// (the website: the maps as the desktop app exported them into the cloud save's content)
+#[cfg(not(feature = "native"))]
+#[path = "content/mapview_web.rs"]
+pub mod mapview;
 pub mod shifts;
 pub mod weather;
 
@@ -40,9 +51,6 @@ use hub_omsi::Vfs;
 use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-
-/// What the line editor answers until Omsi-Hub reads the map's lanes itself.
-pub const NO_LINE_EDITOR: &str = "The line editor is not available yet";
 
 /// A `hub_` command of the drive's steps.
 pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
@@ -57,7 +65,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         }
         "hub_ibis" => Ok(ibis(&need_vfs()?, &str_arg(args, "bus"), &str_arg(args, "hof"), &str_arg(args, "line"))),
         "hub_situations" => Ok(json!([])),
-        "hub_route_map" => Ok(route_map(&need_vfs()?, &arg::<String>(args, "map")?)),
+        "hub_route_map" => route_map(&arg::<String>(args, "map")?, &str_arg(args, "date"), &str_arg(args, "trip")),
         "hub_settings_patch" => settings_patch(args.get("patch").unwrap_or(&Value::Null)),
         "hub_shifts" => shifts::shifts(args),
         "hub_duty_extras" => shifts::duty_extras(args),
@@ -69,14 +77,19 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "hub_more_bus_best" => busbest::bus_best(args),
         "hub_more_weather_read" => weather::read(args),
         "hub_more_weather_write" => weather::write(args),
+        #[cfg(feature = "native")]
         "hub_more_bus_options" => busoptions::view(args),
+        #[cfg(feature = "native")]
         "hub_more_bus_option_set" => busoptions::set(args),
+        #[cfg(feature = "native")]
         "hub_more_setvars" => busoptions::for_game(args),
         "hub_more_font_view" => fonts::view(args),
         "hub_more_font_set" => fonts::set(args),
         "hub_more_font_add" => fonts::add(args),
         "hub_display_preview" => Ok(fonts::display_preview(&str_arg(args, "bus"), &str_arg(args, "text"))),
-        "hub_le" => Err(NO_LINE_EDITOR.to_string()),
+        // (the line editor, the old app's headless one: every change a request, the view answered)
+        #[cfg(feature = "native")]
+        "hub_le" => Ok(crate::lineeditor::headless::serve(args)),
         _ => Err(format!("unknown command: {cmd}")),
     }
 }
@@ -307,7 +320,7 @@ pub fn buses_in(vfs: &Vfs) -> Vec<VehicleInfo> {
             let rel = format!("{rel_dir}/{name}");
             let Some(path) = vfs.resolve(&rel) else { continue };
             let Ok(bus) = hub_omsi::vehicle::Bus::load(&path) else { continue };
-            if bus.ai_only || bus.is_rear_section() {
+            if bus.is_traffic() || bus.is_rear_section() {
                 continue;
             }
             let installed = vfs.bases().len() > 1 && path.starts_with(&vfs.bases()[0]);
@@ -385,52 +398,14 @@ pub fn ibis(vfs: &Vfs, bus: &str, hof: &str, line: &str) -> Value {
 
 // --- the map -------------------------------------------------------------------------------------
 
-/// A tile's edge, m.
-const TILE: f64 = 300.0;
-
-/// The map's frame and its entry points, as the route map draws them (`{ roads, route, lo, hi,
-/// entries }`, the map's metres, y north). Omsi-Hub reads no roads yet: `roads` and `route`
-/// are empty, the frame is the map's tiles and the entry points stand where `global.cfg` puts
-/// them.
-pub fn route_map(vfs: &Vfs, map: &str) -> Value {
-    let Some(path) = vfs.resolve(map).filter(|p| p.is_file()) else { return json!({ "roads": [], "route": [], "entries": [] }) };
-    let Ok(cfg) = hub_omsi::CfgFile::read(&path) else { return json!({ "roads": [], "route": [], "entries": [] }) };
-    let g = hub_omsi::map::GlobalCfg::parse(&cfg);
-    let mut v = json!({ "roads": [], "route": [], "entries": entry_places(&cfg, &g.tiles) });
-    if !g.tiles.is_empty() {
-        let (x0, y0) = g.tiles.iter().fold((i32::MAX, i32::MAX), |(a, b), (x, y)| (a.min(*x), b.min(*y)));
-        let (x1, y1) = g.tiles.iter().fold((i32::MIN, i32::MIN), |(a, b), (x, y)| (a.max(*x), b.max(*y)));
-        v["lo"] = json!([x0 as f64 * TILE, y0 as f64 * TILE]);
-        v["hi"] = json!([(x1 + 1) as f64 * TILE, (y1 + 1) as f64 * TILE]);
-    }
-    v
-}
-
-/// The entry points of a `global.cfg` with where each stands: `[{ index, name, at: [x, y] }]`.
-/// An entry has twelve values: its object, its id, a flag, its place on its tile (x, height,
-/// z: the tile's metres from its south-west corner), its turn (four values), its tile (a place
-/// in the `[map]` list) and its name.
-fn entry_places(cfg: &hub_omsi::CfgFile, tiles: &[(i32, i32)]) -> Vec<Value> {
-    let mut out = Vec::new();
-    let mut r = cfg.reader();
-    while let Some(k) = r.next_keyword() {
-        if k != "entrypoints" {
-            continue;
-        }
-        let n = hub_omsi::text::parse_i32(r.value()).max(0) as usize;
-        for i in 0..n {
-            let v = r.values(12);
-            if v.len() < 12 {
-                break;
-            }
-            let tile = usize::try_from(hub_omsi::text::parse_i32(v[10])).ok().and_then(|t| tiles.get(t));
-            let Some((tx, ty)) = tile else { continue };
-            let x = *tx as f64 * TILE + hub_omsi::text::parse_f64(v[3]);
-            let y = *ty as f64 * TILE + hub_omsi::text::parse_f64(v[5]);
-            out.push(json!({ "index": i, "name": v[11].trim(), "at": [x, y] }));
-        }
-    }
-    out
+/// The map as the route map draws it (`content::mapview::export`: `{ origin, lo, hi, roads,
+/// route, stops, entries, colors }`, metres from `origin`, y north): the roads the game's city map
+/// draws and the trip's route over its lanes; a duty's trips (`a|b`) each their route.
+pub fn route_map(map: &str, date: &str, trip: &str) -> Answer {
+    let global = hub_core::paths::resolve_content(map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
+    // (`a|b`: the trips of a duty, each its route)
+    let trips: Vec<String> = trip.split('|').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
+    Ok(if trips.len() > 1 { mapview::trips_page(map, &global, date, &trips) } else { mapview::export(map, &global, date, trips.first().map(String::as_str).unwrap_or(""), 0.6) })
 }
 
 /// The picture of the map `map` (`maps/<folder>/global.cfg`): its folder's `picture.jpg`, in
@@ -597,10 +572,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_route_map_has_the_map_s_frame_and_entry_points() {
-        let m = route_map(&fixture_vfs(), "maps/Testdorf/global.cfg");
-        assert_eq!(m["roads"], json!([]));
-        assert_eq!((m["lo"].clone(), m["hi"].clone()), (json!([0.0, 0.0]), json!([600.0, 300.0])));
+    fn the_route_map_has_the_map_s_entry_points() {
+        let global = fixture_vfs().resolve("maps/Testdorf/global.cfg").unwrap();
+        let m = mapview::export("maps/Testdorf/global.cfg", &global, "", "10_out", 0.6);
+        // (the test map has no tile files: no roads, no route; the entry points on their tiles)
+        assert_eq!((m["roads"].clone(), m["route"].clone()), (json!([]), json!([])));
         assert_eq!(m["entries"][0], json!({ "index": 0, "name": "Depot", "at": [10.0, 20.0] }));
         assert_eq!(m["entries"][1]["at"], json!([350.0, 60.0]));
     }
@@ -616,8 +592,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_line_editor_says_it_is_not_there_yet() {
-        assert_eq!(call("hub_le", &json!({ "op": "open" }), &crate::Quiet), Err(NO_LINE_EDITOR.to_string()));
+    fn the_line_editor_answers_its_view_and_unknown_commands_are_refused() {
+        assert!(call("hub_le", &json!({ "op": "view" }), &crate::Quiet).is_ok_and(|v| v.is_object()));
         assert_eq!(call("hub_situations", &json!({ "map": "maps/x/global.cfg" }), &crate::Quiet), Ok(json!([])));
         assert_eq!(call("hub_nope", &json!({}), &crate::Quiet), Err("unknown command: hub_nope".into()));
         assert_eq!(call_bytes("hub_nope", &json!({}), &crate::Quiet), Err("unknown command: hub_nope".into()));
@@ -637,8 +613,17 @@ pub(crate) mod tests {
         let facts = facts::facts_of(&v, &files);
         for m in &maps {
             let pic = map_picture(&v, &m.file).map(|b| b.len()).unwrap_or(0);
-            let rm = route_map(&v, &m.file);
-            println!("{}: hof {:?}, {} entries ({} placed), picture {} bytes, {}", m.file, m.hof, m.entry_points.len(), rm["entries"].as_array().map_or(0, Vec::len), pic, facts[&m.file]);
+            let rm = v.resolve(&m.file).map(|g| mapview::export(&m.file, &g, "", "", 0.6)).unwrap_or_default();
+            println!(
+                "{}: hof {:?}, {} entries ({} placed), {} roads, picture {} bytes, {}",
+                m.file,
+                m.hof,
+                m.entry_points.len(),
+                rm["entries"].as_array().map_or(0, Vec::len),
+                rm["roads"].as_array().map_or(0, Vec::len),
+                pic,
+                facts[&m.file]
+            );
         }
         let with_paints = buses.iter().filter(|b| !b.paints.is_empty()).count();
         println!("{} buses, {with_paints} with paints, {} airports", buses.len(), facts::metar_airports(&v).len());

@@ -216,3 +216,149 @@ fn a_free_drive_says_its_route() {
     assert!(toasted(&h, "Free drive on line 14: 14_Hbf-Zoo"));
     assert!(h.state.borrow().started.is_empty());
 }
+
+#[test]
+fn the_game_s_traffic_reaches_the_fleet_map() {
+    let dir = installed("traffic");
+    let mut g = game();
+    g.position = Some((650.5, 1210.25, 92.0));
+    g.duty = Some(hub_plugin_harness::Duty { line: "10".into(), tour: "2".into(), trip: 1, trips: 2, delay: 95.0 });
+    g.speed = 31.0;
+    g.traffic = vec![
+        json!({ "id": 7, "kind": "car", "x": 700.0, "y": 1200.0, "heading": 270.0 }),
+        json!({ "id": 9, "kind": "timetable_bus", "x": 100.0, "y": 50.0, "heading": 45.0 }),
+        json!({ "id": 11, "kind": "tram", "x": 820.04, "y": 1190.0 }),
+    ];
+    g.timetable_buses = vec![json!({ "id": 9, "line": 5, "tour": "3", "trip": 2, "terminus": "Zoo", "delay": 125.0, "number": 4711, "x": 100.0, "y": 50.0, "at_stop": true })];
+    g.others = vec![json!({ "kind": "ai", "x": 1.0, "y": 2.0 }), json!({ "kind": "player", "name": "Sam", "x": 905.0, "y": 610.0, "heading": 180.0 })];
+    let mut h = Harness::load(&dir, g).unwrap();
+    h.frame().unwrap();
+    let t = bridge::read_traffic(&dir).expect("data/traffic.json");
+    assert_eq!(t.map, "maps/Grundorf/global.cfg");
+    let p = t.player.expect("the player's bus");
+    assert_eq!((p.x, p.y, p.heading, p.speed), (650.5, 1210.3, 92.0, 31.0));
+    assert_eq!((p.line.as_str(), p.tour.as_str(), p.delay), ("10", "2", Some(95.0)));
+    // (the timetable's bus only in its own list, with its heading from the traffic's)
+    let v: Vec<_> = t.vehicles.iter().map(|v| (v.id, v.x, v.y, v.heading, v.kind.as_str())).collect();
+    assert_eq!(v, [(Some(7), 700.0, 1200.0, 270.0, "car"), (Some(11), 820.0, 1190.0, 0.0, "tram")]);
+    let b = &t.buses[0];
+    assert_eq!((b.line.as_str(), b.tour.as_str(), b.number.as_str(), b.delay, b.heading, b.at_stop), ("5", "3", "4711", Some(125.0), 45.0, true));
+    assert_eq!((t.players.len(), t.players[0].name.as_str()), (1, "Sam"));
+    // (where the tiles lie: the player's place on its tile of 300 m)
+    let r = t.reference.expect("a place by its tile");
+    assert_eq!((r.tile_x, r.tile_y, r.local_x, r.x), (2, 4, 50.5, 650.5));
+
+    // on foot, without traffic: empty lists, as `{}` from Lua, read as empty
+    h.state.borrow_mut().position = None;
+    h.state.borrow_mut().traffic.clear();
+    h.state.borrow_mut().timetable_buses.clear();
+    h.state.borrow_mut().others.clear();
+    for _ in 0..2 {
+        h.frame().unwrap();
+    }
+    let t = bridge::read_traffic(&dir).expect("written again");
+    assert!(t.player.is_none() && t.vehicles.is_empty() && t.buses.is_empty() && t.reference.is_none(), "{t:?}");
+}
+
+#[test]
+fn an_openomsi_without_the_traffic_functions_writes_none() {
+    let dir = installed("no-traffic");
+    let mut h = Harness::load_with(&dir, game(), "omsi.traffic = nil; omsi.timetable = nil; omsi.position = nil").unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    assert!(bridge::read_traffic(&dir).is_none());
+}
+
+#[test]
+fn every_drive_writes_the_live_dashboard() {
+    // a drive of the player's own, no assignment: the bus alone
+    let dir = installed("dash-free");
+    let mut h = Harness::load(&dir, GameState { speed: 37.5, position: Some((1200.0, -340.0, 0.0)), passengers: 14, ..game() }).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    assert_eq!((d.issued, d.bus.speed, d.bus.x, d.bus.y, d.bus.passengers), (0, 37.5, Some(1200.0), Some(-340.0), Some(14.0)));
+    assert_eq!(d.bus.file, "Vehicles/MAN_SD202/SD202.bus");
+    assert_eq!(d.clock, Some(28_800.0));
+    assert!(d.duty.is_none() && d.stops.is_empty(), "{d:?}");
+    assert!(d.drive.seconds >= 2.0 && d.drive.metres > 0.0, "{:?}", d.drive);
+
+    // a company's duty: the duty, its trip and its stops
+    let dir = installed("dash-duty");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let stop = |id: i64, name: &str, at: f64| hub_plugin_harness::Stop { id, name: name.into(), arr: at, dep: at };
+    let mut g = game();
+    g.trips[0].stops = vec![stop(1, "Zoo", 28_800.0), stop(2, "Markt", 29_100.0), stop(3, "Hbf", 29_400.0)];
+    g.trips[0].terminus = "Hbf".into();
+    let mut h = Harness::load(&dir, g).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    assert_eq!(d.issued, issued());
+    let duty = d.duty.expect("the duty under way");
+    assert_eq!((duty.line.as_str(), duty.tour.as_str(), duty.trip, duty.trips, duty.delay), ("10", "2", 1, 2, 42.0));
+    assert_eq!((duty.trip_name.as_str(), duty.number.as_str(), duty.terminus.as_str()), ("Zoo - Hbf", "10", "Hbf"));
+    let names: Vec<&str> = d.stops.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["Zoo", "Markt", "Hbf"]);
+    assert_eq!((d.stops[1].arrival, d.stops[1].stops), (29_100.0, true));
+}
+
+/// The panel `id` as the game has it now.
+fn panel(h: &Harness, id: &str) -> serde_json::Value {
+    h.state.borrow().panels.get(id).cloned().unwrap_or_else(|| panic!("no panel {id}"))
+}
+
+/// A Lua expression of the plugin's state, as JSON.
+fn eval(h: &Harness, lua: &str) -> serde_json::Value {
+    let v: mlua::Value = h.lua.load(lua).eval().unwrap();
+    serde_json::to_value(&v).unwrap()
+}
+
+#[test]
+fn the_driver_sizes_and_moves_the_panels_and_they_stay_so() {
+    let dir = installed("layout");
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    h.frame().unwrap();
+    let before = panel(&h, "omsihub");
+    assert_eq!((before["width"].as_f64(), before["x"].as_f64(), before["y"].as_f64()), (Some(300.0), Some(16.0), Some(0.0)));
+    assert!(!before.to_string().contains("hub_size_up"), "no size row without the mouse");
+
+    // F10: the size row under the panel; two clicks on "larger"
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    assert!(panel(&h, "omsihub").to_string().contains("hub_size_up"));
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_up")]).unwrap();
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_up")]).unwrap();
+    let big = panel(&h, "omsihub");
+    assert_eq!(big["width"].as_f64().map(f64::round), Some(360.0));
+    assert!(big.to_string().contains("120 %"), "{big}");
+    // (its texts grow with it; the padding the game would give it, too)
+    assert_eq!(big["children"][1]["size"].as_f64().map(|s| (s * 10.0).round() / 10.0), Some(16.8));
+    assert_eq!(big["padding"].as_f64().map(|s| (s * 10.0).round() / 10.0), Some(14.4));
+
+    // dragged 40 to the left and 25 down (the panel sits on the right: x grows leftwards)
+    h.state.borrow_mut().moved.insert("omsihub".into(), (-40.0, 25.0));
+    h.frame().unwrap();
+    h.frame().unwrap();
+    assert_eq!(eval(&h, "{ omsi.data.layout.omsihub.dx, omsi.data.layout.omsihub.dy, omsi.data.layout.omsihub.scale }"), json!([-40.0, 25.0, 1.2]));
+    // (the panels give the mouse back: the size row goes)
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    assert!(!panel(&h, "omsihub").to_string().contains("hub_size_up"));
+
+    // the next drive: the panel comes where it was left, at its size
+    let kept = eval(&h, "omsi.data.layout");
+    let mut h = Harness::load_with(&dir, game(), &format!("omsi.data.layout = omsi.json.decode('{kept}')")).unwrap();
+    h.frame().unwrap();
+    let again = panel(&h, "omsihub");
+    assert_eq!((again["x"].as_f64(), again["y"].as_f64()), (Some(56.0), Some(25.0)));
+    assert_eq!(again["width"].as_f64().map(f64::round), Some(360.0));
+
+    // back to how it came
+    h.fire("key", &[json!("F10"), json!(true)]).unwrap();
+    h.fire("ui_click", &[json!("omsihub"), json!("hub_size_reset")]).unwrap();
+    let reset = panel(&h, "omsihub");
+    assert_eq!((reset["x"].as_f64(), reset["y"].as_f64(), reset["width"].as_f64()), (Some(16.0), Some(0.0), Some(300.0)));
+}

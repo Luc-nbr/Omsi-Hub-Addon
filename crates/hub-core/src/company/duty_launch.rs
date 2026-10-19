@@ -440,6 +440,7 @@ mod tests {
             origin: String::new(),
             last: String::new(),
             part: None,
+            of_line: String::new(),
         }
     }
 

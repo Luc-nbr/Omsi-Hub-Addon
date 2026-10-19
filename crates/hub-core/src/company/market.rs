@@ -248,6 +248,7 @@ pub(crate) fn add_registered(c: &mut Company, bus: &MarketBus, reg: Registered, 
         region: Some(bus.region),
         age_from: reg.from,
         built_auto: None,
+        number_auto: None,
     });
     id
 }
@@ -273,6 +274,31 @@ pub fn set_age(c: &mut Company, id: u32, date: Option<&str>) -> Result<(), &'sta
             }
         }
     }
+    Ok(())
+}
+
+/// Give a bus a fleet number of the player's own, over the one it was given; None (or an empty
+/// one): back to that (a new one if another bus has it now).
+pub fn set_number(c: &mut Company, id: u32, number: Option<&str>) -> Result<(), &'static str> {
+    let number = number.map(str::trim).filter(|n| !n.is_empty());
+    let Some(v) = c.vehicle(id) else { return Err("This bus is not in the fleet.") };
+    let (own, auto) = (v.number.clone(), v.number_auto.clone());
+    let taken = |c: &Company, n: &str| c.fleet.iter().any(|x| x.id != id && x.number == n);
+    let (number, auto) = match number {
+        Some(n) if n.chars().count() > 12 => return Err("A fleet number has at most 12 characters."),
+        Some(n) if taken(c, n) => return Err("Another bus of the fleet has this number."),
+        // (its own automatic number: as if never set)
+        Some(n) if auto.as_deref() == Some(n) => (n.to_string(), None),
+        Some(n) => (n.to_string(), Some(auto.unwrap_or(own))),
+        None => match auto {
+            None => return Ok(()),
+            Some(a) if taken(c, &a) => (c.next_fleet_number(), None),
+            Some(a) => (a, None),
+        },
+    };
+    let v = c.fleet.iter_mut().find(|v| v.id == id).unwrap();
+    v.number = number;
+    v.number_auto = auto;
     Ok(())
 }
 
@@ -638,7 +664,7 @@ pub(crate) mod tests {
             for f in files.iter().filter(|f| f.extension().is_some_and(|x| x.eq_ignore_ascii_case("bus"))) {
                 let Ok(bf) = crate::vehicles::BusFile::load(f) else { continue };
                 let v = &bf.bus;
-                if v.ai_only {
+                if v.is_traffic() {
                     continue;
                 }
                 let name = format!("{} {}", v.manufacturer.trim(), v.type_name.trim());
@@ -768,6 +794,49 @@ pub(crate) mod tests {
             last = now;
         }
         assert!((last as f64 - price as f64 * economy::age_factor(12.0)).abs() < 3_000_00.0, "{last}");
+    }
+
+    /// The player's own fleet number stands for the bus's (unique in the fleet), an empty one
+    /// brings the automatic one back (a new one if another bus has taken it), new buses never
+    /// get a number in use, and a file of before (no `number_auto`) still loads.
+    #[test]
+    fn the_fleet_number_set_by_hand_and_back() {
+        let mut c = company(GameMode::Normal);
+        let a = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        let b = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        let num = |c: &Company, id| c.vehicle(id).unwrap().number.clone();
+        assert_eq!((num(&c, a).as_str(), num(&c, b).as_str()), ("101", "102"));
+        set_number(&mut c, a, Some(" 2571 ")).unwrap();
+        assert_eq!((num(&c, a).as_str(), c.vehicle(a).unwrap().number_auto.as_deref()), ("2571", Some("101")));
+        // (another bus's, too long; the same twice keeps the first automatic one)
+        assert!(set_number(&mut c, b, Some("2571")).is_err());
+        assert!(set_number(&mut c, b, Some("1234567890123")).is_err());
+        set_number(&mut c, a, Some("W 12")).unwrap();
+        assert_eq!(c.vehicle(a).unwrap().number_auto.as_deref(), Some("101"));
+        // (an empty box: back to 101)
+        set_number(&mut c, a, Some("  ")).unwrap();
+        assert_eq!((num(&c, a).as_str(), c.vehicle(a).unwrap().number_auto.clone()), ("101", None));
+        set_number(&mut c, a, None).unwrap();
+        assert_eq!(num(&c, a), "101");
+        // (typing its own automatic number is as never set)
+        set_number(&mut c, a, Some("7")).unwrap();
+        set_number(&mut c, a, Some("101")).unwrap();
+        assert_eq!(c.vehicle(a).unwrap().number_auto, None);
+        // (its old number taken by another bus: a new one; a new bus skips one in use)
+        set_number(&mut c, a, Some("7")).unwrap();
+        set_number(&mut c, b, Some("101")).unwrap();
+        set_number(&mut c, a, None).unwrap();
+        assert_eq!(num(&c, a), "103");
+        set_number(&mut c, b, Some("104")).unwrap();
+        let d = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        assert_eq!(num(&c, d), "105");
+        set_number(&mut c, b, None).unwrap();
+        assert_eq!(num(&c, b), "102");
+        // (a bus of a file of before)
+        let mut old = serde_json::to_value(c.vehicle(b).unwrap()).unwrap();
+        old.as_object_mut().unwrap().remove("number_auto");
+        let v: Vehicle = serde_json::from_value(old).unwrap();
+        assert_eq!((v.number.as_str(), v.number_auto), ("102", None));
     }
 
     /// The player's own year of first registration overrides the plate's or the market's, its

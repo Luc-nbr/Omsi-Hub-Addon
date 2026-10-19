@@ -49,6 +49,17 @@ export const rowPitch = (drivers) => (drivers && S.rf.layers.periods !== false ?
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
+/** The lines block `t` runs trips of: its own, and others where the bus interlines. */
+export const linesOf = (t) => (t?.lines?.length ? t.lines : [t?.line]);
+
+/** Whether one bus may run trips of all of `lines` (`rosterflow::interlines`): one line, or
+ * lines that interline as the preferences have it (the board's `prefs`). */
+export function mayMix(data, lines) {
+  const p = data?.prefs || {};
+  const own = lines.every((l) => eq(l, lines[0]));
+  return own || (!!p.interline && !lines.some((l) => (p.interline_not || []).some((x) => eq(x, l))));
+}
+
 /** RosterFlow's scrollbar colours in its look (`rf_scroll::look`). */
 export function barLook(p) {
   return p.light ? { track: alpha(p.text, 0.06), thumb: alpha(p.text, 0.24), hot: alpha(p.text, 0.44) } : { track: [255, 255, 255, 0.05], thumb: [255, 255, 255, 0.22], hot: [255, 255, 255, 0.42] };
@@ -156,7 +167,8 @@ export function rowsOf(data, drivers) {
     for (const i of idx) {
       const t = b.blocks[i];
       if (issueRows && !issueRows.includes(`vehicle|${i}`)) continue;
-      if (f.hidden.some((h) => eq(h, t.line))) continue;
+      // (a bus that interlines: hidden once all of its lines are)
+      if (linesOf(t).every((l) => f.hidden.some((h) => eq(h, l)))) continue;
       if (f.lockedOnly && !t.locked) continue;
       if (t.to < f.from || t.from > f.to) continue;
       if (f.dir !== 0 && !t.trips.some((x) => x.counts && x.out === (f.dir === 1))) continue;
@@ -204,8 +216,10 @@ export function handSpan(b, h) {
 
 export function handColour(b, h) {
   if (h.kind === 'stack') return hex(b.stack[h.k]?.colour);
-  if (h.kind === 'duty_trips') return hex(b.blocks[h.trips[0]?.[0]]?.colour);
-  return hex(b.blocks[h.tour]?.colour);
+  if (h.kind === 'duty_trips') return hex(b.blocks[h.trips[0]?.[0]]?.trips[h.trips[0]?.[1]]?.colour || b.blocks[h.trips[0]?.[0]]?.colour);
+  // (the trip taken up in its own line's colour, where its bus interlines)
+  const t = b.blocks[h.tour];
+  return hex((h.kind === 'trips' && t?.trips[h.trips?.[0]]?.colour) || t?.colour);
 }
 
 /** The trips of piece `duty` of block `tour`. */
@@ -467,7 +481,12 @@ function draw(ctx, w, h, g) {
     const idr = { x: 36, y: rr.y, w: ID_W - 60, h: rr.h };
     const idh = inside(idr, m);
     const idCol = rowOn ? p.accent : idh ? p.text : alpha(p.text, 0.88);
-    if (isBlock) D.rect(ctx, 36, cy - 6, 3, 12, g.by === 'block' ? colourOf(p, it.id) : hex(it.colour));
+    if (isBlock && g.by !== 'block' && it.interlined) {
+      // (a bus that interlines: its lines' colours one above the other)
+      const ls = linesOf(it);
+      const col = (l) => hex(it.trips.find((x) => x.counts && eq(x.line || it.line, l))?.colour || it.colour);
+      ls.forEach((l, k) => D.rect(ctx, 36, cy - 6 + (12 * k) / ls.length, 3, 12 / ls.length, col(l)));
+    } else if (isBlock) D.rect(ctx, 36, cy - 6, 3, 12, g.by === 'block' ? colourOf(p, it.id) : hex(it.colour));
     else if (g.by === 'duty') D.rect(ctx, 36, cy - 6, 3, 12, colourOf(p, it.id));
     D.textAt(ctx, D.fit(ctx, it.label, ID_W - 43 - 42, 12.5, 700), 43, cy + 4.5, 12.5, 700, idCol);
     if (!readOnly) hit(idr.x, idr.y, idr.w, idr.h, { kind: 'id', row, cy });
@@ -490,8 +509,8 @@ function draw(ctx, w, h, g) {
       const v = statOf(b, row, stat);
       if (v) D.textAt(ctx, v[1], ID_W + k * STAT_W + STAT_W / 2, cy + 4, 11.5, 500, alpha(p.text, 0.85), 'center');
     });
-    // the swap's target: a click on a bus of the line
-    if (hand?.kind === 'swap' && isBlock && row.i !== hand.tour && eq(b.blocks[row.i].line, b.blocks[hand.tour].line)) {
+    // the swap's target: a click on a bus of the line (or of a line they interline with)
+    if (hand?.kind === 'swap' && isBlock && row.i !== hand.tour && mayMix(data, [...linesOf(b.blocks[row.i]), ...linesOf(b.blocks[hand.tour])])) {
       const zr = { x: gx, y: rr.y + 1, w: gw, h: rr.h - 2 };
       D.roundedBorder(ctx, zr.x, zr.y, zr.w, zr.h, 3, 1.2, inside(zr, m) ? p.accent : alpha(p.accent, 0.3));
       hit(zr.x, zr.y, zr.w, zr.h, { kind: 'swap', i: row.i });
@@ -598,7 +617,7 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
     // the gap before it: a deadhead where the places differ, the layover's minutes
     if (j > 0) {
       const prev = t.trips[j - 1];
-      if (x.dh != null) D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, true);
+      if (x.dh != null) D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, !x.dh_set);
       else if (r.layers.breaks && x.dep - prev.arr > 0 && xOf(x.dep) - xOf(prev.arr) > 18) D.textAt(ctx, `${x.dep - prev.arr}m`, (xOf(prev.arr) + a) / 2, cy + 3.5, 9.5, 500, p.dim, 'center');
     }
     if (x.empty || !x.counts) {
@@ -766,7 +785,7 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       const bb = Math.max(xOf(x.arr), a + 4);
       if (j > rs && x.dh != null) {
         const prev = t.trips[j - 1];
-        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, true);
+        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, !x.dh_set);
       }
       if (x.empty || !x.counts) {
         // (the block's first and last: drawn with the checks above)

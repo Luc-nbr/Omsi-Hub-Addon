@@ -238,6 +238,9 @@ pub fn found(s: &mut Session, args: &Value) -> Result<Value, String> {
         company_mode: args.get("company_mode").and_then(Value::as_str).and_then(co::sandbox::CompanyMode::of_key).unwrap_or_default(),
         country: super::country::founding(args),
         currency: super::currency::chosen(args),
+        // (the player builds the depot from its land up; Casual, which has no depot page of its
+        // own, keeps the yard rented of before)
+        empty_depot: !mode.casual(),
     };
     let mut c = co::found(&f, &core::load_config().profile);
     c.id = co::store::unused_id(&data(), &c.name);
@@ -246,6 +249,8 @@ pub fn found(s: &mut Session, args: &Value) -> Result<Value, String> {
     super::changed(s);
     let t = if f.company_mode == co::sandbox::CompanyMode::Sandbox {
         trf("%{name} is founded as a sandbox: set its rules on the Sandbox page.", &[("name", &f.name)])
+    } else if f.empty_depot {
+        trf("%{name} is founded. Build your depot, add a line, buy a bus and hire drivers.", &[("name", &f.name)])
     } else {
         trf("%{name} is founded. Add a line, buy a bus and hire drivers.", &[("name", &f.name)])
     };

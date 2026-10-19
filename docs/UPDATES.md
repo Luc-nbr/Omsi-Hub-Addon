@@ -1,7 +1,9 @@
 # The app's updates
 
-Omsi-Hub updates itself from this repository's GitHub releases
-(`github.com/Luc-nbr/Omsi-Hub-Addon`). Nothing of openOMSI's updater is used.
+Omsi-Hub updates itself from the GitHub releases of the public repository
+`github.com/Luc-nbr/Omsi-Hub-Releases`, which holds only the installers and `latest.json`: the
+code's own repository (`Omsi-Hub/Omsi-Hub-Addon`) is private, and nobody could download from its
+releases. Nothing of openOMSI's updater is used.
 
 ## How it works
 
@@ -42,13 +44,30 @@ Until the public key is in `tauri.conf.json`, the app does not use the plugin. "
 then becomes "Download from GitHub", which opens the release's page. The same happens for a
 release without a `latest.json`.
 
+## The installers' look
+
+- **Windows (NSIS):** `app/tauri.windows.conf.json`, `bundle.windows.nsis`: the pictures of
+  `app/installer/` (`nsis-sidebar.bmp` 164 × 314 on the welcome and finish pages,
+  `nsis-header.bmp` 150 × 57 beside the other pages' titles, the uninstaller's too), the app's
+  icon, the licence page (`bundle.licenseFile`: `LICENSE`), the languages Tauri has texts for
+  (English, Dutch, German, French, Russian, Ukrainian; Polish has none, so Polish players get
+  English) with a choice at the start, per-user install (no administrator), and a Start menu
+  folder of its own.
+- **macOS (DMG):** `app/tauri.macos.conf.json`, `bundle.macOS.dmg`: `dmg-background.png`
+  (660 × 400, light, as Finder writes the icons' names in black), the app at (165, 210) and
+  Applications at (495, 210), the arrow between them.
+- **Linux:** the packages' description is `bundle.longDescription`; the menu entry's category
+  comes from `bundle.category` (`SimulationGame`).
+- The pictures are drawn by `node tools/installer-art.mjs` from `tools/installer-art.html`
+  (Playwright and Python with Pillow) and committed. CI builds the NSIS installer and the DMG on
+  every push, so a wrong picture or setting shows there first.
+
 ## The release files
 
 | Platform | `latest.json` key | Updater file (signed: `<file>.sig` beside it) | For a first download |
 |---|---|---|---|
 | Windows x64 | `windows-x86_64` | `Omsi-Hub_<version>_x64-setup.exe` | the same |
 | macOS Apple silicon | `darwin-aarch64` | `Omsi-Hub_aarch64.app.tar.gz` | `Omsi-Hub_<version>_aarch64.dmg` |
-| macOS Intel | `darwin-x86_64` | `Omsi-Hub_x64.app.tar.gz` | `Omsi-Hub_<version>_x64.dmg` |
 | Linux x64 | `linux-x86_64` | `Omsi-Hub_<version>_amd64.AppImage` | the same, or the `.deb` / `.rpm` (not self-updating) |
 | Linux ARM64 | `linux-aarch64` | `Omsi-Hub_<version>_aarch64.AppImage` | the same |
 
@@ -58,11 +77,23 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
 
 ## What Luc sets up (once)
 
-0. **The releases must be public.** The app reads them without signing in. The repository is
-   private now (2026-10-17), so GitHub answers 404 and every look ends in "The last check
-   failed". Make the repository public before the first release, or publish the releases
-   somewhere public and change `API` and `LATEST_JSON` in `update.rs` and the endpoint in
-   `tauri.conf.json`.
+0. **The releases' repository.** The app reads the releases without signing in, so they live in
+   a public repository of their own:
+   - make `Luc-nbr/Omsi-Hub-Releases` on GitHub: **public**, with a README (it needs one commit:
+     the release tags are made from its `main`);
+   - make a **fine-grained token** (GitHub → Settings → Developer settings → Fine-grained tokens):
+     repository access "Only select repositories" → `Omsi-Hub-Releases`, permission
+     "Contents: Read and write", nothing else;
+   - add it to **this** repository as the secret `OMSI_HUB_RELEASES` (Settings → Secrets and
+     variables → Actions). The release workflow stops with a clear error without it.
+
+   The openOMSI fork Cargo fetches (`Luc-nbr/openOMSI`) is private: CI and the release read it
+   with the secret `OPENOMSI_TOKEN` (a fine-grained token with "Contents: Read-only" on
+   `Luc-nbr/openOMSI`), or the fork is made public.
+
+   `update.rs` (`REPO`, `API`, `LATEST_JSON`) and the updater's endpoint in `tauri.conf.json`
+   point there; a copy installed before this change looked in `Omsi-Hub-Addon` and has to be
+   updated by hand once.
 
 1. **Make the signing key**, on your own computer:
 
@@ -119,6 +150,26 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    version`) and `app/tauri.conf.json`'s. A draft or a pre-release is never offered. That makes
    a pre-release the place for a test build.
 
+## A pre-release (for testers)
+
+1. **Write what is in it** in `CHANGELOG.md` (the release links there), under the version.
+2. **Build it:** Actions → Release → Run workflow, on `main`, with "pre-release" on (the default).
+   The workflow checks that `Cargo.toml` and `app/tauri.conf.json` have the same version, and makes
+   a draft named `Omsi-Hub <version>` with the pre-release mark and the installers of the four
+   builds. Run it again after a fix: it uploads to the same draft.
+3. **Try the installers yourself**, then publish the draft (Releases → the draft → Edit →
+   Publish release). It stays a pre-release.
+
+What it means for players:
+
+- **Nobody is offered it.** The app's look skips pre-releases, and Tauri's updater reads
+  `releases/latest`, which is never a pre-release. Testers download and install it themselves.
+- **Testers are offered the next normal release** above it. So give that one a higher version
+  (after a 0.1.0 pre-release, the first normal release is 0.1.1 or 0.2.0): a normal 0.1.0 would
+  not be newer than the 0.1.0 they have.
+- **While the repository is private**, only people with access to it see the release and its
+  files: the download links do not work for anyone else.
+
 `latest.json`, if you ever write it by hand:
 
 ```json
@@ -127,10 +178,10 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
   "notes": "What changed",
   "pub_date": "2026-11-01T12:00:00Z",
   "platforms": {
-    "windows-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_x64-setup.exe.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_0.2.0_x64-setup.exe" },
-    "darwin-aarch64": { "signature": "<contents of Omsi-Hub_aarch64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_aarch64.app.tar.gz" },
-    "darwin-x86_64": { "signature": "<contents of Omsi-Hub_x64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_x64.app.tar.gz" },
-    "linux-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_amd64.AppImage.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_0.2.0_amd64.AppImage" }
+    "windows-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_x64-setup.exe.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_0.2.0_x64-setup.exe" },
+    "darwin-aarch64": { "signature": "<contents of Omsi-Hub_aarch64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_aarch64.app.tar.gz" },
+    "darwin-x86_64": { "signature": "<contents of Omsi-Hub_x64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_x64.app.tar.gz" },
+    "linux-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_amd64.AppImage.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_0.2.0_amd64.AppImage" }
   }
 }
 ```

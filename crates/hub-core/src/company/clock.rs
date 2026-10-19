@@ -1078,9 +1078,9 @@ fn apply(c: &mut Company, due: Due, quick: bool, run: &mut Run) {
                 }
                 What::Built { area, level } => {
                     let Some(a) = Area::from_key(&area) else { return };
-                    if c.site.works.iter().any(|w| w.area == a && w.level == level) {
-                        c.site.works.retain(|w| !(w.area == a && w.level == level));
-                        c.site.set_level(a, level);
+                    if let Some(k) = c.site.works.iter().position(|w| w.area == a && w.level == level) {
+                        let w = c.site.works.remove(k);
+                        super::yard::finish(&mut c.site, &w);
                     }
                     tell(c, run, when, "Building work finished: %{area}", vec![arg("area", a.label())], Level::Good);
                 }

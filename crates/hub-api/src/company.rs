@@ -19,8 +19,9 @@
 //! commands) as they were. What they used of the old launcher is `crate::launcher` now (the
 //! maps, the driver, the game Omsi-Hub started); the company's link to the plugin is
 //! `plugin` (delivered by the plugin port); Play together answers as it does while it is off
-//! (`crate::together`). The bus photos, the fleet map's roads and the duty map were drawn by the
-//! old game: they answer [`NOT_AVAILABLE`].
+//! (`crate::together`). The bus photos the old game drew are still shown (`photos`); new ones
+//! the page takes itself (`content::bus3d::photo`). The fleet map's and the duty map's roads are read by
+//! `content::mapview`.
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 mod age;
@@ -250,7 +251,11 @@ pub fn logo_picture(path: &str) -> Option<String> {
     if let Some(x) = kept.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
         return x.clone();
     }
-    let read = std::fs::read(path).ok().filter(|b| !b.is_empty() && b.len() <= 3 << 20).map(|b| {
+    let bytes = std::fs::read(path).ok();
+    // (the website: the logo the desktop sent with the cloud save, `cloud_content`)
+    #[cfg(not(feature = "native"))]
+    let bytes = bytes.or_else(|| std::fs::read(hub_core::paths::data_dir().join("web").join("logo")).ok());
+    let read = bytes.filter(|b| !b.is_empty() && b.len() <= 3 << 20).map(|b| {
         let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
         let mime = match ext.as_str() {
             "jpg" | "jpeg" => "image/jpeg",
@@ -475,7 +480,7 @@ impl Session {
     pub fn vehicles(&mut self) -> Arc<Vec<core::VehicleInfo>> {
         if self.vehicles.is_none() && !self.vehicles_busy {
             self.vehicles_busy = true;
-            std::thread::spawn(|| {
+            crate::spawn(|| {
                 let list = core::list_vehicles().unwrap_or_default();
                 let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
                 s.vehicles = Some(Arc::new(list));
@@ -510,7 +515,7 @@ impl Session {
         }
         self.market_busy = true;
         self.market_for = Some(n);
-        std::thread::spawn(move || {
+        crate::spawn(move || {
             let list = market_of(&vehicles);
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
             s.market = Some(Arc::new(list));
@@ -655,7 +660,7 @@ fn work(s: &mut Session) {
     if s.today_asked.as_ref() != Some(&key) {
         s.today_asked = Some(key.clone());
         let revision = s.timetable;
-        std::thread::spawn(move || {
+        crate::spawn(move || {
             let (map, date) = key;
             let result = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
@@ -736,7 +741,7 @@ pub fn week_work(s: &mut Session) {
     }
     v.asked.extend(missing.iter().cloned());
     let revision = s.timetable;
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         for (map, date) in missing {
             let r = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
@@ -949,7 +954,7 @@ pub fn simulate(s: &mut Session, to: i64, quick: bool) {
     s.closing = true;
     s.clock.dirty = None;
     s.generation += 1;
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         let d = data();
         let mut c = c;
         let w = lines.map(|x| Disk::new(&d).knowing(&c.map.clone(), &c.date.clone(), x));
@@ -1149,7 +1154,7 @@ fn catch_up(s: &mut Session, c: Company, real: i64) {
     s.clock.dirty = None;
     s.generation += 1;
     let lines = s.map_lines().map(|l| l.to_vec());
-    std::thread::spawn(move || {
+    crate::spawn(move || {
         let d = data();
         let mut c = c;
         let w = lines.map(|x| Disk::new(&d).knowing(&c.map.clone(), &c.date.clone(), x));
@@ -1601,13 +1606,19 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 /// showroom read a few hundred bus files, one after the other a good twenty seconds on a page
 /// that says the dealer is setting out the buses.
 pub(crate) fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
-    let chunk = items.len().div_ceil(n).max(1);
-    let f = &f;
-    std::thread::scope(|sc| {
-        let parts: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
-        parts.into_iter().flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
-    })
+    // (the website: one thread)
+    #[cfg(not(feature = "native"))]
+    return items.iter().map(f).collect();
+    #[cfg(feature = "native")]
+    {
+        let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+        let chunk = items.len().div_ceil(n).max(1);
+        let f = &f;
+        std::thread::scope(|sc| {
+            let parts: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
+            parts.into_iter().flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+        })
+    }
 }
 
 /// The market's buses (`market::market_of`, its bus files read on several threads).
@@ -1675,8 +1686,8 @@ pub fn call_bytes(cmd: &str, args: &Value, _p: &dyn Platform) -> Result<Vec<u8>,
 }
 
 /// A command of the bus company that answers bytes: a staff portrait's JPEG (`co_portrait`, `n`
-/// 1 to 300), a bus's photo as the game-drawn launcher took it (`co_photo`, `bus` and `livery`:
-/// not available, see [`NOT_AVAILABLE`]). None when `cmd` is not one.
+/// 1 to 300), a bus's photo (`co_photo`, `bus` and `livery`: `photos`). None when `cmd` is not
+/// one.
 fn bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         "co_portrait" => {
@@ -1834,15 +1845,13 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
     Ok(json!({ "edit": edit }))
 }
 
-/// What a feature the old game drew for the launcher answers now: the add-on has no game
-/// renderer (`Platform::renderer` of the old launcher), so the bus photos, the fleet map's roads
-/// and the duty map are not there until the app draws them itself.
-pub const NOT_AVAILABLE: &str = "not available: the game drew this for the old launcher, and the add-on has no game renderer";
-
-/// The duty launcher's map (Omsi-Hub 6/6): the routes of every trip of the duty, read by the old
-/// game program (`mapview::hub_fleet`). **Not available** (see [`NOT_AVAILABLE`]).
-fn duty_map(_args: &Value, _p: &dyn Platform) -> Answer {
-    Err(NOT_AVAILABLE.to_string())
+/// The duty launcher's map (Omsi-Hub 6/6): the map's roads and the route of every trip of the
+/// duty (`{map, date, trips}`), as the route map draws them (`content::mapview::trips_page`).
+fn duty_map(args: &Value, _p: &dyn Platform) -> Answer {
+    let trips: Vec<String> = args.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+    let map = str_arg(args, "map");
+    let global = hub_core::paths::resolve_content(&map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
+    Ok(crate::content::mapview::trips_page(&map, &global, &str_arg(args, "date"), &trips))
 }
 
 /// A day of the company as the views write it with its time (`clock::text` of a feed line).

@@ -132,7 +132,7 @@ function NewForm() {
     if (!m || f.sourcesFor === m.file) return;
     f.sourcesFor = m.file;
     const bus = curBus() || (S.vehicles || []).find((v) => v.file === S.choice.last_bus);
-    call('de_sources', { hof: m.hof || '', bus: bus?.file || '', bus_name: bus?.name || '' }).then((list) => {
+    call('de_sources', { hof: m.hof || '', map: m.file, bus: bus?.file || '', bus_name: bus?.name || '' }).then((list) => {
       // (the source chosen kept by what it is, not by its place; else the map's, else an empty one)
       const had = f.sources?.[f.from]?.source;
       const same = (a, b) => a && b && a.kind === b.kind && (a.path || '') === (b.path || '');
@@ -147,7 +147,7 @@ function NewForm() {
     if (!m) return;
     const name = f.name.trim() || hint;
     try {
-      const r = await call('de_make', { name, map: m.file, hof: m.hof || '', source: f.sources?.[f.from]?.source || { kind: 'empty' } });
+      const r = await call('de_make', { name, map: m.file, source: f.sources?.[f.from]?.source || { kind: 'empty' } });
       V.form = null;
       V.entries = r.entries;
       take(r.view);

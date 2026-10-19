@@ -86,6 +86,8 @@ fn main() {
         "duty.trip_stops",
         "audio.play",
         "duty.set_closed_stops",
+        "traffic.list",
+        "timetable.buses",
     ];
     let funcs: Vec<String> = functions.iter().map(|f| format!("\"{f}\":true")).collect();
     let hello = format!(

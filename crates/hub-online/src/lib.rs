@@ -9,6 +9,8 @@
 //!   (`sign_up_page`), not here;
 //! * `saves` - the player's two cloud save slots in Storage, a save compressed with zstd and its
 //!   sha256 checked both ways;
+//! * `avatar` - the profile photo, one small picture in the public bucket `avatars`, the same on
+//!   the website;
 //! * `store` - the refresh token in the OS's credential store, nowhere else;
 //! * `codes` - every answer as one of our codes (`too_many`, `not_found` ...), with its English
 //!   text for the launcher to translate: nothing the server says is shown as it is;
@@ -21,6 +23,7 @@
 //! No network is no error of the player's: every call then answers `Error::Offline` at once
 //! (the connection's own timeouts), and the launcher plays on locally. Nothing here logs.
 
+mod avatar;
 pub mod check;
 mod client;
 pub mod codes;
@@ -38,6 +41,7 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
+pub use avatar::{picture_kind, MAX_BYTES as AVATAR_MAX_BYTES};
 pub use client::{Client, Friend, Invite, Profile, Stats};
 pub use codes::Error;
 pub use oauth::{Flow, Handoff};

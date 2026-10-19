@@ -1,6 +1,7 @@
 // The Settings page's tabs and rows (`pages/settings.js` draws them): the look - light or dark,
 // the accent, the launcher's size, the animations, the company's layout - and the language;
-// openOMSI and OMSI 2 (the folders, the version, the plugin: `addon.js`); the updates; and the
+// openOMSI and OMSI 2 (the folders, the version, the plugin: `addon.js`); openOMSI's own settings
+// (`gamesettings.js`, its `settings.cfg`); the updates; and the
 // bus models' categories and regions the company goes by. Every change is saved at once
 // (`saveSettings`).
 //
@@ -10,9 +11,11 @@
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { PRESETS, hexOf } from './theme.js';
+import { STOP_SIGNS } from './stopsigns.js';
 import { UpdateRow } from '../update.js';
 import { showPrivacy } from '../privacy.js';
 import { AddonPanel } from './addon.js';
+import { GameSettingsPanel } from './gamesettings.js';
 
 const pct = (v) => `${Math.round(v * 100)} %`;
 
@@ -31,6 +34,8 @@ export const SETTINGS_TABS = [
           { type: 'toggle', key: 'animations', label: 'Animations' },
           { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
           { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
+          // (the stops on the maps as the bus stop signs of a country: `stopsigns.js`)
+          { type: 'select', key: 'stop_style', label: 'Bus stop signs', options: STOP_SIGNS },
           // (the bus company's pages round a sidebar, or found with the command palette: `company/shell.js`)
           { type: 'select', key: 'company_layout', label: 'Company layout', options: [['sidebar', 'Sidebar'], ['palette', 'Command palette']] },
           { type: 'button', label: 'Start the tour', icon: 'route', patch: () => (import('./hub.js').then((h) => (h.go('drive', 'mode'), import('./tour.js').then((m) => setTimeout(() => m.startTour(), 300)))), {}) },
@@ -45,6 +50,7 @@ export const SETTINGS_TABS = [
     ],
   },
   { id: 'addon', label: 'openOMSI and OMSI 2', cols: [{ title: 'Your openOMSI and OMSI 2', rows: [{ type: 'custom', id: 'hub-addon', view: () => html`<${AddonPanel} />` }] }] },
+  { id: 'game', label: "openOMSI's settings", cols: [{ title: "openOMSI's settings", rows: [{ type: 'custom', id: 'hub-game-settings', view: () => html`<${GameSettingsPanel} />` }] }] },
   { id: 'updates', label: 'Updates', cols: [{ title: 'Updates', rows: [{ type: 'custom', id: 'hub-update', view: () => html`<${UpdateRow} />` }] }] },
   // (the bus models' categories and regions, for every company: what the dealer, the market and
   // the shop of the bus company go by, `company/vehicles.js`)

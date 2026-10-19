@@ -7,14 +7,16 @@
 
 import { S } from '../store.js';
 
-/** The logo's orange (`assets/logos/omsi-orange.svg`): the accent unless one is chosen. */
-export const DEFAULT = 0xf58620;
+/** The logo's orange (`assets/logos/omsi-orange.svg`), one of the accents. */
+export const ORANGE = 0xf58620;
+/** The accent unless one is chosen: the blue (Luc, 2026-10-18). */
+export const DEFAULT = 0x2a75f7;
 
 /** The choices offered (`accent::PRESETS`): an English name (translated where shown) and the
  * colour. */
 export const PRESETS = [
-  ['Orange', DEFAULT],
-  ['Blue', 0x2a75f7],
+  ['Blue', DEFAULT],
+  ['Orange', ORANGE],
   ['Green', 0x23a65a],
   ['Red', 0xe43334],
   ['Purple', 0x8b5cf6],
@@ -89,7 +91,7 @@ export function shades(rgb) {
  * needs to read on it. */
 export function lightGround(rgb) {
   const c = unpack(rgb);
-  const base = rgb === DEFAULT ? [252, 234, 208] : c.map((v) => Math.round(v + (255 - v) * 0.55));
+  const base = rgb === ORANGE ? [252, 234, 208] : c.map((v) => Math.round(v + (255 - v) * 0.55));
   let t = 0;
   let g = base;
   while (contrast(LIGHT_DIM, g) < 4.6 && t < 1) {

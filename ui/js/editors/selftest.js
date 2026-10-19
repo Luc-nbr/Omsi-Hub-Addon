@@ -1,10 +1,12 @@
 // The editors' part of our self-check (`../selftest.js`, OMSIHUB_SELFTEST): every editor page
 // drawn without a script error, their commands answering - the Timetable page's lines of a map,
-// the bus's depot files, the depot editor's list. Nothing is saved.
+// the bus's depot files, what a new depot file starts from, the depot editor's list, and in the
+// full check the line editor reading a map and routing a new line. Nothing is saved.
 
 import { call } from '../api.js';
 import { S, set } from '../store.js';
 import { mapLabel } from './kit.js';
+import { language } from '../i18n.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (q) => document.querySelector(q);
@@ -40,11 +42,51 @@ export async function editorsSelftest(check, errors) {
       check("editors: the bus's depot files", false, x.message);
     }
   }
+  if (map) {
+    try {
+      const list = await call('de_sources', { hof: map.hof || '', map: map.file, bus: bus?.file || '', bus_name: bus?.name || '' });
+      check('editors: what a new depot file starts from', list?.[0]?.source?.kind === 'empty', `${list?.length ?? 0} sources`);
+    } catch (x) {
+      check('editors: what a new depot file starts from', false, x.message);
+    }
+  }
   try {
     const r = await call('de_show', { key: null, maps: [] });
     check('editors: the depot files of the player', Array.isArray(r?.entries), `${r?.entries?.length ?? 0} files`);
   } catch (x) {
     check('editors: the depot files of the player', false, x.message);
   }
-  // (the line editor and the livery studio come later: their pages say so)
+  // the line editor (`hub_le`): a map read, a new line routed
+  if (S.boot?.selftest !== 'full' || !map) return;
+  const le = (op, args = {}) => call('hub_le', { op, lang: language(), ...args });
+  try {
+    const maps = (S.maps || []).map((m) => [mapLabel(m), m.file]);
+    let v = await le('open', { maps, root: S.boot?.root || '', date: c.date || '', choice_map: map.file, company: '', line: null, new_days: null, map_line: '' });
+    for (let i = 0; i < 300 && !v.ready; i++) {
+      await sleep(200);
+      v = await le('view');
+    }
+    const data = v.ready ? await le('map_data') : null;
+    check('editors: the line editor reads a map', !!v.ready && data?.roads?.length > 0, `${map.file}: ${data?.roads?.length ?? 0} roads, ${data?.stops?.length ?? 0} stops`);
+    const stops = data?.stops || [];
+    if (stops.length >= 2) {
+      // (two stops near each other: a leg the router finds)
+      const a = stops[0].at;
+      let j = 1;
+      let best = Infinity;
+      stops.forEach((s, k) => {
+        const d = Math.hypot(s.at[0] - a[0], s.at[1] - a[1]);
+        if (k > 0 && d > 60 && d < best) (best = d), (j = k);
+      });
+      await le('new_line');
+      await le('click_stop', { i: 0 });
+      v = await le('click_stop', { i: j });
+      const d = v.line?.directions?.[0];
+      const leg = d?.legs?.[0];
+      check('editors: a new line routed', d?.stops?.length === 2 && !!leg?.ok, `${stops[0].name} - ${stops[j].name}: ${leg ? `${Math.round(leg.length)} m${leg.ok ? '' : ', no way'}` : 'no leg'}`);
+    }
+    await le('leave');
+  } catch (x) {
+    check('editors: the line editor', false, x.message);
+  }
 }

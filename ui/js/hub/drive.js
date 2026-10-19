@@ -19,11 +19,12 @@ export const CHOICE_DEFAULTS = {
   time: 9 * 60, start_trip: null, date: '1989-05-30',
   season: 'auto', phase: 'mid', own_date: null,
   weather: '', traffic: 30, passengers: true, schedule: true, autostart: false, on_foot: false,
+  lan_mode: 'off', lan_addr: '',
 };
 
 /** The look's and the pages' settings, until the player changes them. */
 export const SETTINGS_DEFAULTS = {
-  dark_mode: true, accent: '#f58620', animations: true, launcher_scale: 1,
+  dark_mode: true, accent: '#2a75f7', animations: true, stop_style: 'de', launcher_scale: 1,
   company_layout: 'sidebar', units: 'metric', bus_lead: 10, update_auto: false,
 };
 
@@ -53,9 +54,15 @@ function keep(key, value) {
 export function startDrive(boot) {
   const settings = { ...SETTINGS_DEFAULTS, ...kept(KEPT_SETTINGS, {}), ...((boot && boot.settings) || {}) };
   const choice = { ...CHOICE_DEFAULTS, ...kept(KEPT_CHOICE, {}) };
+  // (a server joined in an earlier session is not joined again by itself)
+  if (choice.lan_mode === 'join') choice.lan_mode = 'off';
   Object.assign(choice, clockPatch(choice, settings));
   set({ settings, config: { profile: '' }, choice, favourites: kept(KEPT_FAVOURITES, []) });
   loadContent();
+}
+
+function running(mode) {
+  set({ game: { running: true, mode: mode || S.game?.mode || null }, gameStarted: true, liveDash: { hidden: false }, poll: { ...S.poll, instances: [{ running: true }] } });
 }
 
 let listening = false;
@@ -64,9 +71,15 @@ export function watchGame() {
   if (listening) return;
   listening = true;
   on('game-ended', (p) => {
-    set({ game: { running: false, ended: p || null }, gameStarted: false, poll: { ...S.poll, instances: [] } });
+    set({ game: { running: false, ended: p || null }, gameStarted: false, live: null, poll: { ...S.poll, instances: [] } });
     loadSituations();
   });
+  // (any drive started - a shift, a tour, a free drive, a company's duty: its live dashboard,
+  // hub/dash.js; and one that runs already as the launcher opens)
+  on('game-started', (p) => running(p?.mode));
+  call('hub_game_state')
+    .then((g) => g?.running && !S.game?.running && running())
+    .catch(() => {});
   setInterval(followClock, 30000);
 }
 
@@ -107,6 +120,33 @@ function fixChoice() {
   if (S.weather && c.weather && !own && !S.weather.some((w) => w.file === c.weather)) c.weather = '';
   set({ choice: c });
 }
+
+const norm = (f) => (f || '').replace(/\\/g, '/').toLowerCase();
+
+/** A bus's file from `Vehicles/` on, in lower case (a server lists its buses so). */
+export const busFile = (f) => {
+  const n = norm(f);
+  const at = n.lastIndexOf('vehicles/');
+  return at > 0 ? n.slice(at) : n;
+};
+
+/** The buses the server joined allows (None: any). */
+export function serverBuses(c = S.choice) {
+  return c?.lan_mode === 'join' && c.lan_server?.vehicles?.length ? new Set(c.lan_server.vehicles.map(busFile)) : null;
+}
+
+/** The bus chosen, or one of ours the server joined allows. */
+export function allowedBus(c = S.choice) {
+  const allowed = serverBuses(c);
+  if (!allowed || allowed.has(busFile(c.bus))) return {};
+  const own = S.vehicles?.find((v) => allowed.has(busFile(v.file)));
+  return own ? { bus: own.file, paint: '', number: '', hof_manual: false } : {};
+}
+
+/** What the choice keeps of a server's or a host's answer (`hub_lan_query`). */
+export const serverJoined = (answer) => ({
+  lan_server: { asked: !!answer, name: answer?.name || '', time: answer?.time || '', weather: answer?.weather || '', vehicles: answer?.vehicles || [] },
+});
 
 export const curMap = () => S.maps?.find((m) => m.file === S.choice?.map);
 export const curBus = () => S.vehicles?.find((v) => v.file === S.choice?.bus);
@@ -203,9 +243,14 @@ export async function loadSituations() {
   set({ situations: await call('hub_situations', { map: S.choice.map }).catch(() => []) });
 }
 
-/** The drivers: the add-on drives as the player; openOMSI keeps its own profiles. */
+/** The drivers on this computer (`hub_profiles`: OMSI's personnel files and those openOMSI's
+ * sessions name) and the chosen one's service record. */
 export async function loadProfiles() {
-  set({ profiles: [], profile: null });
+  const got = await call('hub_profiles').catch(() => ({ names: [], current: '' }));
+  const profiles = got.names || [];
+  set({ profiles, accountDriver: got.account || null, config: { ...S.config, profile: got.current || '' } });
+  const name = S.config?.profile || profiles[0];
+  set({ profile: name ? await call('hub_profile', { name }).catch(() => null) : null });
 }
 
 /** A bus starred, to be listed first. */
@@ -268,9 +313,14 @@ const text = (v) => (v == null || v === '' ? null : String(v));
 export async function duty(extra = {}) {
   const c = S.choice;
   const trip = pickedTrip();
+  // (joined: the host's map, the one installed here where it is)
+  const ask = () => Promise.race([call('hub_lan_query', { address: c.lan_addr.trim() }).catch(() => null), new Promise((r) => setTimeout(r, 3000))]);
+  const joined = c.lan_mode === 'join' && !extra.tutorial && !extra.situation ? c.lan_map || (await ask())?.map : '';
+  const hostMap = (joined || '').trim().replace(/\\/g, '/');
+  const installed = S.maps?.find((m) => m.file.toLowerCase() === hostMap.toLowerCase())?.file;
   const season = c.season && c.season !== 'auto' ? `${c.season}${c.phase && c.phase !== 'mid' ? '-' + c.phase : ''}` : null;
   const d = {
-    map: c.map,
+    map: /maps\//i.test(hostMap) ? installed || hostMap : c.map,
     bus: c.bus,
     paint: text(c.paint),
     plate: text(c.plate?.trim()),
@@ -290,7 +340,7 @@ export async function duty(extra = {}) {
     autostart: c.autostart,
     on_foot: c.on_foot,
     profile: S.config?.profile || null,
-    lan: 'off',
+    lan: c.lan_mode === 'host' ? 'host' : c.lan_mode === 'join' ? `join:${c.lan_addr.trim()}` : 'off',
     season,
     ...extra,
   };
@@ -305,7 +355,7 @@ export async function start(extra) {
   try {
     const d = await duty(extra);
     const r = await call('hub_drive', { duty: d });
-    set({ gameStarted: true, game: { running: true }, poll: { ...S.poll, instances: [{ running: true }] } });
+    running(r?.mode);
     toast(t('The game is starting…'), 'ok');
     return r;
   } catch (e) {

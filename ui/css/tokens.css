@@ -13,14 +13,14 @@
 
 /* the dark look */
 :root {
-  --hub-accent: #f58620;
-  --hub-accent-rgb: 245, 134, 32;
-  --hub-accent-hover: #f69a47;
-  --hub-accent-deep: #cb6f1b;
-  --hub-accent-chosen: #f58620;
-  --hub-accent-text: #f9bc84;
-  --hub-accent-soft-rgb: 249, 188, 132;
-  --hub-on-accent: #181006;
+  --hub-accent: #2a75f7;
+  --hub-accent-rgb: 42, 117, 247;
+  --hub-accent-hover: #4888f8;
+  --hub-accent-deep: #2361cd;
+  --hub-accent-chosen: #2a75f7;
+  --hub-accent-text: #7ba9fa;
+  --hub-accent-soft-rgb: 123, 169, 250;
+  --hub-on-accent: #ffffff;
   --hub-ground: #0a142e;
   --hub-panel: #141a26;
   --hub-field: #1b2231;

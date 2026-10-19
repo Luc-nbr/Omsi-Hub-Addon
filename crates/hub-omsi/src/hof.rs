@@ -8,8 +8,10 @@
 //!   then the strings);
 //! * `stringcount_terminus` and `stringcount_busstop` - written without brackets - and their
 //!   count on the next line: how many strings each destination and stop has;
-//! * `[addterminus]`: code, name (the texture's id), the stop it ends at, then the strings;
-//!   `[addterminus_allexit]` the same without the stop. `[addterminus_list]` … `[end]` has one
+//! * `[addterminus]`: code, name (the texture's id, which is also the stop it ends at), then the
+//!   strings; `[addterminus_allexit]` the same. (The SDK's comment names a line for the stop
+//!   between them, but no file OMSI ships has one: openOMSI checked every stock depot file, and
+//!   reading one shifted every destination's strings by a place.) `[addterminus_list]` … `[end]` has one
 //!   destination a line, its columns tab-separated: `{ALLEX}` or nothing, the code, the name,
 //!   the strings;
 //! * `[addbusstop]`: the stop's name, then its strings; `[addbusstop_list]` … `[end]` one a
@@ -33,7 +35,7 @@ pub struct Terminus {
     pub code: i32,
     /// Its name, which is also the texture's id the displays look up.
     pub texture_id: String,
-    /// The stop it ends at, where the file names one.
+    /// The stop it ends at: its name (None for `_allexit`).
     pub terminus_stop: Option<String>,
     /// Everyone gets out there (`_allexit`).
     pub all_exit: bool,
@@ -136,7 +138,7 @@ impl Hof {
                     let all_exit = kw == "addterminus_allexit";
                     let code = parse_i32(r.value());
                     let texture_id = r.value().trim().to_string();
-                    let terminus_stop = if all_exit { None } else { Some(r.value().trim().to_string()).filter(|s| !s.is_empty()) };
+                    let terminus_stop = (!all_exit).then(|| texture_id.clone()).filter(|s| !s.is_empty());
                     let strings = padded(r.values(nt).into_iter().map(val).collect(), nt);
                     h.termini.push(Terminus { code, texture_id, terminus_stop, all_exit, strings });
                 }
@@ -243,9 +245,6 @@ impl Hof {
             line(&mut s, if t.all_exit { "[addterminus_allexit]" } else { "[addterminus]" });
             line(&mut s, &t.code.to_string());
             line(&mut s, &t.texture_id);
-            if !t.all_exit {
-                line(&mut s, t.terminus_stop.as_deref().unwrap_or(""));
-            }
             for k in 0..nt {
                 line(&mut s, t.strings.get(k).map_or("", String::as_str));
             }

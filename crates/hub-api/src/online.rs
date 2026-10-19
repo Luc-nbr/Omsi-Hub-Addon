@@ -15,7 +15,8 @@
 //! * `ol_profile {name}` - the display name chosen or changed;
 //! * `ol_leaderboard {on}` - standing on the public leaderboard, or not (off until chosen);
 //! * `ol_report_stats {points, level, duties, minutes, km}` - the service record for the
-//!   leaderboard (the company calls [`report_stats`] itself after a day);
+//!   leaderboard; the worker tells it itself, the account's driver's whenever it changed
+//!   (`report_due`, from `drivers::board_stats`);
 //! * `ol_delete {password}` - the account and everything of it deleted, its cloud saves first
 //!   (`cloud.rs` then makes every company here local);
 //! * `ol_add {code}`, `ol_respond {id, accept}`, `ol_remove {id}`, `ol_block {id}`;
@@ -96,10 +97,37 @@ pub(crate) fn trf(text: &str, vars: &[(&str, &str)]) -> String {
 
 // --- playing together ------------------------------------------------------------------------------
 
-/// The code of the company session this app hosts now. Playing together is not ported yet (the
-/// `tg_` commands need a relay): none, so no invite can be sent and no friend's session joined.
+/// The company session this app hosts now: its code, and whether the boss's friends may join it
+/// without an invite (the company's `together.friends_join`). Playing together is not ported yet
+/// (the `tg_` commands need a relay): until `tg_host_start` calls [`host`], none, so no invite can
+/// be sent and no friend's session joined.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Hosted {
+    pub code: String,
+    pub friends_join: bool,
+}
+
+static HOSTED: Mutex<Option<Hosted>> = Mutex::new(None);
+
+fn hosted() -> Option<Hosted> {
+    HOSTED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The session hosted from now on (none: sharing stopped); the worker tells the friends at once.
+#[allow(dead_code)]
+pub(crate) fn host(h: Option<Hosted>) {
+    *HOSTED.lock().unwrap_or_else(|e| e.into_inner()) = h;
+}
+
+/// The company's "friends can join" changed: the session hosted now (if any) says so from now on.
+pub(crate) fn friends_join_changed(on: bool) {
+    if let Some(h) = HOSTED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        h.friends_join = on;
+    }
+}
+
 fn session_code() -> Option<String> {
-    None
+    hosted().map(|h| h.code)
 }
 
 /// Whether playing together is there to join a friend's session.
@@ -137,6 +165,8 @@ struct View {
     told: Option<(&'static str, Option<String>)>,
     beat_at: u64,
     refreshed_at: u64,
+    /// The service record the leaderboard was last told (`report_due`).
+    reported: Option<Stats>,
 }
 
 static VIEW: LazyLock<Mutex<View>> = LazyLock::new(Default::default);
@@ -237,6 +267,7 @@ fn signed_out(v: &mut View) {
     v.friends.clear();
     v.invites.clear();
     v.told = None;
+    v.reported = None;
 }
 
 fn str_arg<'a>(args: &'a Value, name: &str) -> &'a str {
@@ -245,10 +276,16 @@ fn str_arg<'a>(args: &'a Value, name: &str) -> &'a str {
 
 // --- what is fetched -------------------------------------------------------------------------
 
-/// The state to tell: in a session while hosting one (its code with it), else online or away.
+/// The state to tell: in a session while hosting one, else online or away. The session's code
+/// goes with it only when the friends may join without an invite (the server shows it to friends
+/// only); else they join by an invite, which carries the code itself.
 fn presence(away: bool) -> (&'static str, Option<String>) {
-    match session_code() {
-        Some(code) => ("busy", Some(code)),
+    presence_of(hosted(), away)
+}
+
+fn presence_of(hosted: Option<Hosted>, away: bool) -> (&'static str, Option<String>) {
+    match hosted {
+        Some(h) => ("busy", h.friends_join.then_some(h.code)),
         None if away => ("away", None),
         None => ("online", None),
     }
@@ -303,6 +340,10 @@ fn refresh(beat: bool) -> Result<(), Error> {
             Ok(())
         }
         Ok(Some(((lasting, no_password), Ok((profile, friends, invites))))) => {
+            // (the account's driver: the display name's, the first time - `drivers::link_account`)
+            if let Some(p) = &profile {
+                crate::drivers::link_account(&p.display_name);
+            }
             v.signed_in = true;
             v.lasting = lasting;
             v.no_password = no_password;
@@ -349,16 +390,42 @@ fn worker() {
             let state = presence(v.away);
             first || (v.signed_in && (unix_now().saturating_sub(v.beat_at) >= 60 || v.told.as_ref() != Some(&state)))
         };
+        // (another driver than the account's drives: they play locally, nobody is told)
+        let due = due && (first || crate::drivers::plays_online());
         if due {
             let signed = with(|c| c.signed_in());
             if signed {
                 // (a session the store kept is signed in, offline too)
                 view().signed_in = true;
-                let _ = refresh(true);
+                if refresh(true).is_ok() {
+                    report_due();
+                }
             }
             first = false;
         }
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+/// The account's driver's service record to the leaderboard (`drivers::board_stats`: the
+/// points, the level, the duties, the minutes and the kilometres), whenever it changed since it
+/// was last told - at the first beat, after a drive. Signed out, waiting for the privacy
+/// statement or without a display name nothing is told, nor for another driver than the
+/// account's; the server keeps one report in 30 seconds ("too_soon": told at the next beat).
+fn report_due() {
+    let ready = {
+        let v = view();
+        v.signed_in && !v.need_privacy && v.profile.is_some()
+    };
+    if !ready || !crate::drivers::plays_online() {
+        return;
+    }
+    let Some(stats) = crate::drivers::account_driver().and_then(|d| crate::drivers::board_stats(&d)) else { return };
+    if view().reported == Some(stats) {
+        return;
+    }
+    if let Ok("ok") = report_stats(&stats) {
+        view().reported = Some(stats);
     }
 }
 
@@ -439,6 +506,11 @@ fn state_label(s: &str) -> String {
     })
 }
 
+/// A photo's address, from its name in the bucket.
+fn avatar_of(name: Option<&String>) -> Option<String> {
+    name.map(|n| endpoints().avatar_url(n))
+}
+
 fn friend_json(f: &Friend) -> Value {
     let st = state_of(f);
     let session = f.session_code.clone().filter(|_| st != "offline");
@@ -446,6 +518,7 @@ fn friend_json(f: &Friend) -> Value {
         "id": f.user_id, "name": f.display_name, "state": st, "state_label": state_label(st),
         "seen": if st == "offline" { seen_words(f.last_seen.as_deref()) } else { String::new() },
         "session": session, "join": session.is_some() && together_enabled(),
+        "avatar": avatar_of(f.avatar.as_ref()),
     })
 }
 
@@ -453,9 +526,11 @@ fn state() -> Value {
     start_worker();
     let hosting = session_code().is_some();
     let v = view();
-    let mode = if v.signed_in {
+    // (another driver than the account's plays locally: `account_of` says whose the account is)
+    let mine = crate::drivers::plays_online();
+    let mode = if v.signed_in && mine {
         "in"
-    } else if local() {
+    } else if local() || v.signed_in {
         "local"
     } else {
         "out"
@@ -477,14 +552,15 @@ fn state() -> Value {
     order.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase())));
     json!({
         "mode": mode,
+        "account_of": if v.signed_in && !mine { crate::drivers::account_driver() } else { None },
         "offline": v.offline,
         "lasting": v.lasting,
         "need_profile": v.need_profile,
         "no_password": v.signed_in && v.no_password,
-        "me": v.profile.as_ref().map(|p| json!({ "name": p.display_name, "code": p.friend_code, "board": p.on_board })),
+        "me": v.profile.as_ref().map(|p| json!({ "name": p.display_name, "code": p.friend_code, "board": p.on_board, "avatar": avatar_of(p.avatar.as_ref()) })),
         "friends": order.iter().map(|f| friend_json(f)).collect::<Vec<_>>(),
         "online_count": friends.iter().filter(|f| state_of(f) != "offline").count(),
-        "requests": requests.iter().map(|f| json!({ "id": f.user_id, "name": f.display_name, "incoming": f.incoming, "new": f.incoming && !v.seen.contains(&format!("r:{}", f.user_id)) })).collect::<Vec<_>>(),
+        "requests": requests.iter().map(|f| json!({ "id": f.user_id, "name": f.display_name, "incoming": f.incoming, "new": f.incoming && !v.seen.contains(&format!("r:{}", f.user_id)), "avatar": avatar_of(f.avatar.as_ref()) })).collect::<Vec<_>>(),
         "invites": invites.iter().map(|i| {
             let from = name_of(&i.from);
             json!({ "id": i.key(), "from": from, "session": i.session_code, "text": trf("%{name} invites you to their company", &[("name", &from)]), "new": !v.seen.contains(&format!("i:{}", i.key())) })
@@ -707,6 +783,7 @@ fn sign_out() -> Value {
         c.sign_out();
     });
     signed_out(&mut view());
+    crate::drivers::unlink_account();
     done(&tr("Signed out. Omsi-Hub plays on locally."))
 }
 
@@ -714,6 +791,7 @@ fn delete(args: &Value) -> Value {
     match with(|c| c.delete_account(str_arg(args, "password"))) {
         Ok(()) => {
             signed_out(&mut view());
+            crate::drivers::unlink_account();
             // (its cloud saves went with it: the companies here are local saves now)
             crate::cloud::forget_account();
             done(&tr("Your account, your cloud saves and everything of it are deleted."))
@@ -728,6 +806,18 @@ fn profile(args: &Value) -> Value {
     answer(with(|c| if need { c.create_profile(name) } else { c.set_display_name(name) }).and_then(|_| refresh(false)).map(|_| done(&tr("Display name saved."))))
 }
 
+/// The profile photo: the page's picture (base64, made small and square already), or none
+/// (`clear`); the website shows the same one.
+fn avatar(args: &Value) -> Value {
+    if args.get("clear").and_then(Value::as_bool).unwrap_or(false) {
+        return answer(with(Client::clear_avatar).and_then(|_| refresh(false)).map(|_| done(&tr("Profile photo removed."))));
+    }
+    let Ok(bytes) = crate::launcher::base64(str_arg(args, "data")) else {
+        return fail(Error::Code("bad_photo"));
+    };
+    answer(with(|c| c.set_avatar(&bytes)).and_then(|_| refresh(false)).map(|_| done(&tr("Profile photo saved."))))
+}
+
 // --- the leaderboard ------------------------------------------------------------------------------
 
 /// Standing on the public leaderboard switched on or off, then the profile fetched again.
@@ -740,6 +830,9 @@ fn leaderboard(args: &Value) -> Value {
 /// is kept). Signed out, waiting for the privacy statement or offline it is not sent. For the
 /// company, after a day.
 pub fn report_stats(s: &Stats) -> Result<&'static str, Error> {
+    if !crate::drivers::plays_online() {
+        return Err(Error::Code("not_signed_in"));
+    }
     with(|c| if c.signed_in() { c.report_stats(s) } else { Err(Error::Code("not_signed_in")) })
 }
 
@@ -812,6 +905,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "ol_privacy_accept" => privacy_accept(),
         "ol_delete" => delete(args),
         "ol_profile" => profile(args),
+        "ol_avatar" => avatar(args),
         "ol_leaderboard" => leaderboard(args),
         "ol_report_stats" => match report_stats(&stats_of(args)) {
             Ok(code) => json!({ "ok": true, "code": code }),
@@ -1004,6 +1098,17 @@ mod tests {
         let s = stats_of(&json!({ "points": 1200, "level": 3, "duties": 7, "minutes": 95, "km": 41, "lang": "nl" }));
         assert_eq!(s, Stats { points: 1200, level: 3, duties: 7, minutes_driven: 95, km: 41 });
         assert_eq!(stats_of(&json!({})), Stats::default());
+    }
+
+    /// Hosting: the friends see the session's code only while the company lets them join without
+    /// an invite.
+    #[test]
+    fn the_session_code_goes_to_friends_only_when_they_may_join() {
+        let h = |friends_join| Some(Hosted { code: "HUB-ABC".into(), friends_join });
+        assert_eq!(presence_of(None, false), ("online", None));
+        assert_eq!(presence_of(None, true), ("away", None));
+        assert_eq!(presence_of(h(false), false), ("busy", None));
+        assert_eq!(presence_of(h(true), true), ("busy", Some("HUB-ABC".into())));
     }
 
     /// "Play without an account" is kept in the data folder, and only that.

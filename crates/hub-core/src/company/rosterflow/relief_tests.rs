@@ -318,3 +318,39 @@ fn the_days_close_counts_a_trip_two_duties_share_once_and_runs_it_only_with_both
     assert_eq!((r.trips, r.dropped), (3, 0));
     assert!((r.km - 60.0).abs() < 1e-6, "{}", r.km);
 }
+
+#[test]
+fn deadheads_are_looked_up_by_the_pair_then_the_points_then_the_line_then_the_defaults() {
+    let mut c = company();
+    let back = PlannedTrip { name: "t".into(), from: "B".into(), to: "A".into(), dep: 400, arr: 450, km: 20.0, ..Default::default() };
+    let line = [&back];
+    let none: [TourOfDay; 0] = [];
+    // nothing set: the line's trip from B to A, else the defaults - estimated either way
+    assert_eq!(deadhead_between(&c, &none, &line, "B", "A"), Deadhead { minutes: 50, km: 20.0, set: false });
+    assert_eq!(deadhead_between(&c, &none, &line, "A", "B"), Deadhead { minutes: 5, km: 3.0, set: false });
+    assert_eq!(deadhead_between(&c, &none, &line, "A", "A"), Deadhead { minutes: 0, km: 0.0, set: true });
+    // A's own (to or from it), then the pair, and the pair's way back where the way has none
+    c.planning.flow.prefs.points.push(ReliefPoint { stop: "A".into(), deadhead_min: Some(12), ..Default::default() });
+    assert_eq!(deadhead_between(&c, &none, &line, "B", "A"), Deadhead { minutes: 12, km: 20.0, set: true });
+    c.planning.flow.prefs.deadheads.push(DeadheadPair { from: "A".into(), to: "B".into(), minutes: Some(8), km: Some(4.5) });
+    assert_eq!(deadhead_between(&c, &none, &line, "A", "B"), Deadhead { minutes: 8, km: 4.5, set: true });
+    assert_eq!(deadhead_between(&c, &none, &line, "B", "A"), Deadhead { minutes: 8, km: 4.5, set: true });
+    // an old save without deadheads reads with the old defaults
+    let old: Prefs = serde_json::from_str(r#"{"walk": 4}"#).unwrap();
+    assert_eq!((old.deadhead_min, old.deadhead_km, old.deadheads.len()), (5, 3.0, 0));
+}
+
+#[test]
+fn a_deadhead_set_in_the_preferences_is_no_longer_an_estimated_issue() {
+    let mut c = company();
+    let l = line_of(&[("1", 360, 2), ("2", 390, 2)]);
+    let mut tours = day(&c, &l);
+    // (block 1's second trip made to begin at C: a deadhead from where its first ends)
+    let (i, _) = block(&tours, "1");
+    tours[i].trips[1].from = "C".into();
+    let estimated = |c: &Company, tours: &[TourOfDay]| board_of(c, wd(c), tours.to_vec(), Vec::new()).issues.iter().filter(|x| x.text == I_DEADHEAD).count();
+    assert!(estimated(&c, &tours) > 0);
+    let to = tours[i].trips[0].end().trim().to_string();
+    c.planning.flow.prefs.deadheads.push(DeadheadPair { from: to, to: "C".into(), minutes: Some(9), km: None });
+    assert_eq!(estimated(&c, &tours), 0);
+}

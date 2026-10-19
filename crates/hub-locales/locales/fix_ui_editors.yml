@@ -24,3 +24,10 @@ _version: 2
   ru: "Удалено из ваших линий, но нет папки контента, чтобы убрать её из расписания"
   uk: "Видалено з ваших ліній, але немає теки вмісту, щоб прибрати її з розкладу"
   pl: "Usunięto z twoich linii, ale brak folderu zawartości, by usunąć ją z rozkładu"
+"The depot file %{name} is not there any more":
+  nl: "Het hof-bestand %{name} is er niet meer"
+  de: "Die Hofdatei %{name} ist nicht mehr da"
+  fr: "Le fichier de dépôt %{name} n’existe plus"
+  ru: "Файла депо %{name} больше нет"
+  uk: "Файлу депо %{name} більше немає"
+  pl: "Pliku zajezdni %{name} już nie ma"

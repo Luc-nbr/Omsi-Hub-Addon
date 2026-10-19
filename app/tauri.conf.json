@@ -11,14 +11,18 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: hub: http://hub.localhost; connect-src 'self' ipc: http://ipc.localhost hub: http://hub.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: hub: http://hub.localhost https://mlatjtjjdfifbgddcxzu.supabase.co; connect-src 'self' blob: data: ipc: http://ipc.localhost hub: http://hub.localhost"
     }
   },
   "plugins": {
     "updater": {
       "pubkey": "",
-      "endpoints": ["https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/latest/download/latest.json"],
-      "windows": { "installMode": "passive" }
+      "endpoints": [
+        "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {
@@ -43,6 +47,9 @@
     },
     "macOS": {
       "minimumSystemVersion": "11.0"
-    }
+    },
+    "license": "Proprietary",
+    "licenseFile": "../LICENSE",
+    "longDescription": "Omsi-Hub turns OMSI 2 into a working bus job: real duties from the timetable, your own transport company with RosterFlow for the rosters, a career that counts, the timetable and depot editors, and friends on the same roads. It is an add-on: it builds on the openOMSI (0.2.22 or newer) and the original OMSI 2 you have installed, and never changes their files."
   }
 }

@@ -1,10 +1,13 @@
 # Omsi-Hub as its own code: the plan
 
-Status: proposal (2026-10-17). Owner: Luc. This repository is the new home of Omsi-Hub.
+Status: phases 1–5 done, phase 6 under way: 0.1.0 is being prepared as a pre-release (2026-10-17;
+see "Where it stands"). Owner: Luc. This repository is the new home of Omsi-Hub.
 
 ## The goal
 
-Omsi-Hub becomes an **add-on app that contains no openOMSI code**. The player installs official
+Omsi-Hub becomes an **add-on app** beside the player's openOMSI. (It contained no openOMSI code until
+2026-10-18; since then the 3D view, the photos and the livery studio read a bus with openOMSI's
+readers from Luc's fork, MIT from before openOMSI became AGPL: `THIRD_PARTY_NOTICES.md`.) The player installs official
 openOMSI (0.2.0 or newer, ideally the latest) and an original OMSI 2. Omsi-Hub then works like this:
 
 - It is its own desktop app, with its own shell, UI, logic and file readers.
@@ -57,7 +60,10 @@ openOMSI (0.2.0 or newer, ideally the latest) and an original OMSI 2. Omsi-Hub t
 
 **Rule for porting.** Only code Omsi-Hub wrote is taken. Where it calls openOMSI code, the call goes
 to our own `hub-omsi` or `hub-game` instead, or the feature is redone without it. Nothing is copied
-from openOMSI.
+from openOMSI. One exception (Luc, 2026-10-18: "the same system as the old app"): the old app's
+Bus3D, photos and livery studio keep calling openOMSI's readers (`omsi-cfg`, `omsi-model`,
+`omsi-o3d`, `omsi-sim`, `omsi-texture`, `omsi-vehicle`), taken as git dependencies from Luc's fork,
+pinned to one commit - openOMSI as it was up to 2026-10-13, MIT.
 
 ## What changes for players
 
@@ -94,9 +100,23 @@ from openOMSI.
 
 Phases 2–5 can run in parallel sessions once phase 1 fixes the interfaces.
 
+## Where it stands (2026-10-18)
+
+| Phase | |
+| --- | --- |
+| 1. Inventory | Done (`docs/INVENTORY.md`) |
+| 2. `hub-omsi` | Done, with tests on a synthetic OMSI 2 folder |
+| 3. `hub-core` + `hub-api` | Done: the company, RosterFlow, online, cloud saves, the timetable and depot editors, playing together (`tg_`, over openOMSI's LAN layer and relay), the line editor (`hub_le`, on the map's lanes), the 3D view, photos and livery studio (`b3d_`, `lak_`), on the crates of Luc's openOMSI fork |
+| 4. `app/` + `ui/` | Done |
+| 5. `plugin/` + `hub-game` | Done; a drive is tested end to end against a fake openOMSI |
+| 6. Migration and release | The data move and the release workflow (Windows, macOS, Linux; pre-releases too) are done. Next: 0.1.0 as a pre-release (`CHANGELOG.md`, `docs/UPDATES.md` "A pre-release"), Luc's test on a real openOMSI and OMSI 2, the signing key, the repository public, then the old repository's last update and the website's download page |
+| 7. Upstream PRs | Not started |
+
 ## Open points for Luc
 
-- **The repository's GitHub address.** It is not set as `origin` here yet.
+- **The repository's GitHub address.** Settled: `github.com/Omsi-Hub/Omsi-Hub-Addon`, private:
+  Omsi-Hub is proprietary from 19 October 2026 (`LICENSE`; the code before it was MIT). The
+  releases are in the public `github.com/Luc-nbr/Omsi-Hub-Releases` (docs/UPDATES.md).
 - **The game-drawn editors** (line editor and others in `omsihub-game`): web UI in the app, or drop?
   Decided per editor in phase 1.
 - **The app's name and identifier:** `Omsi-Hub`, with a new identifier (a fresh WebView profile) or the
