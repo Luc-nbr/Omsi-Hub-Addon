@@ -93,7 +93,7 @@ vec4 surface(vec3 col, int mat, vec3 p, vec3 n) {
   // (the texture when it is there; the windows either way)
   if (uDetailOn > 0.5) {
     float t = texture(uDetail, vec3(uv / uScale[k], float(k))).r;
-    if (m == ${MAT.paint}) return vec4(mix(uUnder, col, smoothstep(0.32, 0.62, t)), 0.0);
+    if (m == ${MAT.paint}) return vec4(mix(uUnder, col, smoothstep(0.12, 0.42, t)), 0.0);
     c = col * (1.0 + (t - 0.5) * 2.0 * uStrength[k]);
   }
   if (mat >= ${WINDOWS} && abs(n.y) < 0.5 && p.y > 0.8) {
@@ -379,7 +379,14 @@ export class DepotRenderer {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detailTex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.R8, side, side, LAYERS, 0, gl.RED, gl.UNSIGNED_BYTE, img);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, Math.log2(side) + 1, gl.R8, side, side, LAYERS);
+      // (a layer at a time: the whole picture is taller than many cards take in one)
+      const cut = Object.assign(document.createElement('canvas'), { width: side, height: side });
+      const g = cut.getContext('2d');
+      for (let k = 0; k < LAYERS; k++) {
+        g.drawImage(img, 0, k * side, side, side, 0, 0, side, side);
+        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, k, side, side, 1, gl.RED, gl.UNSIGNED_BYTE, cut);
+      }
       gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
