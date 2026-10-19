@@ -66,7 +66,7 @@ fn our_buses(c: &Company, left: &std::collections::HashSet<String>) -> Value {
         .map(|bus| {
             let (status, tone) = status_of(c, bus);
             json!({
-                "id": bus.id, "number": bus.number, "name": bus.name, "file": bus.bus, "livery": bus.livery,
+                "id": bus.id, "number": bus.number, "auto": bus.number_auto.as_ref().unwrap_or(&bus.number), "own": bus.number_auto.is_some(), "name": bus.name, "file": bus.bus, "livery": bus.livery,
                 "advert": ad::advert_of(c, bus.id).map(|k| format!("{}  ·  {}", tr("Ad"), k.advertiser)),
                 // (a model the company does not work with any more: the bus stays - Beta 54)
                 "sub": if left.contains(&hub_core::company::vehicles::key_of(&bus.bus)) { format!("{}  ·  {}  ·  {}", bus.plate, tr(bus.kind.label()), tr("not in your selection")) } else { format!("{}  ·  {}", bus.plate, tr(bus.kind.label())) },
@@ -80,6 +80,7 @@ fn our_buses(c: &Company, left: &std::collections::HashSet<String>) -> Value {
         "kind": "buses", "order": order, "buses": buses,
         "empty": tr("The fleet is empty. Buy buses at the dealer - new, second-hand or one of the day's offers - or lease one for years or rent one for a few days: each is a bus installed in your OMSI."),
         "to_dealer": tr("To the dealer"),
+        "number_tip": tr("The bus's fleet number: type your own, or leave it empty for the automatic one."),
     })
 }
 
@@ -325,6 +326,14 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             let year = str_of("year");
             let date = (!year.trim().is_empty()).then_some(year);
             match apply(s, |c| market::set_age(c, id, date.as_deref())) {
+                Ok(()) => Ok(json!({})),
+                Err(p) => popup(p),
+            }
+        }
+        "bus_number" => {
+            // (an empty one: back to the automatic number)
+            let number = str_of("number");
+            match apply(s, |c| market::set_number(c, id, Some(&number))) {
                 Ok(()) => Ok(json!({})),
                 Err(p) => popup(p),
             }

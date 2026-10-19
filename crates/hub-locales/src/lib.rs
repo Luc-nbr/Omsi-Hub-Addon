@@ -63,6 +63,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("easy-polish.yml", include_str!("../locales/easy-polish.yml")),
     ("fix_core_company_economy.yml", include_str!("../locales/fix_core_company_economy.yml")),
     ("fix_ui_editors.yml", include_str!("../locales/fix_ui_editors.yml")),
+    ("fleet-number.yml", include_str!("../locales/fleet-number.yml")),
     ("fontfit.yml", include_str!("../locales/fontfit.yml")),
     ("fonts.yml", include_str!("../locales/fonts.yml")),
     ("game-modes.yml", include_str!("../locales/game-modes.yml")),

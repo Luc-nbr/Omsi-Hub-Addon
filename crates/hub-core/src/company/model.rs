@@ -477,6 +477,10 @@ pub struct Vehicle {
     /// `built` and where it came from before the player set the age himself (None: he did not).
     #[serde(default)]
     pub built_auto: Option<(String, super::registrations::AgeFrom)>,
+    /// The fleet number it was given before the player typed his own (None: he did not;
+    /// `market::set_number`).
+    #[serde(default)]
+    pub number_auto: Option<String>,
 }
 
 fn seventy_five() -> f64 {
@@ -1065,10 +1069,16 @@ impl Company {
         self.loans.iter().map(|l| l.remaining).sum()
     }
 
-    /// The next fleet number: from 101 on, never one given before.
+    /// The next fleet number: from 101 on, never one given before (nor one the player gave a
+    /// bus of the fleet himself).
     pub fn next_fleet_number(&mut self) -> String {
-        self.counters.fleet_number = self.counters.fleet_number.max(100) + 1;
-        self.counters.fleet_number.to_string()
+        loop {
+            self.counters.fleet_number = self.counters.fleet_number.max(100) + 1;
+            let n = self.counters.fleet_number.to_string();
+            if !self.fleet.iter().any(|v| v.number == n) {
+                return n;
+            }
+        }
     }
 
     /// A plate in the company's district: its short name, a letter and the fleet number

@@ -416,8 +416,9 @@ function fleet(a) {
   } else {
     body = {
       kind: 'buses', order: 'An MAN NL202 is on order: delivered on Mon 2 Nov', empty: 'No bus yet.', to_dealer: 'To the dealer',
+      number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
       buses: BUSES.map((b) => ({
-        id: b.id, number: b.number, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
         sub: `${b.plate}  ·  ${b.kind}`, facts: `${grouped(b.km)} km  ·  ${2026 - b.year} years`,
         condition: { frac: b.cond, tone: condTone(b.cond), tip: `Condition ${Math.round(b.cond * 100)} %` },
         tone: b.workshop ? 'danger' : b.id === 4 ? 'warn' : 'ok', status: b.workshop ? 'In the workshop until Wed' : TOURS.some((t) => t.bus === b.id) ? 'On line ' + TOURS.find((t) => t.bus === b.id).line : 'In the depot',
@@ -992,9 +993,19 @@ function dayPanel(arm) {
   };
 }
 
-// - Casual's pages (its home; the others are left out of the mock) -
+// - Casual's pages (its home and its buses; the others are left out of the mock) -
 
 function casual(a) {
+  if (a.page === 'buses') {
+    return {
+      page: 'buses', order: null, number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
+      head: { name: 'Buses', sub: `${BUSES.length} buses · repairs and services happen by themselves`, action: ['Buy a bus', 'add'], help: { icon: 'help', title: 'Buses', text: 'Your buses.', unlock: '', go: null }, help_tip: 'What is this page?' },
+      cards: BUSES.map((b) => ({
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, age: `${2026 - b.year} years old`,
+        cond: b.cond, cond_tone: condTone(b.cond), word: b.cond >= 0.7 ? 'Good condition' : 'Worn: repaired soon', doing: b.workshop ? 'In the workshop: back on Wed' : 'Free today', tone: b.workshop ? 'warn' : 'dim',
+      })),
+    };
+  }
   if ((a.page || 'home') !== 'home') return {};
   const c = co();
   const go = (tab) => ({ kind: 'open', tab });
@@ -1677,6 +1688,17 @@ function doAct(a) {
       if (a.date) c.date = a.date;
       bump();
       return {};
+    case 'bus_number': {
+      // (`market::set_number`: an empty one back to the automatic number)
+      const b = BUSES.find((x) => x.id === Number(a.id));
+      const n = String(a.number || '').trim();
+      if (!b) return {};
+      if (BUSES.some((x) => x !== b && x.number === n)) return { popup: { icon: 'error', title: 'This cannot be done', text: 'Another bus of the fleet has this number.', unlock: '', go: null } };
+      if (!n || n === b.auto) [b.number, b.auto] = [b.auto ?? b.number, undefined];
+      else [b.number, b.auto] = [n, b.auto ?? b.number];
+      bump();
+      return {};
+    }
     case 'new_take':
       return { joined: 5 };
     case 'design_livery':
