@@ -5,10 +5,12 @@ official plugin API. `hub-game` installs these files into openOMSI's `Plugins/om
 the plugin through plain files (`crates/hub-game/src/bridge.rs`).
 
 - `main.lua`: the entry point (the duty, the reports, the handshake); the other files are its
-  modules (`board`, `card`, `career`, `company`, `duty_strip`, `messages`, `ontime`, `signon`,
+  modules (`board`, `card`, `career`, `company`, `companion`, `duty_strip`, `messages`, `ontime`, `signon`,
   `traffic`, `trip`, `watch`, `hubjson`, `layout`). `layout` gives every draggable panel the
   driver's size and place (a size row under it with F10; kept in `omsi.data.layout`). `traffic` writes what is on the road (`data/traffic.json`)
-  for the company's fleet map; it only reads the game.
+  for the company's fleet map; it only reads the game. `companion` talks to Omsi-Hub's phone and
+  tablet companion while it is on (`data/companion.json`, datagrams by UDP; docs/COMPANION.md):
+  it presses only the keys of the bus's IBIS, ticket printer and change dispenser.
 - `harness/`: our own test harness (`hub-plugin-harness`, on mlua). It mocks the official API
   functions the plugin uses, so `cargo test` runs the plugin without openOMSI.
 
