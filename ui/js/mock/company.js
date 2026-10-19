@@ -1110,7 +1110,7 @@ function reputation(a) {
       head: { title: 'REPUTATION', info: 'From 0 to 100: it moves passengers, tenders and the authority.', frac: c.reputation / 100, value: c.reputation.toFixed(1), under: 'of 100', say_tone: 'ok', say_icon: 'trending_up', say: 'Good and rising', by: '+2.1 this week', chart_title: 'THE LAST WEEKS', chart: [['W38', 55], ['W39', 57], ['W40', 58], ['W41', 61], ['W42', 63]], trend: 'Rising for five weeks', trend_tone: 'ok', caps: 'Above 70 the authority prefers your bids.' },
       log_title: 'WHAT MOVED IT', log: [{ date: '16 Oct', text: 'Grundorfer Anzeiger: "Clean buses, friendly drivers"', change: '+1.5', tone: 'ok' }, { date: '14 Oct', text: '6 trips dropped on line 102', change: '-0.8', tone: 'danger' }],
       effects_title: 'WHAT RAISES AND LOWERS IT', effects_info: 'Each week', positive_title: 'RAISES IT', negative_title: 'LOWERS IT',
-      positive: [{ icon: 'schedule', name: 'Punctuality', text: '91 % on time', value: '+1.2' }, { icon: 'cleaning_services', name: 'Clean buses', text: 'Cleaned every night', value: '+0.6' }],
+      positive: [{ icon: 'schedule', name: 'Punctuality', text: '91 % on time', value: '+1.2' }, { icon: 'airline_seat_recline_normal', name: 'Clean buses', text: 'Cleaned every night', value: '+0.6' }],
       negative: [{ icon: 'event_busy', name: 'Trips dropped', text: '6 this week', value: '-0.8' }, { icon: 'directions_bus', name: 'Old buses', text: 'Average age 21 years', value: '-0.3' }],
       drives: 'Punctuality weighs most.', week_title: 'THIS WEEK BY CAUSE', week_any: true, week_none: 'Nothing this week.',
       week: [{ label: 'Punctuality', frac: 0.8, tone: 'ok', value: '+1.2', zero: false }, { label: 'Cleanliness', frac: 0.4, tone: 'ok', value: '+0.6', zero: false }, { label: 'Trips dropped', frac: 0.55, tone: 'danger', value: '-0.8', zero: false }, { label: 'Complaints', frac: 0, tone: 'dim', value: '0', zero: true }],
@@ -1152,17 +1152,35 @@ function contracts() {
       kind: 'goals',
       offered: { title: 'OFFERED', until: 'Until Sunday', empty: 'No goals offered.', cards: [{ id: 3, icon: 'groups', tone: 'accent', title: '25,000 passengers this week', rule: 'Every line of the company counts.', trophies: '2', reward: '€1,500', days: '7 days', take: 'Take it', primary: true }] },
       running: { title: 'RUNNING', empty: 'No goal runs.', cards: [{ id: 2, icon: 'schedule', tone: 'ok', title: '95 % on time this week', rule: 'Within two minutes of the timetable', bar: { frac: 0.72, tone: 'ok', label: '91 % of 95 %' }, trophies: '3', reward: '€2,500', when: '5 days left', when_tone: 'soft', give_up: 'Give up' }] },
-      finished: { title: 'FINISHED', empty: 'None finished yet.', rows: [{ icon: 'cleaning_services', tone: 'ok', title: 'A clean fleet', what: 'Every bus cleaned for a week', done: true, trophies: '1', reward: '€800', ago: '9 days ago' }] },
+      finished: { title: 'FINISHED', empty: 'None finished yet.', rows: [{ icon: 'airline_seat_recline_normal', tone: 'ok', title: 'A clean fleet', what: 'Every bus cleaned for a week', done: true, trophies: '1', reward: '€800', ago: '9 days ago' }] },
     },
   };
 }
 
 // (the yard laid out, as `hub_core::company::yard` keeps it: its levels, the modules where they
 // stand, the land bought; the build mode's actions change them)
-const SITE = { parking: 1, workshop: 2, wash: 1, fuel: 1, offices: 1, land: 0, next: 0, modules: [] };
+// (`?mock&empty=1`: a company founded now, its land only and its building credit)
+const EMPTY = new URLSearchParams(location.search).has('empty');
+const SITE = EMPTY
+  ? { parking: 0, workshop: 0, wash: 0, fuel: 0, offices: 0, charging: 0, land: 0, next: 0, modules: [], upgrades: [], credit: 471000, look: { wall: null, roof: null, trim: null, door: null, finish: 'cladding' } }
+  : { parking: 2, workshop: 2, wash: 2, fuel: 4, offices: 2, charging: 2, land: 0, next: 0, modules: [], upgrades: ['gantry', 'carports', 'paint_booth', 'bulk_tank', 'canteen', 'solar'], credit: 0, look: { wall: null, roof: null, trim: null, door: null, finish: 'brick' } };
+/** What can be added to each area (`depot::Upgrade`): key, icon, label, what it does, price. */
+const UPGRADES = {
+  parking: [['lights', 'videocam', 'Lights and cameras', 'The staff feel safer, the buses are daubed on less', '€29,300'], ['carports', 'home', 'Carports', 'The buses stand dry: they stay clean longer', '€94,800'], ['hall', 'garage', 'Parking hall', 'The buses stand indoors: they stay clean much longer', '€474,300']],
+  workshop: [['paint_booth', 'livery_brush', 'Paint booth', 'Liveries painted in house: 30 % cheaper', '€158,100'], ['inspection_lane', 'speed', 'Inspection lane', 'Repairs found sooner: 15 % cheaper', '€84,300'], ['tyre_store', 'build', 'Tyre store', 'Repairs and overhauls 7 % cheaper', '€42,200']],
+  wash: [['gantry', 'local_car_wash', 'Wash gantries', 'Every lane washes four times the buses a night', '€200,300'], ['interior', 'airline_seat_recline_normal', 'Interior cleaning', 'A wash cleans inside too: it does more', '€47,400'], ['underbody', 'rainy', 'Underbody wash', 'The buses stay clean longer', '€36,900'], ['autorenew', 'autorenew', 'Water recycling', 'The wash lanes cost 40 % less to keep', '€63,200']],
+  fuel: [['bulk_tank', 'local_gas_station', 'Bulk tank', 'Diesel bought in bulk: 3 % cheaper at the depot', '€73,800'], ['adblue', 'water_drop', 'AdBlue dispenser', 'No detours for AdBlue: 1 % cheaper at the depot', '€12,600']],
+  offices: [['canteen', 'group', 'Canteen', 'The staff are more satisfied', '€94,800'], ['control_room', 'monitor', 'Control room', 'The service watched: the passengers notice', '€126,500'], ['training_room', 'school', 'Training room', 'The staff are a little more satisfied', '€63,200']],
+  charging: [['solar', 'wb_sunny', 'Solar roof', 'Power for the chargers 8 % cheaper', '€147,600']],
+};
+const upgradesOf = (a) =>
+  (UPGRADES[a] || []).map(([key, icon, label, what, cost]) => {
+    const built = SITE.upgrades.includes(key);
+    return { key, icon, label, what, built, ...(built ? {} : SITE[a] ? { cost, busy: false, tip: '21 days of work' } : { needs: `Build the ${a} first` }) };
+  });
 const SHAPES = { parking: { w: 24, h: 10, front: 5, back: 0 }, workshop: { w: 4, h: 14, front: 6, back: 0 }, wash: { w: 6, h: 14, front: 4, back: 3 }, fuel: { w: 10, h: 10, front: 4, back: 2 }, offices: { w: 10, h: 12, front: 2, back: 0 } };
-const TITLES = { parking: ['Parking spaces', '12 spaces'], workshop: ['Workshop bays', 'A bay: one bus worked on at once'], wash: ['Washing bay', 'Washes 10 buses a night'], fuel: ['Diesel station', 'Fills 15 diesel buses a night'], offices: ['Offices and rest rooms', 'Room for 20 people'] };
-const wantedOf = (lv, a) => (a === 'parking' || a === 'workshop' ? lv[a] : lv[a] > 0 ? 1 : 0);
+const TITLES = { parking: ['Parking spaces', '12 spaces'], workshop: ['Workshop bays', 'A bay: one bus worked on at once'], wash: ['Washing bay', 'A lane: washes 40 buses a night'], fuel: ['Diesel station', 'Fills 15 diesel buses a night'], offices: ['Offices and rest rooms', 'Room for 20 people'] };
+const wantedOf = (lv, a) => (a === 'parking' || a === 'workshop' || a === 'wash' ? lv[a] : lv[a] > 0 ? 1 : 0);
 const yardNow = () => ({ cell: 2, cols: 48 + 20 * SITE.land, rows: 64, max_cols: 88, gate: { x: 20, y: 54, w: 8, h: 10 }, shapes: SHAPES, modules: SITE.modules });
 
 function yardOf(lv) {
@@ -1202,9 +1220,18 @@ function depotAct(a) {
       const k = SITE.modules.findIndex((x) => x.id === a.id);
       if (k < 0) return {};
       const [m] = SITE.modules.splice(k, 1);
-      SITE[m.area] = m.area === 'parking' || m.area === 'workshop' ? SITE[m.area] - 1 : 0;
+      SITE[m.area] = m.area === 'parking' || m.area === 'workshop' || m.area === 'wash' ? SITE[m.area] - 1 : 0;
       return { ok: true };
     }
+    case 'depot_build':
+      if (SITE[a.area] !== undefined) SITE[a.area] += 1;
+      return {};
+    case 'depot_upgrade':
+      if (!SITE.upgrades.includes(a.key)) SITE.upgrades.push(a.key);
+      return { ok: true };
+    case 'depot_look':
+      SITE.look = { wall: a.wall || null, roof: a.roof || null, trim: a.trim || null, door: a.door || null, finish: a.finish || 'cladding' };
+      return { ok: true };
     case 'depot_land':
       if (SITE.land < 2) SITE.land++;
       return { ok: true };
@@ -1243,19 +1270,25 @@ function depot() {
     ],
     plan: {
       title: 'The depot from above', colour: c.colours[0],
-      offices: { ...bld('OFFICES'), floors: 1, room: 'room for 8' }, hall: { ...bld('WORKSHOP'), bays: SITE.workshop, max: 6 }, wash: { ...bld('WASHING BAY'), gates: false }, fuel: { ...bld('DIESEL STATION'), pumps: 2 },
-      parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: 0 },
+      offices: { ...bld('OFFICES'), built: SITE.offices > 0, floors: SITE.offices, room: 'room for 50' }, hall: { ...bld('WORKSHOP'), built: SITE.workshop > 0, bays: SITE.workshop, max: 6 }, wash: { ...bld('WASHING BAY'), built: SITE.wash > 0, lanes: SITE.wash, gates: SITE.upgrades.includes('gantry') }, fuel: { ...bld('DIESEL STATION'), built: SITE.fuel > 0, pumps: SITE.fuel },
+      parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: SITE.charging * 2 },
       layout: yardOf(SITE),
-      in_ws: BUSES.filter((b) => b.workshop).map(busAt), parked: BUSES.filter((b) => !b.workshop).map(busAt),
+      in_ws: EMPTY ? [] : BUSES.filter((b) => b.workshop).map(busAt), parked: EMPTY ? [] : BUSES.filter((b) => !b.workshop).map(busAt),
+      upgrades: SITE.upgrades, look: SITE.look,
+      staff: EMPTY ? { drivers: 0, mechanics: 0, cleaners: 0, office: 0 } : { drivers: 14, mechanics: 3, cleaners: 2, office: 3 },
     },
     build: {
       title: 'Build',
       rows: [
-        { key: 'parking', icon: 'local_parking', label: 'Parking', level: `level ${SITE.parking} of 8`, lv: SITE.parking, max: 8, effect: `${SITE.parking * 12} spaces`, cost: '€45,000', locked: false, place: true, tip: 'Build the next level: 30 days of work, then €300 a month' },
-        { key: 'workshop', icon: 'construction', label: 'Workshop', level: `level ${SITE.workshop} of 6`, lv: SITE.workshop, max: 6, effect: `${SITE.workshop} bays`, cost: '€80,000', locked: false, place: true, tip: 'Build the next level: 45 days of work, then €500 a month' },
-        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: 'level 1 of 2', lv: 1, max: 2, effect: 'Cleaned every night', works: 'Building until Mon 2 Nov' },
-        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: 'level 2 of 2', lv: 2, max: 2, effect: 'Diesel 4 % cheaper', complete: 'Complete' },
+        { key: 'parking', icon: 'local_parking', label: 'Parking', level: `level ${SITE.parking} of 8`, lv: SITE.parking, max: 8, effect: `${SITE.parking * 12} spaces`, cost: '€70,300', locked: false, place: true, tip: 'Build the next level: 14 days of work, then €350 a month', upgrades: upgradesOf('parking') },
+        { key: 'workshop', icon: 'construction', label: 'Workshop', level: `level ${SITE.workshop} of 6`, lv: SITE.workshop, max: 6, effect: `${SITE.workshop} bays`, cost: '€210,800', locked: false, place: true, tip: 'Build the next level: 30 days of work, then €2,110 a month', upgrades: upgradesOf('workshop') },
+        { key: 'wash', icon: 'local_car_wash', label: 'Washing bay', level: `level ${SITE.wash} of 4`, lv: SITE.wash, max: 4, effect: SITE.wash ? `${SITE.wash} lanes: washes ${SITE.wash * (SITE.upgrades.includes('gantry') ? 40 : 10)} buses a night` : 'None: the fleet is cleaned by hand', cost: '€94,800', locked: false, place: true, tip: 'Build the next level: 21 days of work, then €470 a month', upgrades: upgradesOf('wash') },
+        { key: 'fuel', icon: 'local_gas_station', label: 'Diesel station', level: `level ${SITE.fuel} of 6`, lv: SITE.fuel, max: 6, effect: `Fills ${SITE.fuel * 15} diesel buses a night`, cost: SITE.fuel ? '€31,600' : '€126,500', locked: false, place: !SITE.fuel, tip: 'Build the next level: 7 days of work, then €160 a month', upgrades: upgradesOf('fuel') },
+        { key: 'charging', icon: 'bolt', label: 'Charging points', level: `level ${SITE.charging} of 10`, lv: SITE.charging, max: 10, effect: `Charges ${SITE.charging * 2} electric buses a night`, cost: '€52,700', locked: false, place: false, tip: 'Build the next level: 10 days of work, then €260 a month', upgrades: upgradesOf('charging') },
+        { key: 'offices', icon: 'groups', label: 'Offices and rest rooms', level: `level ${SITE.offices} of 3`, lv: SITE.offices, max: 3, effect: `Room for ${[0, 20, 50, 120][SITE.offices]} people`, cost: '€232,000', locked: false, place: !SITE.offices, tip: 'Build the next level: 45 days of work, then €1,160 a month', upgrades: upgradesOf('offices') },
       ],
+      credit: SITE.credit ? { amount: `€${SITE.credit.toLocaleString('en')}`, tip: 'Building credit: what your company was given to build its first depot with, spent before your cash' } : null,
+      hint: EMPTY && !SITE.modules.length ? 'Your land is empty: build parking spaces, a workshop, a diesel station and offices to start with.' : null,
     },
     workshop: {
       title: 'Workshop', empty: null, cancel_tip: 'Take the job back',
