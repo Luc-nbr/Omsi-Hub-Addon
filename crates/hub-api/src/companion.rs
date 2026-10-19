@@ -74,6 +74,15 @@ impl Source for Hub {
         let global = global_of(map)?;
         Some(crate::content::mapview::world_of(&map_name(map), &global, "", tile, local))
     }
+
+    fn bus_model(&self, bus_file: &str) -> Option<(PathBuf, PathBuf)> {
+        let bus = hub_core::paths::resolve_content(bus_file).filter(|p| p.is_file())?;
+        let cfg = hub_companion::devices::model_of_bus(&bus)?;
+        // (the game's folder the bus is read in: OMSI 2's own when it lies there - its Fonts and
+        // Texture are there - else the content folder it came from)
+        let omsi = hub_core::paths::root().filter(|r| bus.starts_with(r)).or_else(|| hub_core::paths::bases().into_iter().find(|b| bus.starts_with(b)))?;
+        Some((cfg, omsi))
+    }
 }
 
 /// This computer's name, as the app shows it.

@@ -1972,6 +1972,7 @@ dependencies = [
 name = "hub-companion"
 version = "0.1.0"
 dependencies = [
+ "hub-devices",
  "hub-game",
  "ring",
  "serde",
@@ -2065,6 +2066,7 @@ name = "hub-plugin-harness"
 version = "0.1.0"
 dependencies = [
  "hub-companion",
+ "hub-devices",
  "hub-game",
  "mlua",
  "serde_json",

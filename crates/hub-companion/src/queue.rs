@@ -25,6 +25,10 @@ pub struct Queue {
     pub seq: u64,
     pub cmds: Vec<Value>,
     pub probe: Option<[f64; 2]>,
+    /// What the plugin reads for the devices' screens (`{nums, strs}`, `crate::devices`), and
+    /// the triggers of the bus's devices it may press: nothing else.
+    pub want: Value,
+    pub press: Vec<String>,
 }
 
 impl Queue {
@@ -44,7 +48,7 @@ impl Queue {
 
     /// The file's text.
     pub fn text(&self) -> String {
-        json!({ "sid": self.sid, "port": self.port, "seq": self.seq, "cmds": self.cmds, "probe": self.probe }).to_string()
+        json!({ "sid": self.sid, "port": self.port, "seq": self.seq, "cmds": self.cmds, "probe": self.probe, "want": self.want, "press": self.press }).to_string()
     }
 
     /// Written into the plugin's folder (through a temporary file: the game never reads half).

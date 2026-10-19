@@ -53,6 +53,9 @@ pub struct Heard {
     /// The bus's keys of the IBIS and the ticket printer (`keys`) and their live values (`dev`).
     pub keys: Map<String, Value>,
     pub dev: Map<String, Value>,
+    /// What the plugin read for the devices' screens (`crate::devices::Screen`): taken whole
+    /// once every page of a version is in; `v` is the stands' version.
+    pub screen: Paged,
     /// The commands the plugin has carried out: (seq, ok, error).
     pub acks: Vec<(u64, bool, String)>,
 }
@@ -73,6 +76,11 @@ impl Heard {
             Some("trip") => self.stops.take(&d, "stops"),
             Some("trips") => self.trips.take(&d, "trips"),
             Some("lines") => self.lines.take(&d, "lines"),
+            // (no change of the state: the screens wait for it on their own)
+            Some("scr") => {
+                self.screen.take(&d, "items");
+                false
+            }
             Some("keys") => {
                 let Value::Object(mut m) = d else { return false };
                 m.remove("t");

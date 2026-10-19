@@ -134,6 +134,13 @@ pub enum Route {
     },
     /// `GET /api/lines`: the map's lines and tours, for taking a duty from the phone.
     Lines,
+    /// `GET /api/device/<id>`: a device's screen, its form (`crate::devices`).
+    Device(String),
+    /// `GET /api/texture/<id>`: a picture of a form, as a PNG.
+    Texture(String),
+    /// `GET /api/screen/<id>?after=<v>`: a screen's stand, once it is newer than `after` (or
+    /// after a short while without news).
+    Screen(String, Option<u64>),
     /// A browser's question before a request of another origin (the app's web build).
     Preflight,
     NotFound,
@@ -144,7 +151,7 @@ pub enum Route {
 impl Route {
     /// Whether the route wants a paired device's key.
     pub fn needs_key(&self) -> bool {
-        matches!(self, Route::State(_) | Route::Do | Route::Route | Route::Roads { .. } | Route::Lines)
+        matches!(self, Route::State(_) | Route::Do | Route::Route | Route::Roads { .. } | Route::Lines | Route::Device(_) | Route::Texture(_) | Route::Screen(..))
     }
 }
 
@@ -169,7 +176,19 @@ pub fn route(r: &Request) -> Route {
             let radius = f("r").unwrap_or(1000.0).clamp(100.0, 2000.0);
             wants(get, Route::Roads { x, y, r: radius })
         }
-        _ => Route::NotFound,
+        p => {
+            // (an id of a form or a picture: 20 hex characters, never a path)
+            let id = |prefix: &str| p.strip_prefix(prefix).filter(|id| crate::devices::id_ok(id)).map(str::to_string);
+            if let Some(id) = id("/api/device/") {
+                wants(get, Route::Device(id))
+            } else if let Some(id) = id("/api/texture/") {
+                wants(get, Route::Texture(id))
+            } else if let Some(id) = id("/api/screen/") {
+                wants(get, Route::Screen(id, r.query("after").and_then(|v| v.parse::<u64>().ok())))
+            } else {
+                Route::NotFound
+            }
+        }
     }
 }
 
@@ -187,19 +206,47 @@ fn name_ok(s: &str) -> bool {
 /// no profile, no setting is reachable from the network.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    SignOn { number: String, code: String },
+    SignOn {
+        number: String,
+        code: String,
+    },
     AcceptOrder,
     DriveFree,
-    TakeDuty { line: String, tour: String, trip: Option<u32> },
+    TakeDuty {
+        line: String,
+        tour: String,
+        trip: Option<u32>,
+    },
     TypeIbis,
-    IbisKey { key: String },
-    IbisLine { line: String },
-    PrinterKey { key: String },
-    Ticket { i: u32 },
-    MsgRead { id: u64 },
-    MsgAnswer { id: u64, key: String },
-    MsgQuick { key: String },
+    IbisKey {
+        key: String,
+    },
+    IbisLine {
+        line: String,
+    },
+    PrinterKey {
+        key: String,
+    },
+    Ticket {
+        i: u32,
+    },
+    MsgRead {
+        id: u64,
+    },
+    MsgAnswer {
+        id: u64,
+        key: String,
+    },
+    MsgQuick {
+        key: String,
+    },
     PauseEnd,
+    /// A tap or key of one of the bus's devices: pressed and let go, or held (`down: true`)
+    /// and let go (`down: false`).
+    Press {
+        trigger: String,
+        down: Option<bool>,
+    },
 }
 
 impl Command {
@@ -227,6 +274,13 @@ impl Command {
             "msg_answer" => Command::MsgAnswer { id: id()?, key: s("key").filter(|k| key_ok(k))?.to_string() },
             "msg_quick" => Command::MsgQuick { key: s("key").filter(|k| key_ok(k))?.to_string() },
             "pause_end" => Command::PauseEnd,
+            "press" => Command::Press {
+                trigger: s("trigger").filter(|k| key_ok(k))?.to_string(),
+                down: match v.get("down") {
+                    None | Some(Value::Null) => None,
+                    Some(d) => Some(d.as_bool()?),
+                },
+            },
             _ => return None,
         })
     }
@@ -252,6 +306,7 @@ impl Command {
             },
             Command::MsgQuick { key } => json!({ "do": "msg", "kind": "quick", "key": key }),
             Command::PauseEnd => return None,
+            Command::Press { trigger, down } => json!({ "do": "press", "key": trigger, "down": down }),
         })
     }
 }
@@ -344,7 +399,21 @@ mod tests {
         assert_eq!(route(&req("GET /api/roads?x=-120.5&y=3000 HTTP/1.1\r\n\r\n")), Route::Roads { x: -120.5, y: 3000.0, r: 1000.0 });
         assert_eq!(route(&req("GET /api/roads?x=1&y=2&r=99999 HTTP/1.1\r\n\r\n")), Route::Roads { x: 1.0, y: 2.0, r: 2000.0 });
         assert_eq!(route(&req("GET /api/roads?x=NaN&y=1 HTTP/1.1\r\n\r\n")), Route::NotFound);
-        for p in ["GET /api/state", "POST /api/do", "GET /api/route", "GET /api/roads?x=0&y=0", "GET /api/lines"] {
+        assert_eq!(route(&req("GET /api/device/0123456789abcdef0123 HTTP/1.1\r\n\r\n")), Route::Device("0123456789abcdef0123".into()));
+        assert_eq!(route(&req("GET /api/screen/0123456789abcdef0123?after=4 HTTP/1.1\r\n\r\n")), Route::Screen("0123456789abcdef0123".into(), Some(4)));
+        assert_eq!(route(&req("GET /api/texture/zzzzzzzzzzzzzzzzzzzz HTTP/1.1\r\n\r\n")), Route::NotFound);
+        assert_eq!(route(&req("GET /api/texture/0123 HTTP/1.1\r\n\r\n")), Route::NotFound);
+        assert_eq!(route(&req("POST /api/texture/0123456789abcdef0123 HTTP/1.1\r\n\r\n")), Route::Method);
+        for p in [
+            "GET /api/state",
+            "POST /api/do",
+            "GET /api/route",
+            "GET /api/roads?x=0&y=0",
+            "GET /api/lines",
+            "GET /api/device/0123456789abcdef0123",
+            "GET /api/texture/0123456789abcdef0123",
+            "GET /api/screen/0123456789abcdef0123",
+        ] {
             assert!(route(&req(&format!("{p} HTTP/1.1\r\n\r\n"))).needs_key(), "{p}");
         }
         assert!(!route(&req("POST /api/pair HTTP/1.1\r\n\r\n")).needs_key());
@@ -370,6 +439,10 @@ mod tests {
         assert_eq!(c(r#"{"do":"msg_answer","id":77,"key":"accept"}"#).unwrap().for_plugin().unwrap(), json!({ "do": "msg", "kind": "accept", "id": 77 }));
         assert_eq!(c(r#"{"do":"msg_answer","id":77,"key":"late"}"#).unwrap().for_plugin().unwrap()["kind"], "reply");
         assert_eq!(c(r#"{"do":"pause_end"}"#).unwrap().for_plugin(), None);
+        assert_eq!(c(r#"{"do":"press","trigger":"IBIS_7"}"#).unwrap().for_plugin().unwrap(), json!({ "do": "press", "key": "IBIS_7", "down": null }));
+        assert_eq!(c(r#"{"do":"press","trigger":"almex_riegel","down":true}"#), Some(Command::Press { trigger: "almex_riegel".into(), down: Some(true) }));
+        assert_eq!(c(r#"{"do":"press","trigger":"x y"}"#), None);
+        assert_eq!(c(r#"{"do":"press","trigger":"IBIS_7","down":"yes"}"#), None);
         assert_eq!(c(r#"{"do":"format_disk"}"#), None);
         assert_eq!(c(r#"{"number":"1"}"#), None);
     }

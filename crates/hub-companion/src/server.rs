@@ -8,13 +8,16 @@
 //! (or after 20 s with the same one). Anything slow - reading the map for a route or its roads -
 //! happens on a thread of its own or the connection's, never under the lock.
 
-use crate::heard::Heard;
+use crate::devices::{self, Board, Screen};
+use crate::heard::{Heard, Paged};
 use crate::http::{self, Command, Request, Response, Route};
 use crate::nav::{self, Tracker};
 use crate::pairing::{self, Pairing, Refused};
 use crate::queue::Queue;
 use crate::state::{self, Facts, Pause};
 use crate::{Config, Source};
+use hub_devices::form::Models;
+use hub_devices::textures::{self, Finder, Flags};
 use hub_game::bridge::Inbox;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -69,6 +72,8 @@ pub struct Inner {
     plugin_dir_at: Option<Instant>,
     inbox: Option<(SystemTime, Inbox)>,
     sign_ons: Vec<Instant>,
+    /// The devices of the bus the player drives.
+    pub board: Board,
     pub stopped: bool,
 }
 
@@ -79,6 +84,8 @@ pub struct Shared {
     pub cfg: Config,
     /// The steady clock's start (the datagrams' and the pairing's seconds).
     start: Instant,
+    /// Finds the devices' pictures (and keeps what it found a few seconds).
+    pub finder: Finder,
 }
 
 impl Shared {
@@ -99,9 +106,10 @@ impl Shared {
             plugin_dir_at: None,
             inbox: None,
             sign_ons: Vec::new(),
+            board: Board::default(),
             stopped: false,
         };
-        Shared { inner: Mutex::new(inner), news: Condvar::new(), source, cfg, start: Instant::now() }
+        Shared { inner: Mutex::new(inner), news: Condvar::new(), source, cfg, start: Instant::now(), finder: Finder::default() }
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -150,6 +158,13 @@ impl Shared {
             _ => {}
         }
         let game = i.heard.fresh(now, state::GAME_FRESH);
+        // the bus's devices, made again when the player is in another bus
+        if game {
+            let bus = i.heard.get("bus_file").and_then(Value::as_str).unwrap_or("").to_string();
+            if bus != i.board.bus {
+                self.start_board(i, bus);
+            }
+        }
         let Inner { heard, pause, .. } = &mut *i;
         let brk = if game { pause.look(heard) } else { None };
         let next = self.navigate(i, game);
@@ -161,6 +176,7 @@ impl Shared {
             street: i.street.clone(),
             route_v: i.routing.v,
             pause: brk,
+            devices: if game { i.board.json() } else { json!([]) },
         };
         let s = state::build(&i.heard, &facts, now);
         if s != i.state {
@@ -231,6 +247,80 @@ impl Shared {
             }
         }
         next
+    }
+
+    /// Another bus: its devices made on a thread of their own ([`Shared::build_board`]).
+    fn start_board(self: &Arc<Self>, i: &mut Inner, bus: String) {
+        let generation = i.board.generation + 1;
+        i.board = Board { bus: bus.clone(), generation, building: !bus.is_empty(), ..Board::default() };
+        i.heard.screen = Paged::default();
+        i.queue.want = Value::Null;
+        i.queue.press.clear();
+        if let Some(d) = &i.plugin_dir {
+            let _ = i.queue.write(d);
+        }
+        if bus.is_empty() {
+            return;
+        }
+        let me = Arc::clone(self);
+        let _ = std::thread::Builder::new().name("companion devices".into()).spawn(move || me.build_board(generation, &bus));
+    }
+
+    /// The bus's devices: the numbers their forms need asked of the plugin, at most
+    /// [`devices::WAIT_FOR_NUMBERS`] waited for, then the forms built (or taken from the disk).
+    fn build_board(self: &Arc<Self>, generation: u64, bus: &str) {
+        let current = |i: &Inner| i.board.generation == generation && !i.stopped;
+        let Some((cfg, omsi)) = self.source.bus_model(bus) else {
+            let mut i = self.lock();
+            if current(&i) {
+                i.board.take(devices::Made::default());
+                self.refresh(&mut i);
+            }
+            return;
+        };
+        let modules = devices::modules_of(&cfg);
+        let models = Models::default();
+        let needed = devices::needed(&models, &cfg, &modules);
+        {
+            let mut i = self.lock();
+            if !current(&i) {
+                return;
+            }
+            i.board.model_cfg = Some(cfg.clone());
+            i.board.omsi_dir = Some(omsi.clone());
+            i.queue.want = json!({ "nums": needed, "strs": [] });
+            if let Some(d) = &i.plugin_dir {
+                let _ = i.queue.write(d);
+            }
+        }
+        let deadline = Instant::now() + devices::WAIT_FOR_NUMBERS;
+        let screen = {
+            let mut i = self.lock();
+            loop {
+                if !current(&i) {
+                    return;
+                }
+                let s = Screen::of(&i.heard.screen.items);
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() || needed.iter().all(|n| s.answered(n)) {
+                    break s;
+                }
+                i = self.news.wait_timeout(i, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+        };
+        let cache = self.cfg.devices_file.parent().map(|d| d.join(devices::CACHE_DIR));
+        let made = devices::make(&models, &cfg, &omsi, &modules, &needed, &screen, &self.finder, cache.as_deref());
+        let mut i = self.lock();
+        if !current(&i) {
+            return;
+        }
+        i.queue.want = made.want();
+        i.queue.press = made.allowed();
+        if let Some(d) = &i.plugin_dir {
+            let _ = i.queue.write(d);
+        }
+        i.board.take(made);
+        self.refresh(&mut i);
     }
 
     /// The game's coordinates less the add-on's map metres, from the place the plugin gave with
@@ -474,6 +564,64 @@ pub fn handle(req: &Request, shared: &Arc<Shared>) -> Response {
             let i = shared.lock();
             Response::json(&json!({ "lines": i.heard.lines.items }))
         }
+        Route::Device(id) => match shared.lock().board.forms.get(&id).cloned() {
+            Some(form) => Response::new(200, "application/json; charset=utf-8", serde_json::to_vec(&*form).unwrap_or_default()),
+            None => Response::error(404, "not_found"),
+        },
+        Route::Texture(id) => {
+            let (kept, picture) = {
+                let i = shared.lock();
+                (i.board.pngs.get(&id).cloned(), i.board.textures.get(&id).cloned())
+            };
+            if let Some(png) = kept {
+                return Response::new(200, "image/png", png.to_vec());
+            }
+            // (only what the server registered itself: an id, never a path)
+            let Some((path, flags)) = picture else { return Response::error(404, "not_found") };
+            match textures::png_of(&path, &flags, textures::LIMIT) {
+                Some(png) => {
+                    let png = Arc::new(png);
+                    shared.lock().board.keep_png(&id, png.clone());
+                    Response::new(200, "image/png", png.to_vec())
+                }
+                None => Response::error(404, "unreadable"),
+            }
+        }
+        Route::Screen(id, after) => {
+            let deadline = Instant::now() + devices::SCREEN_WAIT;
+            let mut i = shared.lock();
+            let Some(form) = i.board.forms.get(&id).cloned() else { return Response::error(404, "not_found") };
+            while after.is_some_and(|a| a as i64 >= i.heard.screen.v) && !i.stopped {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                i = shared.news.wait_timeout(i, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            let v = i.heard.screen.v.max(0) as u64;
+            let screen = Screen::of(&i.heard.screen.items);
+            let (cfg, omsi) = (i.board.model_cfg.clone(), i.board.omsi_dir.clone());
+            drop(i);
+            // a picture the script chose ([matl_freetex]): its value is a file's name, found as
+            // the game finds it and registered; the app gets its id
+            let mut found = Vec::new();
+            let s = devices::stand(&form, &screen, v, |name, alpha| {
+                let path = shared.finder.find(cfg.as_ref()?, omsi.as_ref()?, name)?;
+                let flags = Flags::alpha(alpha);
+                let id = textures::id_of(&path, &flags);
+                found.push((id.clone(), path, flags));
+                Some(id)
+            });
+            if !found.is_empty() {
+                let mut i = shared.lock();
+                for (id, path, flags) in found {
+                    if i.board.textures.len() < 4096 {
+                        i.board.textures.insert(id, (path, flags));
+                    }
+                }
+            }
+            Response::json(&serde_json::to_value(&s).unwrap_or_default())
+        }
     }
 }
 
@@ -489,6 +637,13 @@ pub fn run(shared: &Arc<Shared>, cmd: Command) -> Value {
     }
     if let Command::IbisKey { key } | Command::PrinterKey { key } = &cmd {
         if !state::allowed_keys(&i.heard).contains(key) {
+            return refused("unknown_key");
+        }
+    }
+    // (the bus's devices: only their own taps and keys - the network's boundary, kept here and
+    // again by the plugin)
+    if let Command::Press { trigger, .. } = &cmd {
+        if !i.queue.press.contains(trigger) {
             return refused("unknown_key");
         }
     }
@@ -526,9 +681,11 @@ mod tests {
     use super::*;
     use hub_game::bridge::Assignment;
 
-    /// A source with a plugin folder of its own, a route due north and roads beside it.
+    /// A source with a plugin folder of its own, a route due north and roads beside it, and
+    /// (when it has one) a game folder with the synthetic test bus.
     struct Fake {
         dir: PathBuf,
+        omsi: Option<PathBuf>,
     }
 
     impl Source for Fake {
@@ -548,14 +705,27 @@ mod tests {
         fn world_of(&self, _map: &str, tile: [i64; 2], local: [f64; 2]) -> Option<[f64; 2]> {
             Some([tile[0] as f64 * 300.0 + local[0], tile[1] as f64 * 300.0 + local[1]])
         }
+        fn bus_model(&self, bus_file: &str) -> Option<(PathBuf, PathBuf)> {
+            let omsi = self.omsi.clone()?;
+            let bus = bus_file.split(['\\', '/']).fold(omsi.clone(), |d, p| d.join(p));
+            Some((hub_devices::scripts::model_of_bus(&bus)?, omsi))
+        }
     }
 
     fn shared(tag: &str) -> (Arc<Shared>, PathBuf) {
+        shared_with(tag, false)
+    }
+
+    fn shared_with(tag: &str, bus: bool) -> (Arc<Shared>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("hub-companion-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("data")).unwrap();
         let cfg = Config { port: 0, udp_port: 0, name: "Test-PC".into(), version: "0.1.0".into(), devices_file: dir.join("devices.json") };
-        (Arc::new(Shared::new(cfg, Arc::new(Fake { dir: dir.clone() }), "123456".into(), 9)), dir)
+        let omsi = bus.then(|| dir.join("OMSI 2"));
+        if let Some(o) = &omsi {
+            hub_devices::testbus::write(o).unwrap();
+        }
+        (Arc::new(Shared::new(cfg, Arc::new(Fake { dir: dir.clone(), omsi }), "123456".into(), 9)), dir)
     }
 
     fn req(method: &str, path: &str, key: Option<&str>, body: &str) -> Request {
@@ -679,6 +849,127 @@ mod tests {
         assert_eq!(s["nav"]["street"], "Rathausstraße");
         let roads = json_of(&handle(&req("GET", "/api/roads?x=1050&y=10", Some(&key), ""), &sh));
         assert_eq!(roads["roads"][0]["pts"][0], json!([1050.0, 10.0]), "asked and answered in the game's coordinates");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The plugin's side for the devices: what Omsi-Hub wants read, answered with `scr`, and the
+    /// commands acked.
+    fn plugin_reads(sh: &Arc<Shared>, dir: &std::path::Path, v: u64, line: &str) -> Value {
+        let q: Value = serde_json::from_str(&std::fs::read_to_string(crate::queue::file_of(dir)).unwrap()).unwrap();
+        let mut items: Vec<Value> = Vec::new();
+        for n in q["want"]["nums"].as_array().into_iter().flatten() {
+            let n = n.as_str().unwrap();
+            items.push(match n {
+                "trans_dauer" => json!(["n", n, 1]),
+                "IBIS_mode" => json!(["n", n, 1]),
+                "Colorscheme" => json!(["o", n]),
+                _ => json!(["n", n, 0]),
+            });
+        }
+        for s in q["want"]["strs"].as_array().into_iter().flatten() {
+            let s = s.as_str().unwrap();
+            items.push(json!(["s", s, if s == "IBIS_line_text" { line } else { "HAUPTBAHNHOF" }]));
+        }
+        sh.hear(json!({ "t": "scr", "v": v, "page": 1, "pages": 1, "items": items }).to_string().as_bytes());
+        q
+    }
+
+    #[test]
+    fn the_buss_devices_are_served_by_id_and_only_their_triggers_pressed() {
+        let (sh, dir) = shared_with("devices", true);
+        let key = pair(&sh);
+        let get = |path: &str| handle(&req("GET", path, Some(&key), ""), &sh);
+        let bus = json!({ "clock": 30_000.0, "bus_file": "Vehicles\\TestBus\\TestBus.bus" });
+        live(&sh, bus.clone());
+        // the plugin is asked for the numbers the forms need, and answers
+        let mut asked = Value::Null;
+        for _ in 0..200 {
+            let q: Value = std::fs::read_to_string(crate::queue::file_of(&dir)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            if q["want"]["nums"].as_array().is_some_and(|n| !n.is_empty()) {
+                asked = q;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(asked["want"]["nums"].as_array().unwrap().iter().any(|n| n == "trans_dauer"), "{asked}");
+        plugin_reads(&sh, &dir, 1, "29/03");
+        for _ in 0..500 {
+            if !sh.lock().board.building {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let state = json_of(&get("/api/state"));
+        let devices = state["devices"].as_array().unwrap();
+        assert_eq!(devices.len(), 2, "{}", state["devices"]);
+        let ibis = devices.iter().find(|d| d["role"] == "ibis").unwrap();
+        assert_eq!((ibis["kind"].as_str(), ibis["keys"].as_array().map(Vec::len)), (Some("touch"), Some(12)));
+        assert_eq!(ibis["keys"][0], json!({ "trigger": "IBIS_1", "label": "1", "digit": 1, "row": 0 }));
+        let printer = devices.iter().find(|d| d["role"] == "printer").unwrap();
+        assert_eq!((printer["kind"].as_str(), &printer["form"]), (Some("keys"), &Value::Null));
+        // now the plugin reads the screens' strings too, and may press the devices' triggers
+        let q = plugin_reads(&sh, &dir, 2, "29/03");
+        assert_eq!(q["want"]["strs"], json!(["IBIS_line_text", "IBIS_dest_text"]));
+        assert_eq!(q["press"].as_array().map(Vec::len), Some(20));
+
+        // the form, its pictures as PNGs, by id only
+        let id = ibis["form"].as_str().unwrap().to_string();
+        let form = json_of(&get(&format!("/api/device/{id}")));
+        assert_eq!((form["id"].as_str(), form["device"].as_str()), (Some(id.as_str()), ibis["id"].as_str()));
+        assert_eq!(form["taps"].as_array().map(Vec::len), Some(2));
+        let texture = form["parts"][0]["texture"].as_str().unwrap();
+        let png = get(&format!("/api/texture/{texture}"));
+        assert_eq!((png.status, png.ctype), (200, "image/png"));
+        assert!(png.body.starts_with(b"\x89PNG"));
+        assert_eq!(get("/api/texture/0123456789abcdef0123").status, 404);
+        assert_eq!(get("/api/device/0123456789abcdef0123").status, 404);
+        assert_eq!(handle(&req("GET", &format!("/api/device/{id}"), None, ""), &sh).status, 401);
+
+        // the stand, long polled
+        let s = json_of(&get(&format!("/api/screen/{id}")));
+        assert_eq!((s["v"].as_u64(), &s["t"]), (Some(2), &json!(["29/03", "HAUPTBAHNHOF"])));
+        let (sh2, dir2) = (sh.clone(), dir.clone());
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            plugin_reads(&sh2, &dir2, 3, "29/04");
+        });
+        let started = Instant::now();
+        let s = json_of(&get(&format!("/api/screen/{id}?after=2")));
+        t.join().unwrap();
+        assert_eq!((s["v"].as_u64(), &s["t"][0]), (Some(3), &json!("29/04")));
+        assert!(started.elapsed() < Duration::from_millis(1900));
+        let started = Instant::now();
+        assert_eq!(json_of(&get(&format!("/api/screen/{id}?after=3")))["v"], 3);
+        assert!(started.elapsed() >= Duration::from_millis(1900), "no news: after the wait");
+
+        // a tap: only the triggers of the devices; the plugin acks it
+        live(&sh, json!({ "clock": 30_001.0, "bus_file": "Vehicles\\TestBus\\TestBus.bus" }));
+        let press = |body: &str| json_of(&handle(&req("POST", "/api/do", Some(&key), body), &sh));
+        assert_eq!(press(r#"{"do":"press","trigger":"door_1"}"#)["error"], "unknown_key");
+        assert_eq!(press(r#"{"do":"press","trigger":"IBIS_LinieKurs"}"#)["error"], "unknown_key");
+        let (sh2, dir2) = (sh.clone(), dir.clone());
+        let plugin = std::thread::spawn(move || {
+            for _ in 0..100 {
+                std::thread::sleep(Duration::from_millis(20));
+                let q: Value = serde_json::from_str(&std::fs::read_to_string(crate::queue::file_of(&dir2)).unwrap()).unwrap();
+                if let Some(c) = q["cmds"].as_array().and_then(|c| c.last()) {
+                    assert_eq!(c["do"], "press");
+                    assert_eq!((c["key"].as_str(), c["down"].as_bool()), (Some("IBIS_menu"), Some(true)));
+                    sh2.hear(json!({ "t": "ack", "seq": c["seq"], "ok": true }).to_string().as_bytes());
+                    return;
+                }
+            }
+        });
+        assert_eq!(press(r#"{"do":"press","trigger":"IBIS_menu","down":true}"#), json!({ "ok": true }));
+        plugin.join().unwrap();
+
+        // on foot: no devices, nothing to press
+        live(&sh, json!({ "clock": 30_002.0, "bus_file": "" }));
+        assert_eq!(json_of(&get("/api/state"))["devices"], json!([]));
+        assert_eq!(get(&format!("/api/device/{id}")).status, 404);
+        assert_eq!(press(r#"{"do":"press","trigger":"IBIS_menu"}"#)["error"], "unknown_key");
+        // the forms were kept on disk for the next drive
+        assert!(std::fs::read_dir(dir.join(devices::CACHE_DIR)).unwrap().count() >= 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 

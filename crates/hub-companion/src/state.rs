@@ -30,6 +30,8 @@ pub struct Facts {
     pub route_v: u64,
     /// The break between trips ([`Pause::look`]).
     pub pause: Option<Value>,
+    /// The bus's devices (`crate::devices`).
+    pub devices: Value,
 }
 
 fn f(v: Option<&Value>) -> Option<f64> {
@@ -76,6 +78,7 @@ pub fn build(h: &Heard, facts: &Facts, now: f64) -> Value {
         "messages": messages(facts.inbox.as_ref()),
         "ibis": if game { ibis(h, duty_live) } else { Value::Null },
         "printer": if game { printer(h, &facts.currency) } else { Value::Null },
+        "devices": if game && facts.devices.is_array() { facts.devices.clone() } else { json!([]) },
         "features": {
             "ibis": game && !keys(h, "ibis").is_empty(),
             "printer": game && h.keys.get("tickets").and_then(Value::as_array).is_some_and(|t| !t.is_empty()),

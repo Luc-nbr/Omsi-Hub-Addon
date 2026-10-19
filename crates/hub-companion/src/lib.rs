@@ -22,6 +22,7 @@
 //! map with openOMSI's readers); this crate depends on nothing of that, and its tests run on a
 //! fake one.
 
+pub mod devices;
 pub mod heard;
 pub mod http;
 pub mod nav;
@@ -63,6 +64,12 @@ pub trait Source: Send + Sync {
     fn roads(&self, map: &str, date: &str, at: [f64; 2], r: f64) -> Vec<(f64, Vec<[f64; 2]>)>;
     /// The map metres of a place given by its tile (x, y of the grid) and the metres in it.
     fn world_of(&self, map: &str, tile: [i64; 2], local: [f64; 2]) -> Option<[f64; 2]>;
+    /// The bus the plugin names (its `.bus` file, relative to the game's folder): its
+    /// `model.cfg`, and the game's folder it is read in (OMSI's fonts and shared textures are
+    /// there). `None`: its devices are not shown.
+    fn bus_model(&self, _bus_file: &str) -> Option<(PathBuf, PathBuf)> {
+        None
+    }
 }
 
 /// How the server runs.
