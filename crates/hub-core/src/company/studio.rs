@@ -890,13 +890,22 @@ pub fn duty_of_trip(duties: &[Duty], tours: &[TourOfDay], i: usize, j: usize) ->
 /// between two trips with passengers (an own line's way back, a deadhead whose time is
 /// estimated: Luc's line 880 runs one way only), the bus stands where the first one ended
 /// before it runs empty: the drivers change there, or where the next one begins, at a terminus
-/// or the depot. Between an empty run and another place it is on the move (`ON_THE_MOVE`).
+/// or the depot - where neither allows it, it is the relief point that says no (`NOT_RELIEF`:
+/// a tester's line 322 arrives at Brixton Rd and leaves from Stockwell Park Walk, Brixton
+/// unticked, and was told the bus was on the move). Between an empty run and another place it
+/// is on the move (`ON_THE_MOVE`).
 fn change_between(c: &Company, tours: &[TourOfDay], line: &str, a: &PlannedTrip, b: &PlannedTrip) -> Result<(), &'static str> {
     if same(a.end(), &b.from) {
         return if is_relief(c, tours, line, a.end()) { Ok(()) } else { Err(NOT_RELIEF) };
     }
-    if a.counts() && b.counts() && (is_relief(c, tours, line, a.end()) || is_relief(c, tours, line, &b.from)) {
-        return Ok(());
+    if a.counts() && b.counts() {
+        if is_relief(c, tours, line, a.end()) || is_relief(c, tours, line, &b.from) {
+            return Ok(());
+        }
+        let point = |place: &str| super::rosterflow::uses_at(c, tours, place).is_some();
+        if point(a.end()) || point(&b.from) {
+            return Err(NOT_RELIEF);
+        }
     }
     Err(ON_THE_MOVE)
 }
@@ -2302,6 +2311,13 @@ mod tests {
         let mut moving = tours.clone();
         moving[one].trips[4].from = "C".into();
         assert!(plan_move_to_duty(&c, wd, &moving, a, &[(one, 3)], DutyTarget::New).is_ok());
+        // with relief unticked at both (a tester's 322 at Brixton): the relief point says no,
+        // the bus is not on the move
+        let mut unticked = c.clone();
+        for stop in ["A", "C"] {
+            unticked.planning.flow.prefs.points.push(super::super::rosterflow::ReliefPoint { stop: stop.into(), relief: false, ..Default::default() });
+        }
+        assert_eq!(plan_move_to_duty(&unticked, wd, &moving, a, &[(one, 3)], DutyTarget::New), Err(NOT_RELIEF));
         // but not where empty runs end somewhere and what follows begins elsewhere
         let mut moving = workshop.clone();
         moving[one].trips[5].from = "Werkstatt-Hof".into();
