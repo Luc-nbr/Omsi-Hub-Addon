@@ -63,7 +63,8 @@ fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     json!({ "id": v.id, "number": v.number, "size": v.kind.size, "file": v.bus, "paint": paint, "tip": tip })
 }
 
-/// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.
+/// The yard from above (`depot::plan`): what is built, being built, where the buses stand, and
+/// the staff at work today (the 3D yard has them walk about it, each as their role's figure).
 fn plan(c: &Company) -> Value {
     let today = c.date.clone();
     let held: Vec<&co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(&today)).collect();
@@ -111,7 +112,7 @@ fn look(l: &Look) -> Value {
 
 /// The people at work at the depot today, as the 3D depot shows them: the drivers (those out on
 /// a duty now among them), the mechanics, the cleaners and the others (the offices': service,
-/// inspectors, research).
+/// inspectors, research - each also counted alone, for its own figure).
 fn staff(c: &Company) -> Value {
     let today = &c.date;
     let n = |r: &[Role]| c.staff.iter().filter(|e| e.employed_on(today) && r.contains(&e.role)).count();
@@ -120,6 +121,9 @@ fn staff(c: &Company) -> Value {
         "mechanics": n(&[Role::Mechanic]),
         "cleaners": n(&[Role::Cleaner]),
         "office": n(&[Role::Service, Role::Inspector, Role::Researcher]),
+        "service": n(&[Role::Service]),
+        "inspectors": n(&[Role::Inspector]),
+        "researchers": n(&[Role::Researcher]),
     })
 }
 

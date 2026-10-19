@@ -6,9 +6,10 @@
 // Escape or a right click stops. Drag to turn the yard round (in 2D: to move it), right-drag (or
 // Shift) to move it,
 // scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its own
-// model in its livery once that is there (`skins.js`), until then as the plain one. How finely it is drawn is
-// chosen in its menu (`quality.js`). Without WebGL2 the page draws its plan from above instead
-// (`onFail`).
+// model in its livery once that is there (`skins.js`), until then as the plain one. The staff at
+// work walk about the yard (`people.js`, their figures `figures.js`); with the animations off
+// they stand still. How finely it is drawn is chosen in its menu (`quality.js`). Without WebGL2
+// the page draws its plan from above instead (`onFail`).
 
 import { html, useEffect, useRef, useState, tr, Icon, IconBtn, Btn, ui, setUi } from '../kit.js';
 import { actMore } from '../more.js';
@@ -17,10 +18,11 @@ import { buildScene, AREAS, moduleUnder, ghostMesh, gridMesh } from './scene.js'
 import { rectOf, whyNot } from './yard.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
-import { personMesh, people, rounds } from './people.js';
+import { personMesh, people, rolesOf, rounds } from './people.js';
 import { DepotRenderer, VIEW, ZOOM } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
+import { figure } from './figures.js';
 
 /** The menu's levels: what is chosen, its name, and what it gives up. */
 const QUALITY = [
@@ -63,6 +65,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const [sure, setSure] = useState(false);
   const pointer = useRef(null);
   const [skins, setSkins] = useState(0);
+  const crowd = useRef(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
   const pal = palette(p.look);
@@ -122,9 +125,24 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   useEffect(() => {
     const view = r.current;
     const s = scene.current;
+    crowd.current = 0;
     if (!view || !s || !LEVELS[level].staff) return undefined;
     const list = rounds(s, p.staff, p.colour);
+    crowd.current = list.length;
     if (!list.length) return undefined;
+    const show = (t) => {
+      const { rest, figures } = people(list, t, (role) => view.figureModel(role));
+      view.setPeople(rest, t);
+      view.setFigures(figures);
+    };
+    // each role's figure asked for: drawn from the next picture on (at once when they stand)
+    let gone = false;
+    for (const role of rolesOf(list))
+      figure(role).then((m) => {
+        if (!m || gone || r.current !== view) return;
+        view.setFigureModel(role, m);
+        if (still()) show(0);
+      });
     let frame = 0;
     let last = 0;
     const t0 = performance.now();
@@ -133,11 +151,14 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
       if (now - last < 32) return;
       last = now;
       const t = (now - t0) / 1000;
-      view.setPeople(people(list, t), t);
+      show(t);
     };
-    if (still()) view.setPeople(people(list, 0), 0);
+    if (still()) show(0);
     else frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      gone = true;
+      cancelAnimationFrame(frame);
+    };
   }, [key, level, skins]);
 
   // the buses' own models, as they come
@@ -355,7 +376,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const tip = under && s?.buses.find((b) => b.id === under);
   const card = sel && s?.picks.find((o) => o.id === sel);
   const hint = placing ? tr('Click to put it down, R to turn it, Esc to stop') : flat ? tr('Drag to move, scroll to zoom') : tr('Drag to turn, right-drag to move, scroll to zoom');
-  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} style=${`width:${w}px;height:${h}px`}>
+  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} data-people=${crowd.current} style=${`width:${w}px;height:${h}px`}>
     <canvas key=${level} ref=${canvas} class=${under ? 'on-bus' : ''} style=${`width:${w}px;height:${h}px`} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerLeave=${() => !drag.current && under !== null && setUnder(null)} onContextMenu=${(e) => e.preventDefault()}></canvas>
     <div class="dp-tags" ref=${tags}>${s?.labels.map(tagFor)}</div>
     ${tip && !placing && html`<div class="dp-tip">${tip.tip}</div>`}

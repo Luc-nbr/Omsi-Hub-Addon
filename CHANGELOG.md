@@ -43,7 +43,9 @@ never changes their files.
   of flats further out, their windows lit in the evening; the surfaces textured (asphalt, concrete,
   brick, the wash bay's tiles, the workshop's coated floor ...) with cracks, tyre tracks and oil
   where they are used; and the company's people at work - mechanics at the buses in the bays,
-  cleaners in the wash lanes, drivers on their way to their buses.
+  cleaners in the wash lanes, drivers on their way to their buses -, each role a cartoon figure
+  of its own (the driver, the mechanic, the cleaner, the service employee, the inspector, the
+  researcher) that walks and, where it works, stands at ease.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.

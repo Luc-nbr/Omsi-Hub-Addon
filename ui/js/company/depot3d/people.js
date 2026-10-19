@@ -2,8 +2,11 @@
 // the mechanics at the buses in the bays (or between the hall and the stores), the cleaners up
 // and down the wash lanes (or among the spaces), the drivers between the offices and the buses
 // they take out, the office's people across the yard and at the pumps. Each walks or works with
-// its arms and legs moving (`renderer.js` swings them); where it is is worked out from the time,
-// so the round needs no state of its own. A figure is one small model drawn once for all of them.
+// its arms and legs moving; where it is is worked out from the time, so the round needs no state
+// of its own. Each is drawn as its role's figure (`figures.js`: the driver, the mechanic, the
+// cleaner, and for the office's people the service employee, the inspector or the researcher),
+// its walk while it walks and its idle while it works; until that figure is there, as one small
+// model for all of them whose arms and legs `renderer.js` swings.
 
 import { Mesh } from './mesh.js';
 import { rgb01 } from './palette.js';
@@ -11,12 +14,19 @@ import { seeded } from './city.js';
 
 /** Floats a figure: x, z, heading, phase; r, g, b, walking (0: at work where it stands). */
 export const PERSON = 8;
+/** Floats a role's figure: x, z, heading, how far between the two frames; the frame's row in
+ * the bones, the next one's, walking (the walk's skin) or not, and one spare. */
+export const FIGURE = 8;
 /** How many are shown at most (the rest are about somewhere else). */
 const MOST = { drivers: 24, mechanics: 12, cleaners: 8, office: 8 };
 /** Their clothes: the overalls, the high-visibility vests, the drivers' shirts in the company's
  * colour, the office's white. */
 const WEAR = { mechanics: '#2f5f9e', cleaners: '#f2c230', office: '#e8ebef' };
-const WALK = 1.35;
+// (an easy pace: the figures' walk, drawn larger than life, goes about this fast as it was made)
+const WALK = 0.9;
+/** How much larger than life the figures are drawn (`renderer.js`), so they are seen from above
+ * the yard: their strides too. */
+const LARGER = 1.45;
 
 /** The figure (1.8 m, its front at +z): its parts in the area slot - 1 and 2 the legs, 3 the
  * body (its clothes' colour), 4 and 5 the arms, 0 the head and the shoes. */
@@ -106,7 +116,22 @@ export function rounds(scene, staff, colour) {
   };
   /** At work where it stands, facing `heading`. */
   const stay = (x, z, heading) => () => [x, z, heading, 0];
-  const add = (kind, at) => out.push({ at, colour: kind === 'drivers' ? shirt : wear(kind), phase: rnd() * 6.28 });
+  // the office's people by who they are, in turn (all as service staff where the plan does not
+  // say)
+  const desk = [['service', staff.service], ['inspector', staff.inspectors], ['researcher', staff.researchers]].filter(([, n]) => n > 0);
+  const deskOf = (k) => {
+    if (!desk.length) return 'service';
+    const total = desk.reduce((a, [, n]) => a + n, 0);
+    let at = k % total;
+    for (const [role, n] of desk) {
+      if (at < n) return role;
+      at -= n;
+    }
+    return desk[0][0];
+  };
+  const ROLE = { drivers: 'driver', mechanics: 'mechanic', cleaners: 'cleaner' };
+  let desks = 0;
+  const add = (kind, at) => out.push({ at, colour: kind === 'drivers' ? shirt : wear(kind), phase: rnd() * 6.28, role: ROLE[kind] || deskOf(desks++) });
 
   // the mechanics: two at each bus in a bay, the others to and fro between the hall and the
   // offices (the stores)
@@ -167,12 +192,30 @@ export function rounds(scene, staff, colour) {
   return out;
 }
 
-/** The figures' instances at time `t` (seconds). */
-export function people(list, t) {
-  const data = new Float32Array(list.length * PERSON);
-  list.forEach((p, k) => {
+/** The roles whose figures the people of `list` are. */
+export const rolesOf = (list) => [...new Set(list.map((p) => p.role))];
+
+/**
+ * The people at time `t` (seconds): `figures` by role (`FIGURE` floats each) for those whose
+ * figure `modelOf(role)` has (its `clips`, `fps` and `speed`), and `rest` (`PERSON` floats each)
+ * as the plain model for the others.
+ */
+export function people(list, t, modelOf = () => null) {
+  const rest = [];
+  const figures = new Map();
+  for (const p of list) {
     const [x, z, heading, walking] = p.at(t);
-    data.set([x, z, heading, p.phase, p.colour[0], p.colour[1], p.colour[2], walking], k * PERSON);
-  });
-  return data;
+    const m = modelOf(p.role);
+    if (!m) {
+      rest.push(x, z, heading, p.phase, p.colour[0], p.colour[1], p.colour[2], walking);
+      continue;
+    }
+    // (the walk played to the pace the round goes, so the feet do not slide)
+    const clip = m.clips[walking ? 'walk' : 'idle'];
+    const at = ((t + p.phase) * (walking ? WALK / (m.speed * LARGER) : 1) * m.fps) % clip.frames;
+    const k = Math.floor(at);
+    if (!figures.has(p.role)) figures.set(p.role, []);
+    figures.get(p.role).push(x, z, heading, at - k, clip.row + k, clip.row + ((k + 1) % clip.frames), walking ? 1 : 0, 0);
+  }
+  return { rest: new Float32Array(rest), figures: new Map([...figures].map(([k, v]) => [k, new Float32Array(v)])) };
 }
