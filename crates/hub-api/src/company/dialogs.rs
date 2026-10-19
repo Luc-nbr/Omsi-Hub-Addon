@@ -1012,6 +1012,8 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
                 c.together.friends_join = on;
                 Ok(())
             });
+            // (the website has no friends list to tell: `online` is the desktop's)
+            #[cfg(feature = "native")]
             if r.is_ok() {
                 crate::online::friends_join_changed(on);
             }
