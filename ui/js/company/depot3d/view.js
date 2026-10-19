@@ -7,17 +7,22 @@
 // on the ground, let go. In the build mode (`placing`: a module of an area to put down, or one
 // to move) its ghost follows the pointer on the yard's grid, under the pointer at its own
 // height, green where it fits (`yard.js`), R turns it, a click puts it down, Escape or a right
-// click stops. Drag to turn the yard round (in 2D: to move it), right-drag (or Shift) to move
-// it, scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its
+// click stops. A building that has rooms (the offices, a workshop bay) can be opened from its
+// card: drawn as its inside (`inside.js`), a floor at a time, the rooms laid out by dragging
+// over its floor once a kind is chosen in the bar under it (green where it fits, `yard.js`),
+// a room clicked (or its label) has its card to take it out. Drag to turn the yard round (in
+// 2D: to move it), right-drag (or Shift) to move it, scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its
 // own model in its livery once that is there (`skins.js`), until then as the plain one. How
 // finely it is drawn is chosen in its menu (`quality.js`). Without WebGL2 the page draws its
 // plan from above instead (`onFail`).
 
 import { html, useEffect, useRef, useState, tr, Icon, IconBtn, Btn, Meter, ui, setUi } from '../kit.js';
-import { actMore } from '../more.js';
+import { actMore, eur } from '../more.js';
 import { project } from '../../hub/bus3d/math.js';
-import { buildScene, AREAS, TALL, moduleUnder, ghostMesh, gridMesh } from './scene.js';
-import { rectOf, whyNot } from './yard.js';
+import { buildScene, AREAS, TALL, frame, moduleUnder, ghostMesh, gridMesh } from './scene.js';
+import { rectOf, roomWhyNot, whyNot } from './yard.js';
+import { CUT, floorY, roomGhost, roomGrid, toLocal } from './inside.js';
+import { Mesh } from './mesh.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
 import { DepotRenderer, VIEW, ZOOM } from './renderer.js';
@@ -39,6 +44,14 @@ const WHY = {
   taken: 'Something stands there already.',
   lane: 'Keep the lanes in front of the buildings and spaces free.',
 };
+/** Why a room does not fit, in words (as `hub_core::company::rooms::fits` says it). */
+const ROOM_WHY = {
+  small: 'A room is at least 2 m by 2 m.',
+  outside: 'It does not fit in the building.',
+  taken: 'Another room is there already.',
+};
+/** The offices' floors' names. */
+const FLOORS = ['Ground floor', '1st floor', '2nd floor'];
 const GREEN = [0.2, 0.78, 0.42, 0.7];
 const RED = [0.92, 0.26, 0.22, 0.7];
 /** How far the pointer may move and still click (not drag), in pixels. */
@@ -79,13 +92,23 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
    * page's `selected`. */
   const [sel, setSel] = useState(null);
   const [sure, setSure] = useState(false);
+  /** The building opened (`{ id, floor }`), the kind of room to lay out in it, the room being
+   * drawn (its rectangle and why it does not fit) and where its drawing began. */
+  const [inside, setInside] = useState(null);
+  const [paint, setPaint] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const drawing = useRef(null);
+  const before = useRef(null);
   const pointer = useRef(null);
   const [skins, setSkins] = useState(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
   const day = dayStep(minute);
   const pal = palette(p.look, day);
-  const key = JSON.stringify([p, day, pal.accent]);
+  const key = JSON.stringify([p, day, pal.accent, inside]);
+  // the building opened, while it is there
+  const opened = inside && p.layout?.modules.find((o) => o.id === inside.id && !o.building);
+  const openY = opened ? (opened.area === 'offices' ? floorY(inside.floor) : 0.05) : 0;
   // (the light again every two minutes of the company's time)
   const lightKey = Math.floor(minute / 2);
 
@@ -128,7 +151,7 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
   useEffect(() => {
     const view = r.current;
     if (!view) return;
-    const s = buildScene(p, pal, LEVELS[level]);
+    const s = buildScene(p, pal, LEVELS[level], opened ? inside : null);
     scene.current = s;
     view.setBusModel(busMesh(pal));
     view.setYard(s.mesh, s.bounds, pal, s.world);
@@ -161,6 +184,100 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [sel, selected, placing]);
+
+  // a building opened: the camera to it (back where it was when it is closed); gone (pulled
+  // down), closed
+  useEffect(() => {
+    if (inside && !opened) leave();
+  }, [inside, opened]);
+
+  // the grid of its floor while a kind of room is chosen, the room being drawn
+  useEffect(() => {
+    const view = r.current;
+    if (!view) return;
+    const f = opened && frameOf(opened);
+    const world = (lm) => {
+      const m = new Mesh();
+      m.append(lm, f);
+      return m;
+    };
+    const room = opened && p.layout.shapes[opened.area]?.inside;
+    view.setOverlay('roomgrid', paint && room ? world(roomGrid(room, openY, pal)) : null, [1, 1, 1, 0.3], 0.4);
+    view.setOverlay('roomghost', draft && f ? world(roomGhost(draft, openY, pal)) : null, draft?.why ? RED : GREEN, 0.6);
+  }, [paint, draft, key, level]);
+
+  // opened: Escape lets the kind of room go, then closes the building
+  useEffect(() => {
+    if (!inside || sel) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.target?.closest?.('input, textarea, [contenteditable]')) return;
+      if (paint) setPaint(null);
+      else leave();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [inside, paint, sel]);
+
+  /** A module's frame onto the yard (`scene.js`'s `frame`). */
+  function frameOf(o) {
+    const L = p.layout;
+    const sh = L.shapes[o.area];
+    return frame(o.rot, o.x * L.cell, o.y * L.cell, sh.w * L.cell, sh.h * L.cell);
+  }
+
+  /** The point of the opened building's floor under the pointer, in its own frame's metres. */
+  function localAt(e) {
+    const view = r.current;
+    const sc = scene.current;
+    if (!view || !sc || !opened) return null;
+    const [px, py] = at(e);
+    const hit = view.ground(px, py, openY);
+    if (!hit) return null;
+    const b = sc.bounds;
+    const L = p.layout;
+    const sh = L.shapes[opened.area];
+    return toLocal(opened.rot, opened.x * L.cell, opened.y * L.cell, sh.w * L.cell, sh.h * L.cell, hit[0] + (b.x0 + b.x1) / 2, hit[1] + (b.z0 + b.z1) / 2);
+  }
+
+  /** Open a building: its inside drawn, the camera close to it. */
+  function enter(o) {
+    const view = r.current;
+    const sc = scene.current;
+    setSel(null);
+    setSure(false);
+    if (selected != null) onPick?.(selected);
+    setInside({ id: o.id, floor: 0 });
+    setPaint(null);
+    if (!view || !sc) return;
+    before.current = { ...view.goal };
+    const b = sc.bounds;
+    aim({ tx: (o.x0 + o.x1) / 2 - (b.x0 + b.x1) / 2, tz: (o.z0 + o.z1) / 2 - (b.z0 + b.z1) / 2, zoom: o.area === 'offices' ? 0.24 : 0.2, pitch: Math.max(0.9, view.goal.pitch) });
+  }
+
+  /** Close the building opened: the camera back where it was. */
+  function leave() {
+    setInside(null);
+    setPaint(null);
+    setDraft(null);
+    drawing.current = null;
+    setSel(null);
+    if (before.current) aim(before.current);
+    before.current = null;
+  }
+
+  /** The room drawn from where the drawing began to the pointer: whole metres, both corners
+   * in it. */
+  function draw(e) {
+    const l = localAt(e);
+    const a = drawing.current;
+    if (!l || !a) return;
+    const [bx, by] = [Math.floor(l[0]), Math.floor(l[1])];
+    const rect = { x: Math.min(a.x, bx), y: Math.min(a.y, by), w: Math.abs(bx - a.x) + 1, h: Math.abs(by - a.y) + 1 };
+    if (draft && draft.x === rect.x && draft.y === rect.y && draft.w === rect.w && draft.h === rect.h) return;
+    setDraft({ ...rect, why: roomWhyNot(p.layout, opened, inside.floor, rect) });
+  }
 
   /** The buses to the renderer: each as its own model where that is there (asked for where it
    * is not: `skins.js`), else as the plain one. */
@@ -367,11 +484,25 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
   const down = (e) => {
     if (!r.current) return;
     canvas.current.setPointerCapture?.(e.pointerId);
+    // a room drawn over the floor of the building opened, from the metre under the pointer
+    if (opened && paint && e.button === 0 && !e.shiftKey) {
+      const l = localAt(e);
+      if (l) {
+        drawing.current = { x: Math.floor(l[0]), y: Math.floor(l[1]) };
+        setSel(null);
+        draw(e);
+        return;
+      }
+    }
     drag.current = { x: e.clientX, y: e.clientY, moved: 0, pan: e.button === 2 || e.button === 1 || e.shiftKey };
   };
   const move = (e) => {
     const view = r.current;
     if (!view) return;
+    if (drawing.current) {
+      draw(e);
+      return;
+    }
     const g = drag.current;
     if (!g && placing) {
       pointer.current = { clientX: e.clientX, clientY: e.clientY };
@@ -400,6 +531,13 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
     if (under !== null) setUnder(null);
   };
   const up = (e) => {
+    if (drawing.current) {
+      drawing.current = null;
+      const d = draft;
+      setDraft(null);
+      if (d && !d.why) actMore('depot_room_add', { module: opened.id, floor: inside.floor, kind: paint, x: d.x, y: d.y, w: d.w, h: d.h });
+      return;
+    }
     const g = drag.current;
     drag.current = null;
     if (!g) return;
@@ -412,10 +550,15 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
       const spot = groundAt(e);
       const o = spot && s && moduleUnder(s.picks, spot[0], spot[1]);
       const land = spot && s?.land && spot[0] >= s.land.x0 && spot[0] <= s.land.x1 && spot[1] >= s.land.z0 && spot[1] <= s.land.z1;
+      // (in a building opened: its rooms)
+      const l = opened && localAt(e);
+      const room = l && (opened.rooms || []).find((x) => x.floor === inside.floor && l[0] >= x.x && l[0] <= x.x + x.w && l[1] >= x.y && l[1] <= x.y + x.h);
       if (b) {
         setSel(null);
         onPick?.(b.id);
-      } else if (o) open(sel?.id === o.id ? null : { id: o.id });
+      } else if (room) open(sel?.room === room.id ? null : { room: room.id });
+      else if (opened) close();
+      else if (o) open(sel?.id === o.id ? null : { id: o.id });
       else if (land) open(sel?.land ? null : { land: true });
       else close();
     } else keep();
@@ -447,8 +590,10 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
       e.stopPropagation();
       if (placing) return;
       if (k === 'land') open(sel?.land ? null : { land: true });
+      else if (k === 'room') open(sel?.room === t.id ? null : { room: t.id });
       else open(sel?.id === t.id ? null : { id: t.id });
     };
+    if (k === 'room') return html`<button type="button" class=${'dp-tag room' + (sel?.room === t.id ? ' lit' : '')} onClick=${pick}><${Icon} name=${t.icon || 'meeting_room'} size=${13} /><span>${t.head}</span></button>`;
     const events = { onClick: pick, onMouseEnter: () => lit(k), onMouseLeave: () => lit(hover) };
     if (t.works) return html`<button type="button" class=${'dp-tag works' + (on ? ' lit' : '')} ...${events}><${Icon} name="construction" size=${13} /><span>${n.label}<small>${t.works}</small></span></button>`;
     if (!t.built) return html`<button type="button" class=${'dp-tag plot' + (on ? ' lit' : '')} ...${events}><${Icon} name="add" size=${13} /><span>${n.label}</span></button>`;
@@ -462,19 +607,32 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
   if (s && !placing) {
     const bus = selected != null ? s.buses.find((b) => b.id === selected) : null;
     const o = sel?.id != null ? s.picks.find((x) => x.id === sel.id) : null;
-    if (bus) {
+    const room = sel?.room != null && opened ? (opened.rooms || []).find((x) => x.id === sel.room) : null;
+    if (room) {
+      anchor.current = frameOf(opened).pt([room.x + room.w / 2, openY + CUT, room.y + room.h / 2]);
+      const kind = (p.layout.rooms?.[opened.area] || []).find((k) => k.key === room.kind);
+      body = html`<${RoomCard} room=${room} kind=${kind} sure=${sure} setSure=${setSure} onClose=${close} onGone=${() => setSel(null)} />`;
+    } else if (bus) {
       anchor.current = [bus.x, (bus.height || 3.1) + 0.6, bus.z];
       body = html`<${BusCard} bus=${bus} ws=${wsBuses.find((b) => b.id === bus.id)} onClose=${close} />`;
     } else if (o) {
       anchor.current = [(o.x0 + o.x1) / 2, o.h, (o.z0 + o.z1) / 2];
-      body = html`<${ModuleCard} o=${o} rows=${rows} sure=${sure} setSure=${setSure} onClose=${close} onMove=${() => setUi('depot', { placing: { area: o.area, move: o.id, rot: o.rot } })} onBuild=${() => setSel(null)} onGone=${() => setSel(null)} />`;
+      body = html`<${ModuleCard} o=${o} rows=${rows} sure=${sure} setSure=${setSure} onClose=${close} onMove=${() => setUi('depot', { placing: { area: o.area, move: o.id, rot: o.rot } })} onBuild=${() => setSel(null)} onGone=${() => setSel(null)} onInside=${!o.building && p.layout.shapes[o.area]?.inside && !opened ? () => enter(o) : null} />`;
     } else if (sel?.land && s.land) {
       anchor.current = [(s.land.x0 + Math.min(s.land.x1, s.land.x0 + 40)) / 2, 2.5, (s.land.z0 + s.land.z1) / 2];
       body = html`<${LandCard} land=${p.layout?.land} onClose=${close} />`;
     }
   }
 
-  const hint = placing ? tr('Click to put it down, R to turn it, Esc to stop') : flat ? tr('Drag to move, scroll to zoom') : tr('Drag to turn, right-drag to move, scroll to zoom');
+  const hint = placing
+    ? tr('Click to put it down, R to turn it, Esc to stop')
+    : paint
+      ? tr('Drag over the floor to lay out the room, right-drag to move, scroll to zoom')
+      : flat
+        ? tr('Drag to move, scroll to zoom')
+        : tr('Drag to turn, right-drag to move, scroll to zoom');
+  const kinds = opened ? p.layout.rooms?.[opened.area] || [] : [];
+  const chosen = kinds.find((k) => k.key === paint);
   return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} style=${`width:${w}px;height:${h}px;background:${skyAt(minute)}`}>
     <canvas key=${level} ref=${canvas} class=${under ? 'on-bus' : ''} style=${`width:${w}px;height:${h}px`} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerLeave=${() => !drag.current && under !== null && setUnder(null)} onContextMenu=${(e) => e.preventDefault()}></canvas>
     <div class="dp-tags" ref=${tags}>${s?.labels.map(tagFor)}</div>
@@ -483,6 +641,27 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
       <span class=${'dp-why' + (ghost?.why ? ' no' : '')}>${ghost?.why ? tr(WHY[ghost.why]) : placing.move ? tr('Move it where it fits: it costs nothing.') : tr('Put it down where it fits, its lane kept free.')}</span>
       <${Btn} kind="ghost" icon="refresh" label=${tr('Turn')} onClick=${() => setRot((k) => (k + 1) % 4)} />
       <${Btn} kind="ghost" icon="close" label=${tr('Stop')} onClick=${() => onPlaced?.()} />
+    </div>`}
+    ${opened && !placing && html`<div class="dp-inside" style=${`right:${right + 12}px`} onPointerDown=${(e) => e.stopPropagation()}>
+      <div class="dp-insidehead">
+        <span class="dp-icon"><${Icon} name=${(rows.find((a) => a.key === opened.area) || {}).icon || ICONS[opened.area]} size=${18} /></span>
+        <b>${(rows.find((a) => a.key === opened.area) || {}).label || opened.title}</b>
+        ${opened.floors > 1 && html`<span class="co-seg">${Array.from({ length: opened.floors }, (_, k) => html`<button type="button" class=${k === inside.floor ? 'on' : ''} onClick=${() => {
+          setInside({ ...inside, floor: k });
+          setSel(null);
+        }}>${tr(FLOORS[k] || `${k}`)}</button>`)}</span>`}
+        <span class=${'dp-why' + (draft?.why ? ' no' : '')}>${draft
+          ? draft.why
+            ? tr(ROOM_WHY[draft.why])
+            : `${draft.w} × ${draft.h} m  ·  ${draft.w * draft.h} m²  ·  ${eur((chosen?.m2 || 0) * draft.w * draft.h)}`
+          : chosen
+            ? tr('Drag over the floor to lay out the room')
+            : tr('Choose a room, then drag over the floor')}</span>
+        <${Btn} kind="primary" icon="check" label=${tr('Done')} onClick=${leave} />
+      </div>
+      <div class="dp-kinds">${kinds.map((k) => html`<button type="button" class=${'dp-kind' + (k.key === paint ? ' on' : '')} title=${k.what} onClick=${() => setPaint(k.key === paint ? null : k.key)}>
+        <${Icon} name=${k.icon} size=${16} /><span><b>${k.label}</b><small>${eur(k.m2)} / m²</small></span>
+      </button>`)}</div>
     </div>`}
     ${body && html`<div class="dp-card" ref=${card} style="visibility:hidden" onPointerDown=${(e) => e.stopPropagation()}>${body}</div>`}
     <div class="dp-tools" style=${`right:${right + 10}px;top:${top + 10}px`}>
@@ -502,7 +681,7 @@ export function Depot3D({ p, rows = [], wsBuses = [], w, h, selected, hover, onP
         setMenu(false);
       }}><span>${tr(label)}<small>${q === 'auto' ? tr(NAMES[level]) : tr(under)}</small></span>${q === quality && html`<${Icon} name="check" size=${16} />`}</button>`)}
     </div>`}
-    ${!placing && html`<div class="dp-hint" style=${`right:${right + 12}px`}>${hint}</div>`}
+    ${!placing && !opened && html`<div class="dp-hint" style=${`right:${right + 12}px`}>${hint}</div>`}
   </div>`;
 }
 
@@ -561,7 +740,7 @@ function Upgrades({ list }) {
 
 /** A module's card: its area's level and the next one, what can be added (the charging points
  * on a block of spaces too), and to move it or pull it down. */
-function ModuleCard({ o, rows, sure, setSure, onClose, onMove, onBuild, onGone }) {
+function ModuleCard({ o, rows, sure, setSure, onClose, onMove, onBuild, onGone, onInside }) {
   const a = rows.find((x) => x.key === o.area);
   const charging = o.area === 'parking' ? rows.find((x) => x.key === 'charging') : null;
   return html`
@@ -570,6 +749,7 @@ function ModuleCard({ o, rows, sure, setSure, onClose, onMove, onBuild, onGone }
     ${!o.building && charging && html`<div class="dp-sub"><span class="dp-icon"><${Icon} name=${charging.icon} size=${16} /></span><b>${charging.label}</b></div><${NextLevel} a=${charging} />`}
     ${!o.building && html`<${Upgrades} list=${[...(a?.upgrades || []), ...(charging?.upgrades || [])]} />`}
     ${!o.building && html`<div class="dp-foot">
+      ${onInside && html`<${Btn} kind="primary" icon="meeting_room" label=${tr('Inside')} title=${tr('Look inside and lay out its rooms')} onClick=${onInside} />`}
       <${Btn} kind="ghost" icon="open_with" label=${tr('Move')} onClick=${onMove} />
       <${Btn} kind=${sure ? 'danger' : 'ghost'} icon="close" label=${sure ? tr('Sure? Pull it down') : tr('Pull down')} onClick=${async () => {
         if (!sure) return setSure(true);
@@ -578,6 +758,21 @@ function ModuleCard({ o, rows, sure, setSure, onClose, onMove, onBuild, onGone }
         setSure(false);
       }} />
     </div>`}`;
+}
+
+/** A room laid out in a building: what it is, its size, and to take it out. */
+function RoomCard({ room, kind, sure, setSure, onClose, onGone }) {
+  return html`
+    <${Head} icon=${kind?.icon || 'meeting_room'} title=${kind?.label || room.kind} sub=${`${room.w} × ${room.h} m  ·  ${room.w * room.h} m²`} onClose=${onClose} />
+    ${kind?.what && html`<div class="dp-what">${kind.what}</div>`}
+    <div class="dp-foot">
+      <${Btn} kind=${sure ? 'danger' : 'ghost'} icon="close" label=${sure ? tr('Sure? Take it out') : tr('Take it out')} title=${tr('Nothing is paid back')} onClick=${async () => {
+        if (!sure) return setSure(true);
+        const done = await actMore('depot_room_remove', { id: room.id });
+        if (done?.ok) onGone?.();
+        setSure(false);
+      }} />
+    </div>`;
 }
 
 /** The land to buy beside the yard: what it is, its price. */

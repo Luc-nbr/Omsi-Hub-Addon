@@ -83,6 +83,7 @@ pub mod registrations;
 pub mod remote;
 pub mod reputation;
 pub mod research;
+pub mod rooms;
 pub mod rng;
 pub mod rosterflow;
 pub mod rosterpdf;

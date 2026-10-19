@@ -10,6 +10,7 @@ use super::super::{act as apply, Session};
 use super::{popup_answer, str_arg, u32_arg};
 use crate::Answer;
 use hub_core::company::depot::{self as dp, Area, Finish, JobKind, Look, Upgrade};
+use hub_core::company::rooms::{self, RoomKind};
 use hub_core::company::yard;
 use hub_core::company::{self as co, Company};
 use serde_json::{json, Value};
@@ -127,6 +128,10 @@ fn layout(c: &Company) -> Value {
             "id": p.id, "area": p.area.key(), "x": r.x, "y": r.y, "w": r.w, "h": r.h, "rot": p.rot, "aprons": p.aprons(),
             "building": building, "works": works,
             "title": tr(p.area.label()), "what": effect(c, p.area),
+            "floors": rooms::floors(&site, p.area),
+            "rooms": site.rooms.iter().filter(|o| o.module == p.id).map(|o| json!({
+                "id": o.id, "floor": o.floor, "kind": o.kind.key(), "x": o.x, "y": o.y, "w": o.w, "h": o.h,
+            })).collect::<Vec<_>>(),
         })
     };
     let mut modules: Vec<Value> = site
@@ -139,14 +144,24 @@ fn layout(c: &Company) -> Value {
             modules.push(module(at, true, Some(trf("Building until %{date}", &[("date", &day_label(&w.until))]))));
         }
     }
-    let shapes: serde_json::Map<String, Value> =
-        Area::ALL.iter().filter_map(|a| yard::shape(*a).map(|(w, h, front, back)| (a.key().to_string(), json!({ "w": w, "h": h, "front": front, "back": back })))).collect();
+    let shapes: serde_json::Map<String, Value> = Area::ALL
+        .iter()
+        .filter_map(|a| yard::shape(*a).map(|(w, h, front, back)| (a.key().to_string(), json!({ "w": w, "h": h, "front": front, "back": back, "inside": rooms::inside(*a) }))))
+        .collect();
+    // (the rooms each building can have: what they are, what a square metre costs)
+    let mut kinds = serde_json::Map::new();
+    for k in RoomKind::ALL {
+        let list = kinds.entry(k.area().key()).or_insert_with(|| json!([]));
+        if let Value::Array(v) = list {
+            v.push(json!({ "key": k.key(), "label": tr(k.label()), "what": tr(k.what()), "icon": k.icon(), "m2": rooms::cost_m2(c, k) }));
+        }
+    }
     let more = yard::land_cost(c).map(|cost| {
         json!({ "cost": eur(cost), "can": c.can_pay(cost), "tip": trf("%{m} m more land beside the yard, yours at once", &[("m", &((yard::LAND_COLS as f64 * yard::CELL_M) as i64).to_string())]) })
     });
     json!({
         "cell": yard::CELL_M, "cols": land.w, "rows": land.h, "max_cols": yard::LOT_COLS + yard::LAND_COLS * yard::LAND_MAX as i32,
-        "gate": yard::GATE, "modules": modules, "shapes": shapes, "land": more,
+        "gate": yard::GATE, "modules": modules, "shapes": shapes, "land": more, "rooms": kinds,
     })
 }
 
@@ -351,6 +366,27 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                     s.say(tr("The land is yours: the yard is bigger."), false);
                     Ok(json!({ "ok": true }))
                 }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_room_add" => {
+            let Some(kind) = RoomKind::from_key(&str_arg(args, "kind")) else { return Some(Ok(json!({}))) };
+            let Some(c) = s.company.clone() else { return Some(Ok(json!({}))) };
+            let r = yard::Rect { x: i32_arg(args, "x"), y: i32_arg(args, "y"), w: i32_arg(args, "w"), h: i32_arg(args, "h") };
+            let cost = rooms::cost(&c, kind, &r);
+            if !c.can_pay(dp::cash_needed(&c, cost)) {
+                return Some(popup_answer(kit::no_cash(&c, cost).json(c.game_mode.casual())));
+            }
+            let (module, floor) = (u32_arg(args, "module"), u32_arg(args, "floor"));
+            match apply(s, |c| rooms::add(c, module, floor, kind, r).map(|_| ())) {
+                Ok(()) => Ok(json!({ "ok": true })),
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_room_remove" => {
+            let id = u32_arg(args, "id");
+            match apply(s, |c| rooms::remove(c, id)) {
+                Ok(()) => Ok(json!({ "ok": true })),
                 Err(p) => popup_answer(p),
             }
         }

@@ -549,6 +549,11 @@ pub struct Site {
     /// How its buildings look.
     #[serde(default)]
     pub look: Look,
+    /// The rooms laid out in its buildings (`rooms`).
+    #[serde(default)]
+    pub rooms: Vec<super::rooms::Room>,
+    #[serde(default)]
+    pub room_counter: u32,
     /// The model the file was written with: 0 before the wash lanes (one washing bay, its second
     /// level the gantry), 1 now (`migrate`).
     #[serde(default)]
@@ -588,6 +593,8 @@ impl Default for Site {
             credit: 0,
             rented: true,
             look: Look::default(),
+            rooms: Vec::new(),
+            room_counter: 0,
             generation: GENERATION,
         }
     }
@@ -767,7 +774,7 @@ pub fn upgrade_cost(c: &Company, u: Upgrade) -> Option<(Cents, i64)> {
 }
 
 /// Pay for building work: from what is left of the building credit first, then the cash.
-fn pay_building(c: &mut Company, cost: Cents, what: String) -> Result<(), &'static str> {
+pub fn pay_building(c: &mut Company, cost: Cents, what: String) -> Result<(), &'static str> {
     let credit = c.site.credit.clamp(0, cost);
     if cost > credit && !c.can_pay(cost - credit) {
         return Err("Not enough cash.");

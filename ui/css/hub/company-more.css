@@ -102,6 +102,26 @@
 .cm-plan3d .dp-uptext small { font-size: 9.2px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-plan3d .dp-up .co-btn { height: 28px; padding: 0 8px; flex: none; }
 .cm-plan3d .dp-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cm-plan3d .dp-what { margin-top: 8px; font-size: 10px; color: var(--hub-text-soft); }
+.cm-plan3d .dp-tag.room { background: var(--hub-glass-card); backdrop-filter: blur(6px); }
+/* (a building opened: its bar under the yard - its floors, what is being drawn, the kinds of room) */
+.cm-plan3d .dp-inside { position: absolute; left: 12px; bottom: 12px; z-index: 3; display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 12px; background: var(--hub-panel); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.25); }
+.cm-plan3d .dp-insidehead { display: flex; align-items: center; gap: 10px; padding-left: 6px; min-width: 0; }
+.cm-plan3d .dp-insidehead > b { font-size: 11.4px; white-space: nowrap; }
+.cm-plan3d .dp-insidehead .co-seg { height: 30px; flex: none; }
+.cm-plan3d .dp-insidehead .co-seg button { flex: none; padding: 0 12px; }
+.cm-plan3d .dp-insidehead .dp-why { flex: 1; min-width: 0; font-size: 10.4px; font-weight: 600; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-insidehead .dp-why.no { color: var(--co-danger-text); }
+.cm-plan3d .dp-insidehead .co-btn { height: 32px; padding: 0 12px; flex: none; }
+.cm-plan3d .dp-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-plan3d .dp-kind { display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 12px 0 9px; border: 0; border-radius: 9px; background: var(--hub-field); color: var(--hub-text); font: inherit; cursor: pointer; text-align: left; }
+.cm-plan3d .dp-kind:hover { background: var(--hub-hover); }
+.cm-plan3d .dp-kind.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.cm-plan3d .dp-kind svg { flex: none; color: var(--hub-accent-text, var(--hub-accent)); }
+.cm-plan3d .dp-kind.on svg { color: var(--hub-on-accent); }
+.cm-plan3d .dp-kind span { display: flex; flex-direction: column; }
+.cm-plan3d .dp-kind b { font-size: 10.4px; white-space: nowrap; }
+.cm-plan3d .dp-kind small { font-size: 9px; opacity: 0.75; white-space: nowrap; }
 .cm-plan3d .dp-cond { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 9.6px; color: var(--hub-text-soft); }
 
 /* (the depot page over the whole yard: its figures and its bar over the yard's top, the Build

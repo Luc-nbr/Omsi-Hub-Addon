@@ -38,6 +38,16 @@ never changes their files.
   of before keep the yard they rented.
 - **The depot's look**: its walls', roofs', trims' and doors' own colours, and walls of steel
   cladding, brick or plaster.
+- **The depot over the whole page**: the yard in 3D fills the page (full screen too), the Build
+  and workshop lists in a panel beside it. Click a building or its label for its card over it:
+  the next level, what can be added, move it or pull it down; the land to buy has its card, a bus
+  its jobs. The light follows the company's clock - morning sun from the east, a warm dusk, the
+  windows lit at night - and the town round it stays the same whatever you build.
+- **Rooms inside the buildings**, as in City Bus Manager: open the offices or a workshop bay from
+  its card and look inside, the roof off and the walls cut low; drag rooms out on its floor,
+  floor by floor in the offices - offices, a meeting room, rest rooms, lockers, toilets, a
+  reception, an archive; a tool store, a parts store, the mechanics' room and the foreman's
+  office at the back of a bay -, each furnished at once and paid by the square metre.
 - **The depot in its town**: streets with their pavements, worn road markings, zebra crossings,
   street lamps, trees and parked cars round it, the trading estate's halls next door and blocks
   of flats further out, their windows lit in the evening; the surfaces textured (asphalt, concrete,

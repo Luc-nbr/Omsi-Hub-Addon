@@ -189,7 +189,7 @@ fn next_id(s: &mut Site) -> u32 {
 
 /// Bring the layout in line with the levels: what is too many goes (the last put down), what
 /// is missing is put on the first free spot - the land grown for a depot of before that does not
-/// fit on the land of now.
+/// fit on the land of now; the rooms of what went go with it (`rooms::prune`).
 pub fn reconcile(s: &mut Site) {
     depot::migrate(s);
     for a in Area::ALL {
@@ -211,6 +211,7 @@ pub fn reconcile(s: &mut Site) {
             }
         }
     }
+    super::rooms::prune(s);
 }
 
 /// Whether the next level of an area is put down somewhere (a module more) rather than built

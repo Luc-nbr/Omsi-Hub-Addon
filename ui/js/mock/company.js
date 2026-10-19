@@ -4,7 +4,7 @@
 // choose. The shapes follow the old Rust views (`serde_json::json!` there), the words come ready
 // in English. A little state is kept so that the clock runs, messages are read and actions show.
 
-import { moduleAt, spot, whyNot } from '../company/depot3d/yard.js';
+import { moduleAt, roomWhyNot, spot, whyNot } from '../company/depot3d/yard.js';
 
 // --- what the company is ----------------------------------------------------------------------
 
@@ -1164,6 +1164,15 @@ const EMPTY = new URLSearchParams(location.search).has('empty');
 const SITE = EMPTY
   ? { parking: 0, workshop: 0, wash: 0, fuel: 0, offices: 0, charging: 0, land: 0, next: 0, modules: [], upgrades: [], credit: 471000, look: { wall: null, roof: null, trim: null, door: null, finish: 'cladding' } }
   : { parking: 2, workshop: 2, wash: 2, fuel: 4, offices: 2, charging: 2, land: 0, next: 0, modules: [], upgrades: ['gantry', 'carports', 'paint_booth', 'bulk_tank', 'canteen', 'solar'], credit: 0, look: { wall: null, roof: null, trim: null, door: null, finish: 'brick' } };
+SITE.rooms = [];
+SITE.roomNext = 0;
+/** The rooms each building can have (`rooms::RoomKind`): key, icon, label, what is in it, € a m². */
+const ROOMS = {
+  offices: [['office', 'desk', 'Office', 'Desks for the planners and the office\'s people', 420], ['meeting', 'groups', 'Meeting room', 'A table for the meetings, a screen on the wall', 480], ['rest', 'weekend', 'Rest room', 'Sofas and a kitchenette, for the drivers between their duties', 380], ['lockers', 'checkroom', 'Locker room', 'Lockers and benches, where the staff change', 320], ['toilets', 'wc', 'Toilets', 'Toilets and washbasins', 760], ['reception', 'badge', 'Reception', 'A counter where visitors are met', 450], ['archive', 'inventory_2', 'Archive', 'Shelves for the files', 260]],
+  workshop: [['tools', 'handyman', 'Tool store', 'Benches and tool cabinets', 480], ['parts', 'category', 'Parts store', 'Racks of spare parts', 300], ['mechanics', 'coffee', "Mechanics' room", 'A table and a coffee machine for the mechanics', 380], ['foreman', 'engineering', "Foreman's office", 'A desk with a window on the bays', 420]],
+};
+const roomKinds = () => Object.fromEntries(Object.entries(ROOMS).map(([a, list]) => [a, list.map(([key, icon, label, what, m2]) => ({ key, icon, label, what, m2: m2 * 100 }))]));
+const floorsOf = (area) => (area === 'offices' ? Math.max(1, Math.min(3, SITE.offices)) : area === 'workshop' ? 1 : 0);
 /** What can be added to each area (`depot::Upgrade`): key, icon, label, what it does, price. */
 const UPGRADES = {
   parking: [['lights', 'videocam', 'Lights and cameras', 'The staff feel safer, the buses are daubed on less', '€29,300'], ['carports', 'home', 'Carports', 'The buses stand dry: they stay clean longer', '€94,800'], ['hall', 'garage', 'Parking hall', 'The buses stand indoors: they stay clean much longer', '€474,300']],
@@ -1178,7 +1187,7 @@ const upgradesOf = (a) =>
     const built = SITE.upgrades.includes(key);
     return { key, icon, label, what, built, ...(built ? {} : SITE[a] ? { cost, busy: false, tip: '21 days of work' } : { needs: `Build the ${a} first` }) };
   });
-const SHAPES = { parking: { w: 24, h: 10, front: 5, back: 0 }, workshop: { w: 4, h: 14, front: 6, back: 0 }, wash: { w: 6, h: 14, front: 4, back: 3 }, fuel: { w: 10, h: 10, front: 4, back: 2 }, offices: { w: 10, h: 12, front: 2, back: 0 } };
+const SHAPES = { parking: { w: 24, h: 10, front: 5, back: 0 }, workshop: { w: 4, h: 14, front: 6, back: 0, inside: { x: 1, y: 1, w: 6, h: 5 } }, wash: { w: 6, h: 14, front: 4, back: 3 }, fuel: { w: 10, h: 10, front: 4, back: 2 }, offices: { w: 10, h: 12, front: 2, back: 0, inside: { x: 0, y: 4, w: 20, h: 20 } } };
 const TITLES = { parking: ['Parking spaces', '12 spaces'], workshop: ['Workshop bays', 'A bay: one bus worked on at once'], wash: ['Washing bay', 'A lane: washes 40 buses a night'], fuel: ['Diesel station', 'Fills 15 diesel buses a night'], offices: ['Offices and rest rooms', 'Room for 20 people'] };
 const wantedOf = (lv, a) => (a === 'parking' || a === 'workshop' || a === 'wash' ? lv[a] : lv[a] > 0 ? 1 : 0);
 const yardNow = () => ({ cell: 2, cols: 48 + 20 * SITE.land, rows: 64, max_cols: 88, gate: { x: 20, y: 54, w: 8, h: 10 }, shapes: SHAPES, modules: SITE.modules });
@@ -1198,7 +1207,10 @@ function yardOf(lv) {
       SITE.modules.push(moduleAt(yardNow(), ++SITE.next, a, at.x, at.y, at.rot, { title: TITLES[a][0], what: TITLES[a][1] }));
     }
   }
-  return { ...yardNow(), land: SITE.land < 2 ? { cost: SITE.land ? '€216,000' : '€162,000', can: true, tip: '40 m more land beside the yard, yours at once' } : null };
+  // (the rooms of what was pulled down or given up go with it)
+  SITE.rooms = SITE.rooms.filter((r) => SITE.modules.some((m) => m.id === r.module && r.floor < floorsOf(m.area)));
+  const modules = SITE.modules.map((m) => ({ ...m, floors: floorsOf(m.area), rooms: SITE.rooms.filter((r) => r.module === m.id) }));
+  return { ...yardNow(), modules, rooms: roomKinds(), land: SITE.land < 2 ? { cost: SITE.land ? '€216,000' : '€162,000', can: true, tip: '40 m more land beside the yard, yours at once' } : null };
 }
 
 function depotAct(a) {
@@ -1234,6 +1246,17 @@ function depotAct(a) {
       return { ok: true };
     case 'depot_land':
       if (SITE.land < 2) SITE.land++;
+      return { ok: true };
+    case 'depot_room_add': {
+      const m = SITE.modules.find((x) => x.id === a.module);
+      const r = { x: a.x, y: a.y, w: a.w, h: a.h };
+      const L = { shapes: SHAPES };
+      if (!m || a.floor >= floorsOf(m.area) || roomWhyNot(L, { ...m, rooms: SITE.rooms.filter((x) => x.module === m.id) }, a.floor, r)) return { popup: { title: 'It does not fit', text: 'It does not fit in the building.' } };
+      SITE.rooms.push({ id: ++SITE.roomNext, module: m.id, floor: a.floor, kind: a.kind, ...r });
+      return { ok: true };
+    }
+    case 'depot_room_remove':
+      SITE.rooms = SITE.rooms.filter((r) => r.id !== a.id);
       return { ok: true };
     default:
       return null;

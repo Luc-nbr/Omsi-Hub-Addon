@@ -1,6 +1,7 @@
 // The yard's rules on the page (`hub_core::company::yard` has them, and decides): where a
 // module of an area may be put down - on the land, not on the gate's lane, not on another
-// module, its apron free and on no other's -, so the build mode shows at once whether it fits.
+// module, its apron free and on no other's -, so the build mode shows at once whether it fits;
+// and where a room may be laid out in a building (`hub_core::company::rooms`).
 // The layout is the depot page's (`plan.layout`): cells, the land's columns and rows, the gate,
 // the modules with their cells and aprons, the shapes of the modules to put down.
 
@@ -47,6 +48,16 @@ export function whyNot(L, area, x, y, rot, ignore = null) {
     if (overlaps(r, o)) return 'taken';
     if (o.aprons.some((a) => overlaps(a, r)) || aprons.some((a) => overlaps(a, o))) return 'lane';
   }
+  return null;
+}
+
+/** Why a room does not fit at `r` (metres in the building's own frame) on `floor` of module
+ * `o` ('small', 'outside', 'taken'), or null when it does (`rooms::fits`). */
+export function roomWhyNot(L, o, floor, r) {
+  const room = L.shapes[o.area]?.inside;
+  if (r.w < 2 || r.h < 2) return 'small';
+  if (!room || !inside(r, room)) return 'outside';
+  if ((o.rooms || []).some((x) => x.floor === floor && overlaps(x, r))) return 'taken';
   return null;
 }
 
