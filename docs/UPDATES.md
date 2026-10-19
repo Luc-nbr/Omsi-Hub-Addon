@@ -2,7 +2,7 @@
 
 Omsi-Hub updates itself from the GitHub releases of the public repository
 `github.com/Luc-nbr/Omsi-Hub-Releases`, which holds only the installers and `latest.json`: the
-code's own repository (`Luc-nbr/Omsi-Hub-Addon`) is private, and nobody could download from its
+code's own repository (`Omsi-Hub/Omsi-Hub-Addon`) is private, and nobody could download from its
 releases. Nothing of openOMSI's updater is used.
 
 ## How it works
@@ -87,6 +87,10 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
      "Contents: Read and write", nothing else;
    - add it to **this** repository as the secret `RELEASES_TOKEN` (Settings → Secrets and
      variables → Actions). The release workflow stops with a clear error without it.
+
+   The openOMSI fork Cargo fetches (`Luc-nbr/openOMSI`) is private: CI and the release read it
+   with the secret `OPENOMSI_TOKEN` (a fine-grained token with "Contents: Read-only" on
+   `Luc-nbr/openOMSI`), or the fork is made public.
 
    `update.rs` (`REPO`, `API`, `LATEST_JSON`) and the updater's endpoint in `tauri.conf.json`
    point there; a copy installed before this change looked in `Omsi-Hub-Addon` and has to be
@@ -175,10 +179,10 @@ What it means for players:
   "notes": "What changed",
   "pub_date": "2026-11-01T12:00:00Z",
   "platforms": {
-    "windows-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_x64-setup.exe.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_0.2.0_x64-setup.exe" },
-    "darwin-aarch64": { "signature": "<contents of Omsi-Hub_aarch64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_aarch64.app.tar.gz" },
-    "darwin-x86_64": { "signature": "<contents of Omsi-Hub_x64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_x64.app.tar.gz" },
-    "linux-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_amd64.AppImage.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Addon/releases/download/v0.2.0/Omsi-Hub_0.2.0_amd64.AppImage" }
+    "windows-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_x64-setup.exe.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_0.2.0_x64-setup.exe" },
+    "darwin-aarch64": { "signature": "<contents of Omsi-Hub_aarch64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_aarch64.app.tar.gz" },
+    "darwin-x86_64": { "signature": "<contents of Omsi-Hub_x64.app.tar.gz.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_x64.app.tar.gz" },
+    "linux-x86_64": { "signature": "<contents of Omsi-Hub_0.2.0_amd64.AppImage.sig>", "url": "https://github.com/Luc-nbr/Omsi-Hub-Releases/releases/download/v0.2.0/Omsi-Hub_0.2.0_amd64.AppImage" }
   }
 }
 ```

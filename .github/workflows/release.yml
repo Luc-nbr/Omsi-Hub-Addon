@@ -82,6 +82,17 @@ jobs:
           toolchain: "1.99.0"
           targets: ${{ matrix.target }}
 
+      # (Luc's openOMSI fork, which Cargo fetches, is private: read with the secret OPENOMSI_TOKEN when
+      # there is one - a fine-grained token with "Contents: Read-only" on Luc-nbr/openOMSI)
+      - name: Access to the openOMSI fork
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.OPENOMSI_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Luc-nbr/openOMSI".insteadOf "https://github.com/Luc-nbr/openOMSI"
+            echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+          fi
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
