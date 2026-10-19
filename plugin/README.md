@@ -13,6 +13,9 @@ the plugin through plain files (`crates/hub-game/src/bridge.rs`).
   it presses only the keys of the bus's IBIS, ticket printer and change dispenser.
 - `harness/`: our own test harness (`hub-plugin-harness`, on mlua). It mocks the official API
   functions the plugin uses, so `cargo test` runs the plugin without openOMSI.
+  `cargo run -p hub-plugin-harness --example fakegame` runs the plugin on it with the companion's
+  server (`crates/hub-companion`), driving a duty of two trips, for trying the Omsi-Hub Companion
+  app without openOMSI: it prints the pairing code and the bus's keys the app presses.
 
 A change to a `.lua` file needs the plugin's `VERSION` raised in `main.lua` and in
 `crates/hub-game/src/install.rs` (a test keeps the two the same).

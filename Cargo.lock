@@ -2052,6 +2052,7 @@ dependencies = [
 name = "hub-plugin-harness"
 version = "0.1.0"
 dependencies = [
+ "hub-companion",
  "hub-game",
  "mlua",
  "serde_json",
