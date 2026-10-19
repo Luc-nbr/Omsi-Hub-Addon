@@ -362,3 +362,29 @@ fn the_driver_sizes_and_moves_the_panels_and_they_stay_so() {
     let reset = panel(&h, "omsihub");
     assert_eq!((reset["x"].as_f64(), reset["y"].as_f64(), reset["width"].as_f64()), (Some(16.0), Some(0.0), Some(300.0)));
 }
+
+#[test]
+fn the_skin_s_lines_in_the_pause_menu_open_the_duty_and_the_messages() {
+    let dir = installed("skin");
+    // (the skin is installed with the plugin: openOMSI reads it before any Lua)
+    let skin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("skin.json")).unwrap()).unwrap();
+    for pic in [&skin["loading"]["logo"], &skin["menu"]["mark"]] {
+        assert!(dir.join(pic.as_str().unwrap()).is_file(), "{pic}");
+    }
+    let ids: Vec<&str> = skin["menu"]["entries"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["duty", "messages"]);
+
+    // no duty and no messages yet: said so
+    let h = Harness::load(&dir, game()).unwrap();
+    h.fire("menu_entry", &[json!("duty")]).unwrap();
+    h.fire("menu_entry", &[json!("messages")]).unwrap();
+    assert!(toasted(&h, "No duty"), "{:?}", h.state.borrow().toasts);
+    assert!(toasted(&h, "No messages"));
+
+    // with a duty: the panels get the mouse
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let mut h = Harness::load(&dir, game()).unwrap();
+    h.frame().unwrap();
+    h.fire("menu_entry", &[json!("duty")]).unwrap();
+    assert_eq!(eval(&h, "return omsi.ui.focused()"), json!(true));
+}

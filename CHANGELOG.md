@@ -19,6 +19,13 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **Omsi-Hub's look in the game**: with the plugin comes a skin for openOMSI - the loading screen
+  in Omsi-Hub's navy and blue with its logo and tips of its own, the pause menu in the same colours
+  with Omsi-Hub's name and mark and the lines "My duty" and "Messages", and the navigator's map in
+  navy. Switching the plugin on chooses it once (`skin=omsihub` in openOMSI's settings; Settings,
+  "Screen and navigator", gives openOMSI's own look back), switching it off takes it out. It needs
+  an openOMSI with skins (`docs/openomsi-patches/`, proposed to openOMSI); an older one simply
+  keeps its own look.
 - **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
   "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
   them, and where Windows still refuses it, says so and what can be done.
@@ -147,7 +154,8 @@ never changes their files.
 
 - **What needs a newer openOMSI plugin API** than the official releases have: the bus's own display
   font, the IBIS typed in for you, closed stops struck through on the navigator, and the duty board
-  docked in the navigator. The launcher shows which ones your openOMSI supports.
+  docked in the navigator. The launcher shows which ones your openOMSI supports. Omsi-Hub's
+  skin needs openOMSI's skins, proposed to openOMSI but not in a release yet.
 
 ### Good to know
 

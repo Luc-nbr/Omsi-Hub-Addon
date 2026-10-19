@@ -119,10 +119,10 @@ const DEPOT = {
 };
 const DEPOTS = [{ key: DEPOT.key, name: DEPOT.name, map: DEPOT.map, termini: DEPOT.termini.length }];
 
-const GAME_CFG = { msaa: '4', fullscreen: '1' };
+const GAME_CFG = { msaa: '4', fullscreen: '1', skin: 'omsihub' };
 const GAME_FIELDS = [
   ['Graphics', [['msaa', 'Anti-aliasing (MSAA)', 'choice', [['1', 'Off'], ['2', '2×'], ['4', '4×'], ['8', '8×']]], ['fullscreen', 'Full screen', 'switch'], ['shadows', 'Shadows', 'switch'], ['view_distance', 'View distance (metres)', 'number', [100, 10000, 50, null]], ['render_scale', 'Render scale', 'text', 'auto, or a fraction such as 0.75']]],
-  ['Screen and navigator', [['ui_scale', "Size of the game's menus", 'number', [0.5, 2, 0.05, 1]], ['navigator', 'Navigator', 'switch']]],
+  ['Screen and navigator', [['ui_scale', "Size of the game's menus", 'number', [0.5, 2, 0.05, 1]], ['navigator', 'Navigator', 'switch'], ['skin', 'Look of the loading screen and the pause menu', 'choice', [['omsihub', 'Omsi-Hub']]]]],
   ['Language', [['language', "The game's language", 'choice', [['ENG', 'English'], ['DEU', 'Deutsch'], ['FRA', 'Français']]]]],
   ['Driving and controls', [['drive_keys', 'Driving keys', 'choice', [['simple', 'Simple'], ['wasd', 'W A S D'], ['arrows', 'Arrow keys'], ['omsi', 'As in OMSI 2']]], ['wheel_range', "Steering wheel's turn (degrees)", 'number', [180, 1080, 10, 900]]]],
   ['Passengers and traffic', [['boarding', 'Boarding', 'choice', [['auto', 'Automatic'], ['pay', 'Passengers pay at the driver'], ['walk', 'Passengers walk in']]]]],

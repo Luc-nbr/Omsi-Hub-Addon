@@ -417,6 +417,14 @@ function M.click(p, element)
   return true
 end
 
+-- the inbox shown (the pause menu's "Messages", a line of Omsi-Hub's skin); whether there is one
+function M.show()
+  if not inbox then return false end
+  open = true
+  panel()
+  return true
+end
+
 -- F9: the inbox shown or put away; whether it was this module's
 function M.key(key, down)
   if key == "F9" and down and inbox then

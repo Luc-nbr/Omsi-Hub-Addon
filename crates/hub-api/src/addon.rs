@@ -605,12 +605,15 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
             if on {
                 write_texts(&install::plugin_dir(&dir));
             }
+            own_skin(&dir, on);
             hub_core::log_line(&format!("plugin: {:?} in {}", st.state, dir.display()));
             to_json(st)
         }
         "addon_remove" => {
             let dir = plugins_dir()?;
-            to_json(install::remove(&dir).map_err(|e| format!("the plugin could not be taken out: {e}"))?)
+            let st = install::remove(&dir).map_err(|e| format!("the plugin could not be taken out: {e}"))?;
+            own_skin(&dir, false);
+            to_json(st)
         }
         "addon_texts" => {
             let dir = plugins_dir()?;
@@ -631,6 +634,34 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
             Ok(game_settings(&home, false))
         }
         _ => Err(format!("unknown command: {cmd}")),
+    }
+}
+
+/// The plugin's skin (the look of openOMSI's loading screen and pause menu) put in openOMSI's
+/// settings as the plugin is switched on - once: a player who chose another look, or openOMSI's
+/// own on the Settings page, keeps it - and taken out as it is switched off or taken away (and
+/// put back as it comes back). Not while the game runs: it writes its settings as it ends.
+fn own_skin(plugins: &Path, on: bool) {
+    use hub_game::gamesettings as gs;
+    if game_running() {
+        return;
+    }
+    let path = gs::path(&hub_core::paths::home_dir());
+    let done = if on {
+        let dir = install::plugin_dir(plugins);
+        if install::skin_offered(&dir) {
+            return;
+        }
+        gs::offer_skin(&path).and_then(|_| install::set_skin_offered(&dir, true).map_err(|e| e.to_string()))
+    } else {
+        match gs::take_skin(&path) {
+            // (switched off: offered again as it is switched on)
+            Ok(true) => install::set_skin_offered(&install::parked_dir(plugins), false).map_err(|e| e.to_string()),
+            r => r.map(|_| ()),
+        }
+    };
+    if let Err(e) = done {
+        hub_core::log_line(&format!("plugin: the skin in openOMSI's settings: {e}"));
     }
 }
 

@@ -111,6 +111,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("routemap.yml", include_str!("../locales/routemap.yml")),
     ("sandbox.yml", include_str!("../locales/sandbox.yml")),
     ("sessie.yml", include_str!("../locales/sessie.yml")),
+    ("skin.yml", include_str!("../locales/skin.yml")),
     ("slepen.yml", include_str!("../locales/slepen.yml")),
     ("snelheid.yml", include_str!("../locales/snelheid.yml")),
     ("steps.yml", include_str!("../locales/steps.yml")),

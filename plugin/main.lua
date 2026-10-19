@@ -18,7 +18,7 @@
 --   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.9.0"
+local VERSION = "1.10.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -555,6 +555,21 @@ omsi.on("key", function(key, down)
     omsi.ui.focus(not omsi.ui.focused())
     panel()
     layout.refresh()
+  end
+end)
+
+-- the pause menu's lines of Omsi-Hub's skin (`skin.json`; a game without skins has none)
+omsi.on("menu_entry", function(id)
+  if id == "messages" then
+    if not messages.show() then say(tr("No messages from the control room"), "Omsi-Hub", "forum", 4) end
+  elseif id == "duty" then
+    if fn("ui.focus") and (company_duty() or duty_now()) then
+      omsi.ui.focus(true)
+      layout.refresh()
+    elseif not (company_duty() or duty_now()) then
+      say(tr("No duty: take one in the Omsi-Hub app"), "Omsi-Hub", "badge", 4)
+    end
+    panel()
   end
 end)
 

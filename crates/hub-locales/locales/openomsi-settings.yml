@@ -597,3 +597,10 @@ _version: 2
   ru: "их имена через |"
   uk: "їхні назви через |"
   pl: "ich nazwy oddzielone |"
+"Look of the loading screen and the pause menu":
+  nl: "Uiterlijk van het laadscherm en het pauzemenu"
+  de: "Aussehen des Ladebildschirms und des Pausenmenüs"
+  fr: "Apparence de l’écran de chargement et du menu pause"
+  ru: "Вид экрана загрузки и меню паузы"
+  uk: "Вигляд екрана завантаження та меню паузи"
+  pl: "Wygląd ekranu ładowania i menu pauzy"
