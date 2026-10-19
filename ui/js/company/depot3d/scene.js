@@ -41,6 +41,8 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
   const cell = L.cell;
   const m = new Mesh();
   const marks = new Mesh();
+  // (what was added to the areas: `depot::Upgrade`)
+  const up = new Set(p.upgrades || []);
   const buses = [];
   const labels = [];
   const picks = [];
@@ -130,7 +132,21 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
       }
       mm.box(r.x0 + 2, h, r.z0 + 7, r.x0 + 5.5, h + 1.2, r.z0 + 10, pal.metal, { area: A });
       const cx = (r.x0 + r.x1) / 2;
-      mm.box(cx - 2, 2.9, r.z1, cx + 2, 3.2, r.z1 + 2, pal.roof, { area: A });
+      mm.box(cx - 2, 2.9, r.z1, cx + 2, 3.2, r.z1 + 2, pal.trim, { area: A });
+      // what was added: the canteen and the training room in glass at the back, the control
+      // room on the roof with its mast, the solar panels beside it
+      const back = (x0, x1) => {
+        mm.box(x0, 0, r.z0 + 0.6, x1, 3.4, r.z0 + 4, pal.glass, { area: A, glow: 0.7, top: pal.roof });
+        mm.box(x0 - 0.1, 3.4, r.z0 + 0.5, x1 + 0.1, 3.7, r.z0 + 4.1, pal.trim, { area: A });
+      };
+      if (up.has('canteen')) back(r.x0 + 0.8, cx - 0.4);
+      if (up.has('training_room')) back(cx + 0.4, r.x1 - 0.8);
+      if (up.has('control_room')) {
+        mm.box(r.x1 - 7, h, r.z1 - 7, r.x1 - 1.5, h + 2.6, r.z1 - 1.5, pal.wall, { area: A, top: pal.roof });
+        mm.box(r.x1 - 7.05, h + 0.9, r.z1 - 7.05, r.x1 - 1.45, h + 2.1, r.z1 - 1.45, pal.glass, { area: A, glow: 0.9 });
+        mm.box(r.x1 - 2.4, h + 2.6, r.z1 - 2.4, r.x1 - 2.2, h + 8, r.z1 - 2.2, pal.metal, { area: A });
+      }
+      if (up.has('solar')) for (let z = r.z0 + 11; z < r.z1 - 8; z += 2.2) for (let x = r.x0 + 1.5; x < r.x1 - 9; x += 3.4) mm.box(x, h + 0.3, z, x + 3, h + 0.45, z + 1.7, pal.solar, { area: A });
       if (o.works) works(mm, r, A, h);
     });
     tag('offices', f, 10, h + 3, 14, o);
@@ -162,6 +178,21 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
       // (the tracks of the buses in and out on its forecourt, oil under the pit)
       marks.append(mark(cx, r.z1 + 7, 3.4, 14, 0, MAT.tyres, 0.55), fr);
       marks.append(mark(cx, (r.z0 + r.z1) / 2, 2.2, 6, 0, MAT.oil, 0.5), fr);
+      // what was added: the paint booth at the back of the last bay, the inspection lane's
+      // rollers and lines in the first, a rack of tyres along a wall
+      const last = k === bays.length - 1;
+      if (up.has('paint_booth') && last) {
+        mm.box(r.x0 + 0.8, 0, r.z0 + 0.8, r.x1 - 0.8, 4.6, r.z0 + 6, pal.boothWall, { area: A });
+        mm.box(r.x0 + 1, 4.6, r.z0 + 1.2, r.x1 - 1, 5.4, r.z0 + 5.4, pal.metal, { area: A });
+        mm.box(r.x0 + 0.85, 1.4, r.z0 + 6, r.x1 - 0.85, 3.6, r.z0 + 6.04, pal.lamp, { area: A, glow: 0.8 });
+        mm.prism(cx, r.z0 + 3, 0.45, 0.45, H, H + 2.4, pal.metal, { n: 8, area: A });
+      }
+      if (up.has('inspection_lane') && k === 0) {
+        for (const x of [cx - 1.4, cx + 1.4]) mm.flat(x - 0.4, r.z1 - 6, x + 0.4, r.z1 - 4.6, 0.07, pal.metal, A);
+        for (const x of [r.x0 + 1.1, r.x1 - 1.1]) mm.flat(x - 0.06, r.z0 + 6, x + 0.06, r.z1 - 1, 0.06, pal.warn, A);
+      }
+      if (up.has('tyre_store') && k === 0)
+        for (let z = r.z0 + 7; z < r.z1 - 6; z += 1.1) for (let y = 0.45; y < 2.6; y += 0.62) mm.prism(r.x0 + 1.05, z, 0.45, 0.45, y - 0.3, y, pal.tyre, { n: 8, area: A });
     });
     const bus = p.in_ws[k];
     if (bus) buses.push(place(bus, f, 4, 15, 'workshop'));
@@ -174,8 +205,10 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
     p.in_ws.slice(bays.length, bays.length + 6).forEach((bus, k) => buses.push(place(bus, f, 8 + k * 14, s.h * cell + 6, 'waiting', Math.PI / 2)));
   }
 
-  // the washing bay: a portal over a lane, its brushes; a second gate with the level after
-  for (const o of of('wash')) {
+  // the wash lanes: a portal over each lane, its brushes; two gantries over each once they are
+  // added; the vacuum posts of the interior cleaning before it, the underbody wash's jets in its
+  // floor, the recycled water's tanks on its roof
+  of('wash').forEach((o, k) => {
     const f = put(o, (mm, r) => {
       const cx = (r.x0 + r.x1) / 2;
       const A = AREAS.wash;
@@ -191,10 +224,17 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
         mm.prism(cx - 2.1, z, 0.55, 0.55, 0.3, 4.4, pal.brush, { n: 8, area: A });
         mm.prism(cx + 2.1, z, 0.55, 0.55, 0.3, 4.4, pal.brush, { n: 8, area: A });
       }
+      if (up.has('interior'))
+        for (const x of [r.x0 + 1.4, r.x1 - 1.4]) {
+          mm.box(x - 0.3, 0, r.z1 + 1.2, x + 0.3, 1.8, r.z1 + 1.8, pal.pump, { area: A });
+          mm.box(x - 0.2, 1.8, r.z1 + 1.4, x + 0.2, 2.8, r.z1 + 1.6, pal.brush, { area: A });
+        }
+      if (up.has('underbody')) for (let z = r.z0 + 3; z < r.z1 - 3; z += 5) mm.flat(cx - 1.6, z, cx + 1.6, z + 0.5, 0.06, pal.brush, A, 0.5);
+      if (up.has('recycling')) for (const z of [r.z0 + 4, r.z0 + 8]) mm.prism(cx, z, 1.3, 1.3, 6.1, 8.4, pal.tank, { n: 12, area: A });
       if (o.works) works(mm, r, A, 6);
     });
-    tag('wash', f, 6, 9, 14, o);
-  }
+    if (k === 0) tag('wash', f, 6, 9, 14, o);
+  });
 
   // the diesel station: a canopy on four columns over its pumps, a band in the accent
   for (const o of of('fuel')) {
@@ -208,16 +248,27 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
         [r.x1 - inset, r.z1 - inset],
       ])
         mm.box(x - 0.3, 0, z - 0.3, x + 0.3, 5.6, z + 0.3, pal.metal, { area: A });
-      mm.box(r.x0, 5.6, r.z0, r.x1, 6.5, r.z1, pal.roof, { area: A, top: pal.wall });
-      mm.box(r.x0 - 0.05, 5.7, r.z1 - 0.05, r.x1 + 0.05, 6.4, r.z1 + 0.05, pal.accent, { area: A, glow: 0.6 });
+      mm.box(r.x0, 5.6, r.z0, r.x1, 6.5, r.z1, pal.roof, { area: A, top: pal.tank });
+      mm.box(r.x0 - 0.05, 5.7, r.z1 - 0.05, r.x1 + 0.05, 6.4, r.z1 + 0.05, pal.trim, { area: A, glow: 0.6 });
       mm.box(r.x0 + 0.5, 5.5, r.z0 + 0.5, r.x1 - 0.5, 5.6, r.z1 - 0.5, pal.lamp, { glow: 1 });
+      // its pumps, on islands of three a row (a second row from the fourth); AdBlue beside each
       const pumps = Math.max(1, p.fuel.pumps || 1);
-      const zc = (r.z0 + r.z1) / 2;
+      const rows = pumps > 3 ? [(r.z0 + r.z1) / 2 - 3.2, (r.z0 + r.z1) / 2 + 3.2] : [(r.z0 + r.z1) / 2];
       for (let k = 0; k < pumps; k++) {
-        const x = r.x0 + ((k + 1) * (r.x1 - r.x0)) / (pumps + 1);
+        const row = rows.length > 1 ? Math.floor(k / Math.ceil(pumps / 2)) : 0;
+        const inRow = rows.length > 1 ? (row ? pumps - Math.ceil(pumps / 2) : Math.ceil(pumps / 2)) : pumps;
+        const i = row ? k - Math.ceil(pumps / 2) : k;
+        const x = r.x0 + ((i + 1) * (r.x1 - r.x0)) / (inRow + 1);
+        const zc = rows[row];
         mm.box(x - 1.6, 0, zc - 1.2, x + 1.6, 0.2, zc + 1.2, pal.concrete, { area: A });
         mm.box(x - 0.5, 0.2, zc - 0.35, x + 0.5, 2, zc + 0.35, pal.pump, { area: A });
         mm.box(x - 0.35, 1.3, zc + 0.35, x + 0.35, 1.8, zc + 0.4, pal.screen, { glow: 1 });
+        if (up.has('adblue')) mm.box(x + 0.7, 0.2, zc - 0.25, x + 1.15, 1.5, zc + 0.25, pal.adblue, { area: A });
+      }
+      // the bulk tank, on its pad behind the canopy
+      if (up.has('bulk_tank')) {
+        mm.box(r.x1 - 5.2, 0, r.z0 - 0.2, r.x1 - 0.4, 0.3, r.z0 + 3.4, pal.concrete, { area: A });
+        for (const x of [r.x1 - 3.8, r.x1 - 1.8]) mm.prism(x, r.z0 + 1.6, 0.85, 0.85, 0.3, 4.6, pal.tank, { n: 12, area: A });
       }
       if (o.works) works(mm, r, A, 6);
     });
@@ -236,6 +287,25 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
       const sw = (r.x1 - r.x0) / per;
       for (let s = 0; s <= per; s++) mm.flat(r.x0 + s * sw - 0.07, r.z0, r.x0 + s * sw + 0.07, r.z1, 0.05, pal.paint, AREAS.parking);
       mm.flat(r.x0, r.z0 - 0.07, r.x1, r.z0 + 0.07, 0.05, pal.paint, AREAS.parking);
+      // over the spaces: a hall of concrete, else carports on their posts; the lights' masts
+      if (up.has('hall')) {
+        const hh = 5.2;
+        mm.box(r.x0, 0, r.z0, r.x1, hh, r.z0 + 0.4, pal.garage, { area: AREAS.parking });
+        for (const x of [r.x0, r.x1 - 0.4]) mm.box(x, 0, r.z0, x + 0.4, hh, r.z1, pal.garage, { area: AREAS.parking });
+        for (let x = r.x0 + sw * 2; x < r.x1 - 1; x += sw * 2) mm.box(x - 0.25, 0, r.z1 - 0.6, x + 0.25, hh, r.z1 - 0.1, pal.garage, { area: AREAS.parking });
+        mm.box(r.x0 - 0.2, hh, r.z0 - 0.2, r.x1 + 0.2, hh + 0.5, r.z1 + 0.3, pal.garage, { area: AREAS.parking, top: pal.townRoof });
+        mm.box(r.x0, hh - 1.2, r.z1 - 0.1, r.x1, hh, r.z1 + 0.05, pal.trim, { area: AREAS.parking, glow: 0.3 });
+        mm.box(r.x0 + 0.5, hh - 0.15, (r.z0 + r.z1) / 2 - 0.15, r.x1 - 0.5, hh - 0.05, (r.z0 + r.z1) / 2 + 0.15, pal.lamp, { glow: 1 });
+      } else if (up.has('carports')) {
+        for (let x = r.x0; x <= r.x1 + 0.01; x += sw * 2) for (const z of [r.z0 + 1, r.z1 - 1.5]) mm.box(x - 0.12, 0, z - 0.12, x + 0.12, 4.4, z + 0.12, pal.metal, { area: AREAS.parking });
+        mm.box(r.x0 - 0.3, 4.4, r.z0 + 0.4, r.x1 + 0.3, 4.6, r.z1 - 0.8, pal.roof, { area: AREAS.parking });
+        if (up.has('solar')) for (let x = r.x0 + 0.4; x < r.x1 - 2; x += 2.3) mm.box(x, 4.6, r.z0 + 1, x + 2.1, 4.72, r.z1 - 1.4, pal.solar, { area: AREAS.parking });
+      }
+      if (up.has('lights'))
+        for (const x of [r.x0 + 0.5, r.x1 - 0.5]) {
+          mm.box(x - 0.12, 0, r.z1 + 0.4, x + 0.12, 9, r.z1 + 0.64, pal.metal, { area: AREAS.parking });
+          mm.box(x - 0.5, 8.7, r.z1 + 0.2, x + 0.5, 9.1, r.z1 + 0.84, pal.lamp, { glow: 1 });
+        }
       // (oil where the buses stand)
       for (let s = 0; s < per; s++) if (wear() < 0.6) marks.append(mark(r.x0 + (s + 0.5) * sw, (r.z0 + r.z1) / 2 + (wear() - 0.5) * 4, 1.8 + wear() * 1.4, 2.4 + wear() * 1.6, wear() * 6, MAT.oil, 0.5 + wear() * 0.4), fr);
       for (let s = 0; s < per; s++) {

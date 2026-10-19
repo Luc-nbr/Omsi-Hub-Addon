@@ -61,6 +61,8 @@ pub fn migrate(mut c: Company) -> Company {
     if c.price_index <= 0.0 {
         c.price_index = 1.0;
     }
+    // (a depot of before the wash lanes: its gantry an upgrade)
+    super::depot::migrate(&mut c.site);
     // (a company from before the research: the big buses it could buy stay open)
     super::research::migrate(&mut c);
     // (and the workshop's stores their first stock)

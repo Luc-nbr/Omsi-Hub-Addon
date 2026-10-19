@@ -436,3 +436,10 @@
 @media (max-width: 900px) {
   :root.hub .co-pg-vary-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* the Build list's upgrades and look, the building credit (`depot.js`) */
+.cm-uprow { border-radius: 8px; background: rgba(var(--co-white), var(--aw-4, 0.04)); }
+.cm-credit { border-radius: 10px; background: rgba(var(--co-ok-fill), 0.12); }
+.cm-hint { font-size: var(--co-note); color: var(--hub-text-dim); }
+.cm-colour { padding: 0; border: 1px solid var(--hub-hairline); border-radius: 6px; background: none; cursor: pointer; }
+.cm-colour::-webkit-color-swatch-wrapper { padding: 2px; }
+.cm-colour::-webkit-color-swatch { border: none; border-radius: 4px; }

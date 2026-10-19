@@ -17,6 +17,7 @@ import { buildScene, AREAS, moduleUnder, ghostMesh, gridMesh } from './scene.js'
 import { rectOf, whyNot } from './yard.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
+import { personMesh, people, rounds } from './people.js';
 import { DepotRenderer, VIEW, ZOOM } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
@@ -79,6 +80,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     }
     r.current = view;
     view.setBusModel(busMesh(pal));
+    if (LEVELS[level].staff) view.setPersonModel(personMesh());
     view.resize(w, h);
     const kept = ui('depot').cam;
     view.aim(kept || VIEW, true);
@@ -114,6 +116,29 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     buses(true);
     setBuilt((n) => n + 1);
   }, [key, level]);
+
+  // the people at work: their rounds from the yard and the staff, walked about some thirty
+  // times a second while the page shows (standing still when the animations are off)
+  useEffect(() => {
+    const view = r.current;
+    const s = scene.current;
+    if (!view || !s || !LEVELS[level].staff) return undefined;
+    const list = rounds(s, p.staff, p.colour);
+    if (!list.length) return undefined;
+    let frame = 0;
+    let last = 0;
+    const t0 = performance.now();
+    const tick = (now) => {
+      frame = requestAnimationFrame(tick);
+      if (now - last < 32) return;
+      last = now;
+      const t = (now - t0) / 1000;
+      view.setPeople(people(list, t), t);
+    };
+    if (still()) view.setPeople(people(list, 0), 0);
+    else frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [key, level, skins]);
 
   // the buses' own models, as they come
   useEffect(() => buses(true), [skins]);

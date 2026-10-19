@@ -3,10 +3,11 @@
 //!
 //! The yard keeps the depot's levels as they are (`depot`): what is built is still a level an
 //! area, and costs, upkeep and what the depot does still come from the levels. What the layout
-//! adds is where: every block of twelve parking spaces and every workshop bay is a module of
-//! its own, put down where the player wants it (a level more is a module more); the washing
-//! bay, the diesel station and the offices are put down once and built up where they stand; the
-//! charging points stand at the head of the spaces and are not put anywhere.
+//! adds is where: every block of twelve parking spaces, every workshop bay and every wash lane
+//! is a module of its own, put down where the player wants it (a level more is a module more);
+//! the diesel station and the offices are put down once and built up where they stand (a pump
+//! more, a storey more); the charging points stand at the head of the spaces and are not put
+//! anywhere.
 //!
 //! The rules (`fits`), so the buses can always get round (the moving buses of the yard to come):
 //! a module stands on the company's own land, not on the lane from the gate, not on another
@@ -171,8 +172,8 @@ pub fn spot(s: &Site, area: Area) -> Option<(i32, i32, u8)> {
 /// How many modules of an area its level means.
 fn wanted(s: &Site, a: Area) -> usize {
     match a {
-        Area::Parking | Area::Workshop => s.level(a) as usize,
-        Area::Wash | Area::Fuel | Area::Offices => (s.level(a) > 0) as usize,
+        Area::Parking | Area::Workshop | Area::Wash => s.level(a) as usize,
+        Area::Fuel | Area::Offices => (s.level(a) > 0) as usize,
         Area::Charging => 0,
     }
 }
@@ -190,6 +191,7 @@ fn next_id(s: &mut Site) -> u32 {
 /// is missing is put on the first free spot - the land grown for a depot of before that does not
 /// fit on the land of now.
 pub fn reconcile(s: &mut Site) {
+    depot::migrate(s);
     for a in Area::ALL {
         while count(s, a) > wanted(s, a) {
             if let Some(k) = s.layout.iter().rposition(|p| p.area == a) {
@@ -215,8 +217,8 @@ pub fn reconcile(s: &mut Site) {
 /// where it stands.
 pub fn needs_place(s: &Site, a: Area) -> bool {
     match a {
-        Area::Parking | Area::Workshop => true,
-        Area::Wash | Area::Fuel | Area::Offices => count(s, a) == 0 && !s.works.iter().any(|w| w.area == a && w.at.is_some()),
+        Area::Parking | Area::Workshop | Area::Wash => true,
+        Area::Fuel | Area::Offices => count(s, a) == 0 && !s.works.iter().any(|w| w.area == a && w.at.is_some()),
         Area::Charging => false,
     }
 }
@@ -382,16 +384,21 @@ mod tests {
         assert_eq!(c.site.parking, 2);
         assert!(c.site.layout.iter().any(|p| p.area == Area::Parking && (p.x, p.y, p.rot) == free));
         clear(&c.site);
-        // a washing bay is put down once, then built up where it stands
+        // a wash lane is a module of its own, the next one too; the diesel station is put down
+        // once, then built up where it stands (a pump more)
         assert!(needs_place(&c.site, Area::Wash));
         let (x, y, rot) = spot(&c.site, Area::Wash).unwrap();
         build_at(&mut c, Area::Wash, x, y, rot).unwrap();
         nights(&mut c, 21);
         assert_eq!(c.site.wash, 1);
-        assert!(!needs_place(&c.site, Area::Wash));
+        assert!(needs_place(&c.site, Area::Wash));
         depot::build(&mut c, Area::Wash).unwrap();
-        nights(&mut c, 35);
-        assert_eq!((c.site.wash, c.site.layout.iter().filter(|p| p.area == Area::Wash).count()), (2, 1));
+        nights(&mut c, 21);
+        assert_eq!((c.site.wash, c.site.layout.iter().filter(|p| p.area == Area::Wash).count()), (2, 2));
+        assert!(!needs_place(&c.site, Area::Fuel));
+        depot::build(&mut c, Area::Fuel).unwrap();
+        nights(&mut c, 7);
+        assert_eq!((c.site.fuel, c.site.layout.iter().filter(|p| p.area == Area::Fuel).count()), (2, 1));
     }
 
     #[test]

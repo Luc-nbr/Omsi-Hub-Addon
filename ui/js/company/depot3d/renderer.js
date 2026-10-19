@@ -18,6 +18,7 @@
 import { inverse, lookAt, mul, ortho, perspective, project, unit } from '../../hub/bus3d/math.js';
 import { STRIDE } from './mesh.js';
 import { INSTANCE, SKINNED } from './bus.js';
+import { PERSON } from './people.js';
 import { MAT, MATERIALS, WINDOWS } from './palette.js';
 
 /** The textures' picture: square layers one under the other. */
@@ -236,6 +237,48 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
+// The people at work (`people.js`): one figure for all of them, each turned and put where it is,
+// its legs and arms swinging as it walks (its arms only when it works where it stands).
+const PEOPLE_VS = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec3 aCol;
+layout(location=3) in float aPart;
+layout(location=5) in vec4 aI0;
+layout(location=6) in vec4 aI1;
+uniform mat4 uVP, uLight;
+uniform float uTime;
+out vec3 vCol, vNrm;
+out vec4 vSh;
+void main() {
+  // (a little larger than life, so they are seen from above the yard)
+  vec3 p = aPos * 1.45;
+  float walking = aI1.w;
+  float swing = sin(uTime * 7.0 + aI0.w);
+  int part = int(aPart + 0.5);
+  // (the legs from the hip, the arms from the shoulder, each against the other)
+  if (part == 1 || part == 2) p.z += (0.99 - p.y) * swing * 0.55 * walking * (part == 1 ? 1.0 : -1.0);
+  float arms = walking > 0.5 ? swing * 0.45 : sin(uTime * 3.2 + aI0.w) * 0.35;
+  if (part == 4 || part == 5) p.z -= (1.64 - p.y) * arms * (part == 4 ? 1.0 : -1.0);
+  p.y += walking * abs(swing) * 0.03;
+  float c = cos(aI0.z), s = sin(aI0.z);
+  vec3 w = vec3(aI0.x + c * p.x + s * p.z, p.y, aI0.y - s * p.x + c * p.z);
+  vNrm = vec3(c * aNrm.x + s * aNrm.z, aNrm.y, -s * aNrm.x + c * aNrm.z);
+  vCol = part == 3 || ((part == 4 || part == 5) && aPos.y > 0.9) ? aI1.rgb : aCol;
+  vSh = uLight * vec4(w, 1.0);
+  gl_Position = uVP * vec4(w, 1.0);
+}`;
+
+const PEOPLE_FS = `#version 300 es
+precision highp float;
+${LIGHT_FS}
+in vec3 vCol, vNrm;
+in vec4 vSh;
+out vec4 o;
+void main() {
+  o = vec4(lit(vCol, normalize(vNrm), vSh, 0.0), 1.0);
+}`;
+
 const DEPTH_FS = `#version 300 es
 precision mediump float;
 out vec4 o;
@@ -301,6 +344,8 @@ export class DepotRenderer {
     this.skin = compile(gl, SKIN_VS, SKIN_FS);
     this.skinDepth = compile(gl, SKIN_VS, DEPTH_FS);
     this.decal = compile(gl, YARD_VS, DECAL_FS);
+    this.people = compile(gl, PEOPLE_VS, PEOPLE_FS);
+    this.time = 0;
     this.detailOn = false;
     if (level.detail) this.loadDetail();
     /** The buses' own models: `key -> { vao, count, tex, inst, instances }`. */
@@ -349,6 +394,41 @@ export class DepotRenderer {
     // (without it the surfaces are plain)
     img.onerror = () => {};
     img.src = DETAIL;
+  }
+
+  /** The figure of the people at work (`people.js`'s mesh), once. */
+  setPersonModel(mesh) {
+    if (!this.ok) return;
+    const gl = this.gl;
+    this.personVao = this.personVao || gl.createVertexArray();
+    this.personBuf = this.personBuf || gl.createBuffer();
+    this.peopleBuf = this.peopleBuf || gl.createBuffer();
+    gl.bindVertexArray(this.personVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.personBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.floats(), gl.STATIC_DRAW);
+    this.vertexLayout();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.peopleBuf);
+    for (const [loc, off] of [
+      [5, 0],
+      [6, 16],
+    ]) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, PERSON * 4, off);
+      gl.vertexAttribDivisor(loc, 1);
+    }
+    gl.bindVertexArray(null);
+    this.personCount = mesh.count;
+  }
+
+  /** Where the people are now (`people.js`), at `time` seconds (their arms and legs). */
+  setPeople(data, time) {
+    if (!this.ok || !this.peopleBuf) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.peopleBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    this.peopleN = data.length / PERSON;
+    this.time = time;
+    this.invalidate();
   }
 
   /** The marks on the ground (`scene.js`'s decals), drawn over the yard. */
@@ -679,7 +759,7 @@ export class DepotRenderer {
       gl.uniform1fv(u['uStrength[0]'], MATERIALS.map((m) => m[2]));
       if (u.uUnder) gl.uniform3fv(u.uUnder, pal.asphalt);
     }
-    for (const prog of [this.yard, this.bus, this.skin]) {
+    for (const prog of [this.yard, this.bus, this.skin, this.people]) {
       gl.useProgram(prog.p);
       const u = prog.u;
       gl.uniform1i(u.uShadow, 0);
@@ -697,6 +777,7 @@ export class DepotRenderer {
     }
     this.drawAll(this.yard, this.bus, vp, lightVP, 0, this.skin);
     this.drawDecals(vp);
+    this.drawPeople(vp, lightVP);
     this.drawOverlays(vp, lightVP);
     this.onFrame?.(vp, this.size.w, this.size.h);
     this.timeFrame();
@@ -717,6 +798,20 @@ export class DepotRenderer {
       this.onSlow = null;
       slow();
     }
+  }
+
+  /** The people, not in the sun's shadow map (it is made again only when the yard changes). */
+  drawPeople(vp, lightVP) {
+    if (!this.peopleN || !this.personVao) return;
+    const gl = this.gl;
+    const u = this.people.u;
+    gl.useProgram(this.people.p);
+    gl.uniformMatrix4fv(u.uVP, false, vp);
+    gl.uniformMatrix4fv(u.uLight, false, lightVP);
+    gl.uniform1f(u.uTime, this.time);
+    gl.bindVertexArray(this.personVao);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, this.personCount, this.peopleN);
+    gl.bindVertexArray(null);
   }
 
   /** The marks, multiplied into the ground under them (not on the lowest level's plain one). */

@@ -68,6 +68,7 @@ const WEARS = {
   hallFloor: 'epoxy',
   hallWall: 'blocks',
   garage: 'formwork',
+  boothWall: 'plaster',
   pavement: 'paving',
   townRoof: 'gravel',
   townHall: 'cladding',
@@ -119,6 +120,10 @@ const DAY = {
   plaster: hex('#e6dccb'),
   townGlass: hex('#41556e'),
   townHall: hex('#c8cdd4'),
+  solar: hex('#22385a'),
+  tank: hex('#dfe3e8'),
+  adblue: hex('#2f6fd6'),
+  boothWall: hex('#f2f4f6'),
   light: { sun: [1.15, 1.08, 0.98], sky: [0.56, 0.62, 0.74], ground: [0.3, 0.29, 0.28], night: 0 },
 };
 
@@ -148,6 +153,9 @@ const EVENING = {
   plaster: hex('#9c968e'),
   townGlass: hex('#e9c47c'),
   townHall: hex('#79808c'),
+  solar: hex('#1a2a42'),
+  tank: hex('#8a909a'),
+  boothWall: hex('#a9afb9'),
   light: { sun: [0.62, 0.68, 0.86], sky: [0.3, 0.34, 0.46], ground: [0.12, 0.12, 0.14], night: 1 },
 };
 
