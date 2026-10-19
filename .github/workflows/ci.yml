@@ -1,9 +1,15 @@
+# Every push: the Rust checks on Linux and the page's scripts (the repository is private, and its
+# Actions minutes count: Windows' twice, macOS' ten times). Everything - the checks on Windows and
+# macOS too, and the app built with its installers on all three, the Linux selftest included - runs
+# by hand (Actions → CI → Run workflow) before a release, and the release builds all three anyway.
 name: CI
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest", "macos-latest", "ubuntu-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux packages
@@ -62,12 +68,13 @@ jobs:
 
   tauri:
     name: Tauri build (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # (the installers too, so that their pictures and settings are checked on every push)
+          # (the installers too, so that their pictures and settings are checked before a release)
           - os: windows-latest
             build: --bundles nsis
           - os: macos-latest

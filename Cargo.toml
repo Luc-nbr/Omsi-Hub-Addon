@@ -26,7 +26,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 authors = ["Omsi-Hub"]
 repository = "https://github.com/Luc-nbr/Omsi-Hub-Addon"
 rust-version = "1.90"

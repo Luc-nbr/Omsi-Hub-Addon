@@ -1,7 +1,9 @@
 # The app's updates
 
-Omsi-Hub updates itself from this repository's GitHub releases
-(`github.com/Luc-nbr/Omsi-Hub-Addon`). Nothing of openOMSI's updater is used.
+Omsi-Hub updates itself from the GitHub releases of the public repository
+`github.com/Luc-nbr/Omsi-Hub-Releases`, which holds only the installers and `latest.json`: the
+code's own repository (`Luc-nbr/Omsi-Hub-Addon`) is private, and nobody could download from its
+releases. Nothing of openOMSI's updater is used.
 
 ## How it works
 
@@ -76,11 +78,19 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
 
 ## What Luc sets up (once)
 
-0. **The releases must be public.** The app reads them without signing in. The repository is
-   private now (2026-10-17), so GitHub answers 404 and every look ends in "The last check
-   failed". Make the repository public before the first release, or publish the releases
-   somewhere public and change `API` and `LATEST_JSON` in `update.rs` and the endpoint in
-   `tauri.conf.json`.
+0. **The releases' repository.** The app reads the releases without signing in, so they live in
+   a public repository of their own:
+   - make `Luc-nbr/Omsi-Hub-Releases` on GitHub: **public**, with a README (it needs one commit:
+     the release tags are made from its `main`);
+   - make a **fine-grained token** (GitHub → Settings → Developer settings → Fine-grained tokens):
+     repository access "Only select repositories" → `Omsi-Hub-Releases`, permission
+     "Contents: Read and write", nothing else;
+   - add it to **this** repository as the secret `RELEASES_TOKEN` (Settings → Secrets and
+     variables → Actions). The release workflow stops with a clear error without it.
+
+   `update.rs` (`REPO`, `API`, `LATEST_JSON`) and the updater's endpoint in `tauri.conf.json`
+   point there; a copy installed before this change looked in `Omsi-Hub-Addon` and has to be
+   updated by hand once.
 
 1. **Make the signing key**, on your own computer:
 

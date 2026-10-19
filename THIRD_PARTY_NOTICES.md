@@ -1,7 +1,7 @@
 # Third-party code in Omsi-Hub
 
-Omsi-Hub is under the MIT licence (`LICENSE`). It builds on the code below, each under its own
-licence, whose notices travel with it.
+Omsi-Hub is proprietary software (`LICENSE`). It builds on the code below, each under its own
+licence, whose notices travel with it; Omsi-Hub's licence takes away none of the rights they give.
 
 ## openOMSI's readers and vehicle simulation
 
@@ -50,3 +50,16 @@ licence.
   `HankenGrotesk-OFL.txt` beside the files.
 - **Roboto** (`crates/hub-livery/fonts/`, the livery studio's texts): SIL Open Font License 1.1,
   Copyright 2011 The Roboto Project Authors (<https://github.com/googlefonts/roboto-classic>).
+
+## The page's libraries
+
+- **Preact** (MIT licence, `preact-LICENSE.txt`) and **htm** (Apache-2.0, `htm-LICENSE.txt`), in
+  `ui/vendor/preact-htm.js`, their licences beside the file.
+
+## The Rust libraries
+
+Every library the app is built with, its version, licence and address, and the licence files they
+came with are in `ui/third-party-licenses.txt`, which the app carries. `python3 tools/licenses.py`
+writes it again after a change to `Cargo.lock`. They are under permissive licences (MIT, Apache-2.0,
+BSD, ISC, Zlib, Unicode-3.0 and the like); the few under the MPL-2.0 (`cssparser`, `selectors` and
+their helpers, through the webview) are used unchanged, and their source is at the address given.

@@ -10,6 +10,10 @@ never changes their files.
 
 ### In it
 
+- **Omsi-Hub is no longer open source**: from this version it is proprietary software, free to
+  download and use (`LICENSE`); the code up to 19 October 2026 was MIT. The releases and the
+  updates come from the public `Luc-nbr/Omsi-Hub-Releases`, and the libraries' licences travel
+  with the app (`third-party-licenses.txt`).
 - **The welcome** on the first start, as in the old Omsi-Hub: the language, the animations, your
   openOMSI folder and your OMSI 2 folder (it suggests the ones it finds, on Steam too, and checks
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
