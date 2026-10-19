@@ -926,6 +926,20 @@ pub fn service_lines(tt: &Timetable, cal: &Calendar, date: NaiveDate) -> Vec<Ser
 /// checked against the map's calendar (`Holidays.txt`), the trips' stop times worked out. The
 /// map's folders are found in the content folder first, then in the OMSI 2 folder.
 pub fn lines_for(vfs: &Vfs, map: &str, date: NaiveDate) -> Result<Vec<ServiceLine>, ReadError> {
+    let Some(tt) = timetable_for(vfs, map, date)? else { return Ok(Vec::new()) };
+    let rel = map.replace('\\', "/");
+    let dir_rel = rel.rsplit_once('/').map_or("", |(d, _)| d);
+    let in_map = |name: &str| vfs.resolve(&format!("{dir_rel}/{name}"));
+    let cal = match in_map("Holidays.txt") {
+        Some(p) => Calendar::parse(&CfgFile::read(p)?),
+        None => Calendar::default(),
+    };
+    Ok(service_lines(&tt, &cal, date))
+}
+
+/// The map's timetable on `date`: the TTData with the day's Chrono (its files, the lines it
+/// switches off); None where the map has no TTData.
+pub fn timetable_for(vfs: &Vfs, map: &str, date: NaiveDate) -> Result<Option<Timetable>, ReadError> {
     let global = vfs.resolve(map).filter(|p| p.is_file()).ok_or_else(|| ReadError::NotFound(map.to_string()))?;
     let rel = map.replace('\\', "/");
     let dir_rel = rel.rsplit_once('/').map_or("", |(d, _)| d);
@@ -934,13 +948,8 @@ pub fn lines_for(vfs: &Vfs, map: &str, date: NaiveDate) -> Result<Vec<ServiceLin
     let chrono_base = in_map("Chrono").and_then(|c| c.parent().map(Path::to_path_buf)).unwrap_or_else(|| map_dir.clone());
     let chrono = crate::map::active_chrono_dirs(&chrono_base, date);
     let off = crate::map::chrono_deactivated_lines(&chrono);
-    let Some(ttdata) = in_map("TTData").filter(|p| p.is_dir()) else { return Ok(Vec::new()) };
-    let tt = Timetable::load_with_chrono(&ttdata, &chrono, &off);
-    let cal = match in_map("Holidays.txt") {
-        Some(p) => Calendar::parse(&CfgFile::read(p)?),
-        None => Calendar::default(),
-    };
-    Ok(service_lines(&tt, &cal, date))
+    let Some(ttdata) = in_map("TTData").filter(|p| p.is_dir()) else { return Ok(None) };
+    Ok(Some(Timetable::load_with_chrono(&ttdata, &chrono, &off)))
 }
 
 #[cfg(test)]

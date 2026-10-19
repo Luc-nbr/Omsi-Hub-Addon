@@ -97,10 +97,37 @@ pub(crate) fn trf(text: &str, vars: &[(&str, &str)]) -> String {
 
 // --- playing together ------------------------------------------------------------------------------
 
-/// The code of the company session this app hosts now. Playing together is not ported yet (the
-/// `tg_` commands need a relay): none, so no invite can be sent and no friend's session joined.
+/// The company session this app hosts now: its code, and whether the boss's friends may join it
+/// without an invite (the company's `together.friends_join`). Playing together is not ported yet
+/// (the `tg_` commands need a relay): until `tg_host_start` calls [`host`], none, so no invite can
+/// be sent and no friend's session joined.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Hosted {
+    pub code: String,
+    pub friends_join: bool,
+}
+
+static HOSTED: Mutex<Option<Hosted>> = Mutex::new(None);
+
+fn hosted() -> Option<Hosted> {
+    HOSTED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The session hosted from now on (none: sharing stopped); the worker tells the friends at once.
+#[allow(dead_code)]
+pub(crate) fn host(h: Option<Hosted>) {
+    *HOSTED.lock().unwrap_or_else(|e| e.into_inner()) = h;
+}
+
+/// The company's "friends can join" changed: the session hosted now (if any) says so from now on.
+pub(crate) fn friends_join_changed(on: bool) {
+    if let Some(h) = HOSTED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        h.friends_join = on;
+    }
+}
+
 fn session_code() -> Option<String> {
-    None
+    hosted().map(|h| h.code)
 }
 
 /// Whether playing together is there to join a friend's session.
@@ -249,10 +276,16 @@ fn str_arg<'a>(args: &'a Value, name: &str) -> &'a str {
 
 // --- what is fetched -------------------------------------------------------------------------
 
-/// The state to tell: in a session while hosting one (its code with it), else online or away.
+/// The state to tell: in a session while hosting one, else online or away. The session's code
+/// goes with it only when the friends may join without an invite (the server shows it to friends
+/// only); else they join by an invite, which carries the code itself.
 fn presence(away: bool) -> (&'static str, Option<String>) {
-    match session_code() {
-        Some(code) => ("busy", Some(code)),
+    presence_of(hosted(), away)
+}
+
+fn presence_of(hosted: Option<Hosted>, away: bool) -> (&'static str, Option<String>) {
+    match hosted {
+        Some(h) => ("busy", h.friends_join.then_some(h.code)),
         None if away => ("away", None),
         None => ("online", None),
     }
@@ -1065,6 +1098,17 @@ mod tests {
         let s = stats_of(&json!({ "points": 1200, "level": 3, "duties": 7, "minutes": 95, "km": 41, "lang": "nl" }));
         assert_eq!(s, Stats { points: 1200, level: 3, duties: 7, minutes_driven: 95, km: 41 });
         assert_eq!(stats_of(&json!({})), Stats::default());
+    }
+
+    /// Hosting: the friends see the session's code only while the company lets them join without
+    /// an invite.
+    #[test]
+    fn the_session_code_goes_to_friends_only_when_they_may_join() {
+        let h = |friends_join| Some(Hosted { code: "HUB-ABC".into(), friends_join });
+        assert_eq!(presence_of(None, false), ("online", None));
+        assert_eq!(presence_of(None, true), ("away", None));
+        assert_eq!(presence_of(h(false), false), ("busy", None));
+        assert_eq!(presence_of(h(true), true), ("busy", Some("HUB-ABC".into())));
     }
 
     /// "Play without an account" is kept in the data folder, and only that.

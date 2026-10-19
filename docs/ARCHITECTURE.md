@@ -166,7 +166,7 @@ installed here):
 
 | Prefix | Module | Now |
 |---|---|---|
-| `hub_` | `hub`, `drive`, `content` | Boot, texts, first-run setup, migration, drives; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
+| `hub_` | `hub`, `drive`, `live`, `content` | Boot, texts, first-run setup, migration, drives and their live dashboard; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
 | `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: kept by `co_photo_save`, taken by the page from the 3D model (`ui/js/hub/photos.js`) |
 | `rf_` | `rosterflow` | Ported |
@@ -183,7 +183,7 @@ installed here):
   home, cache)`, which asks `openomsi --version` once when no file says the version.
 - `compat::{FIRST_SUPPORTED = 0.2.22, estimate, negotiate, check}`.
 - `install::{install, disable, status, plugin_dir}`.
-- `bridge::{Assignment, Leg, Hello, Report, write_assignment, read_hello, ReportReader, ReplyReader, from_log}`.
+- `bridge::{Assignment, Leg, Hello, Report, Dash, write_assignment, read_hello, read_dash, ReportReader, ReplyReader, from_log}`.
 - `launch::LaunchSpec::args()` (official flags only, `OFFICIAL_FLAGS`); `export_glb` adds `--export-glb <file>`.
 - `process::export_glb(exe, spec, wait)`: the bus written as glTF by the player's openOMSI (not used by the pages: the 3D view reads the bus itself, `content::bus3d`).
 - `process::{start, Game, ask_version, ensure_executable}`.
@@ -268,6 +268,16 @@ them) and the language; `launcher.json`'s profile becomes the settings' `driver`
      the on-time brief goes to `data/ontime.json` from `data/live.json`
      (`company::ontime::refresh`); notices go to `data/notices.json` as they come
      (`addon::notify_game`); the plugin's texts are `texts.lua`.
+   - **The live dashboard** (`hub/dash.js`, `hub-api`'s `live.rs`): the page gets `game-started`
+     (with the way it is driven: `company`, `shift`, `tour`, `free`) for every drive and shows
+     the dashboard in place of the launcher while the game runs. The plugin writes
+     `data/dash.json` every two seconds on any drive (`dash.lua`, `bridge::Dash`: the bus's
+     speed, place and passengers, the duty under way and its trip's stops, what the drive came
+     to); the bridge's loop samples it (`live::sample`: the speed and delay over the drive, the
+     way the bus went, the notices and messages); `hub_live` gives the view, with the duty's plan
+     from the map's timetable of the day (`timetable_for`, the legs' lengths for the distance to
+     each stop), a company's sheet (signing on and off, breaks) and the driver's week and month
+     from `trips/<driver>.jsonl`.
    - When it ends, the page gets `game-ended` (`code`, `seconds`, and what was `booked`).
    - `crates/hub-api/tests/drive.rs` drives a company's duty end to end against a fake openOMSI
      (`tests/support/fake_openomsi.rs`, Cargo's `fake-openomsi` program) that writes the

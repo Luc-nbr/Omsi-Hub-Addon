@@ -14,6 +14,10 @@ local M = {}
 local total = { seconds = 0, metres = 0, jolts = 0, crashes = 0, boarded = 0 }
 local odometer = nil
 local cur = nil
+-- (the live dashboard's: every stop served on the drive's trips, and the metres at the last
+-- stop the bus left)
+local drive_served = {}
+local left_at = 0
 
 local function now()
   return { seconds = total.seconds, metres = total.metres, jolts = total.jolts, crashes = total.crashes, boarded = total.boarded }
@@ -48,6 +52,21 @@ end
 
 function M.boarded_total()
   return total.boarded
+end
+
+-- what is counted on the whole drive (seconds, metres, jolts, collisions, boarded), every stop
+-- served on its trips so far (as `career.tally` takes them) and the metres since the bus left
+-- the last stop: the live dashboard's (dash.lua)
+function M.totals()
+  return now()
+end
+
+function M.served_on_drive()
+  return drive_served
+end
+
+function M.metres_since_stop()
+  return math.max(total.metres - left_at, 0)
 end
 
 -- the line as the trip's displays show it, and its terminus without it ("5 Rathaus": Rathaus)
@@ -105,10 +124,12 @@ end
 function M.depart(number, delay)
   if not cur or cur.done or not number then return end
   cur.started = true
+  left_at = total.metres
   local v = cur.by_number[number]
   local arrival = cur.arrived[number]
   if v and arrival and delay and number < cur.last then
     cur.served[#cur.served + 1] = { arrival = arrival, departure = delay }
+    drive_served[#drive_served + 1] = { arrival = arrival, departure = delay }
     v.left = v.dep + delay
   end
 end
@@ -123,6 +144,7 @@ function M.finish(completed, delay, watch)
     local arrival = cur.arrived[cur.last] or delay
     if arrival then
       cur.served[#cur.served + 1] = { arrival = arrival }
+      drive_served[#drive_served + 1] = { arrival = arrival }
       v.arrived = v.arrived or (v.arr + arrival)
     end
   end

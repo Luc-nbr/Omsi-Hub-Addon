@@ -482,7 +482,8 @@ fn sources(c: &Company, slot: u8, from: &[TourOfDay], lines: &[LineInfo]) -> Vec
     let mut out = Vec::new();
     for (i, t) in from.iter().enumerate() {
         for (k, x) in t.trips.iter().enumerate().filter(|(_, x)| !x.origin.trim().is_empty()) {
-            out.push(Src { line: t.line.clone(), at: Some((i, k)), x: x.clone() });
+            // (a bus that interlines: each trip of its own line)
+            out.push(Src { line: t.line_of(x).to_string(), at: Some((i, k)), x: x.clone() });
         }
     }
     for (line, x) in rf::stack(c, lines, slot) {
@@ -541,7 +542,7 @@ fn fresh_name(names: &[String]) -> String {
 
 /// A trip as a layout names it: a part of a trip cut on the way by the whole trip's departure.
 fn whole_ref(t: &PlannedTrip) -> TripRef {
-    TripRef { tour: t.origin.trim().to_string(), name: t.name.clone(), dep: t.whole_dep() }
+    TripRef { tour: t.origin.trim().to_string(), name: t.name.clone(), dep: t.whole_dep(), line: String::new() }
 }
 
 /// A line's blocks as the day has them (`tours`), to change.
@@ -551,13 +552,17 @@ fn layout_of(slot: u8, line: &str, tours: &[&TourOfDay]) -> LineLayout {
         .map(|t| BlockLayout {
             tour: t.tour.clone(),
             // (a trip cut at a relief point on the way is laid out whole, its relief beside it)
-            trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(whole_ref).collect(),
+            trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(|x| TripRef { line: TripRef::kept_in(x, line).line, ..whole_ref(x) }).collect(),
             cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).filter(|x| !x.is_second()).map(whole_ref).collect()),
             reliefs: t
                 .trips
                 .iter()
                 .filter_map(|x| {
-                    x.part.as_ref().filter(|p| p.second).map(|p| MidRelief { trip: TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: p.dep }, stop: p.stop, name: p.at.clone() })
+                    x.part.as_ref().filter(|p| p.second).map(|p| MidRelief {
+                        trip: TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: p.dep, line: String::new() },
+                        stop: p.stop,
+                        name: p.at.clone(),
+                    })
                 })
                 .collect(),
         })
@@ -596,6 +601,9 @@ pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: 
         let mut claimed: HashSet<(usize, usize)> = HashSet::new();
         let mut layouts: Vec<LineLayout> = Vec::new();
         let mut copied: Vec<(String, String)> = Vec::new();
+        // (every line's buses first, then what is left of each line: a bus that interlines takes
+        // trips of another line, which are then not left to that line's own)
+        let mut laid: Vec<(String, Vec<BlockLayout>, Vec<String>)> = Vec::new();
         for line in lines.iter().filter(|l| src_laid(l)) {
             let mut blocks: Vec<BlockLayout> = Vec::new();
             let mut names: Vec<String> = Vec::new();
@@ -620,8 +628,12 @@ pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: 
                 claimed.extend(kept.iter().copied());
                 names.push(t.tour.trim().to_string());
                 copied.push((line.clone(), t.tour.clone()));
-                blocks.push(BlockLayout { tour: t.tour.clone(), trips: kept.iter().map(|id| TripRef::of(&raw[id.0].trips[id.1])).collect(), cuts: None, reliefs: Vec::new() });
+                blocks.push(BlockLayout { tour: t.tour.clone(), trips: kept.iter().map(|id| TripRef::kept_in(&raw[id.0].trips[id.1], line)).collect(), cuts: None, reliefs: Vec::new() });
             }
+            laid.push((line.clone(), blocks, names));
+        }
+        for (line, mut blocks, mut names) in laid {
+            let line = &line;
             // what the source left unassigned waits on the stack here too
             let mut stack: Vec<TripRef> = Vec::new();
             for (s, m) in srcs.iter().zip(&found) {

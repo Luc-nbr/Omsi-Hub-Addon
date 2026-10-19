@@ -86,19 +86,36 @@ function Buses({ b }) {
         ${size.w > 0 &&
         b.buses.map((bus, k) => {
           const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
-          const nw = textW(bus.number, 15, 900) + 20;
+          const nw = textW(bus.number, 15, 900) + 26;
           return html`<${BusTile} name=${bus.name} file=${bus.file} paint=${bus.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
-            over=${html`<span class="numb" style=${`width:${nw}px`}>${bus.number}</span>
-              ${bus.advert && html`<span class="ad cut" style=${`max-width:${r.w - nw - 30}px`}>${bus.advert}</span>`}`}>
+            over=${bus.advert && html`<span class="ad cut" style=${`max-width:${r.w - nw - 30}px`}>${bus.advert}</span>`}>
             <b class="cut">${bus.name}</b>
             <span class="sub cut">${bus.sub}</span>
             <span class="facts"><span class="cut">${bus.facts}</span><span class="cond" title=${bus.condition.tip}><${Meter} frac=${bus.condition.frac} tone=${bus.condition.tone} /></span></span>
             <span class=${'status t-' + bus.tone}><i class=${'dot-' + bus.tone}></i><span class="cut">${bus.status}</span></span>
-          </${BusTile}>`;
+          </${BusTile}>
+          <${FleetNumber} bus=${bus} x=${r.x + 10} y=${r.y + 10} most=${r.w / 2} tip=${b.number_tip} />`;
         })}
       </div>
     </div>
   </div>`;
+}
+
+/** A bus's fleet number on its tile, to type one's own (`bus_number`): kept on Enter or leaving
+ * the box, Escape as it was; an empty box is the automatic number (its placeholder). (Over the
+ * tile, not in it: a box in a button takes no typing.) */
+export function FleetNumber({ bus, x, y, most, tip }) {
+  const [draft, setDraft] = useState(null);
+  const text = draft ?? bus.number;
+  // (leaving the box keeps it: Enter leaves it, Escape first forgets the typing)
+  const keep = () => {
+    if (draft != null && draft.trim() !== bus.number) act('bus_number', { id: bus.id, number: draft.trim() });
+    setDraft(null);
+  };
+  return html`<input class=${'co-numb-in' + (bus.own ? ' own' : '')} data-number=${bus.id} value=${text} placeholder=${bus.auto} maxlength="12" title=${tip} spellcheck="false"
+    style=${`left:${x}px;top:${y}px;width:${Math.min(most, textW(text || bus.auto, 15, 900) + 26)}px`}
+    onFocus=${(e) => (setDraft(bus.number), e.currentTarget.select())} onInput=${(e) => setDraft(e.currentTarget.value)} onBlur=${keep}
+    onKeyDown=${(e) => (e.key === 'Enter' || e.key === 'Escape') && (e.key === 'Escape' && setDraft(bus.number), setTimeout(() => e.target.blur()))} />`;
 }
 
 // --- advertising --------------------------------------------------------------------------

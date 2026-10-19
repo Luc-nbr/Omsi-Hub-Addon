@@ -5,6 +5,7 @@
 // (Beta 57: `people/holidays.rs`); and the hiring rules.
 
 import { html, useEffect, useState, setCo, setUi, ui, act, useView, useSize, goKey, Icon, Btn, Seg, Chips, Select, Section, Meter, Switch, IconBtn, Slider, Tag, fill } from './kit.js';
+import { callBytes, inApp, onWeb } from '../api.js';
 
 // --- the portraits -------------------------------------------------------------------------
 
@@ -14,10 +15,8 @@ const faces = new Map();
 function face(n) {
   if (!n) return Promise.resolve(null);
   if (!faces.has(n)) {
-    const tauri = window.__TAURI__;
-    const p = tauri
-      ? tauri.core
-          .invoke('call_bytes', { cmd: 'co_portrait', args: { n } })
+    const p = inApp || onWeb
+      ? callBytes('co_portrait', { n })
           .then((b) => URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })))
           .catch(() => null)
       : Promise.resolve(null);

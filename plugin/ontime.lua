@@ -15,6 +15,7 @@
 --   data/ontime.json    Omsi-Hub -> plugin: the brief (headway, connections, diversions, alerts)
 
 local json = require("hubjson")
+local layout = require("layout")
 
 local M = {}
 
@@ -233,7 +234,7 @@ function M.tick(dt)
   if not (M.on() and fn(omsi.duty, "get")) then return end
   local d = omsi.duty.get()
   if not d then
-    if shown and has["ui.remove"] then omsi.ui.remove(PANEL) end
+    if shown and has["ui.remove"] then layout.remove(PANEL) end
     if shown then to_navigator(nil) end
     shown, brief = false, nil
     return
@@ -254,7 +255,7 @@ function M.tick(dt)
     end
   end
   if not has["ui.set"] then return end
-  omsi.ui.set(PANEL, { anchor = "top_left", x = 16, y = 330, width = 330, accent = NOW, draggable = true, children = M.rows(d, brief) })
+  layout.set(PANEL, { anchor = "top_left", x = 16, y = 330, width = 330, accent = NOW, draggable = true, children = M.rows(d, brief) })
   shown = true
 end
 
@@ -264,14 +265,14 @@ function M.click(panel, element)
   if element == "close" then
     off = true
     shown = false
-    if has["ui.remove"] then omsi.ui.remove(PANEL) end
+    if has["ui.remove"] then layout.remove(PANEL) end
     to_navigator(nil)
   end
   return true
 end
 
 function M.stop()
-  if has["ui.remove"] then omsi.ui.remove(PANEL) end
+  if has["ui.remove"] then layout.remove(PANEL) end
 end
 
 return M

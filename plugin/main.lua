@@ -15,9 +15,10 @@
 --   data/status.json      plugin -> Omsi-Hub: how the duty stands (for the dispatcher)
 --   data/live.json        plugin -> Omsi-Hub: where the bus is (ontime.lua)
 --   data/traffic.json     plugin -> Omsi-Hub: the game's traffic, for the fleet map (traffic.lua)
+--   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.8.0"
+local VERSION = "1.9.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -181,6 +182,9 @@ end
 local signon = require("signon")
 local board = require("board")
 local company = require("company")
+-- (the panels' sizes and places, the driver's: layout.lua)
+local layout = require("layout")
+layout.setup(tr)
 board.setup(tr)
 
 -- the board's company parts the driver switched on and off (all on until they chose; kept for
@@ -236,7 +240,7 @@ local function panel()
       children[#children + 1] = { type = "checkbox", id = "part_" .. p, text = tr(company.LABELS[p]), checked = on[p], color = "#F58620" }
     end
   end
-  omsi.ui.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F58620", draggable = true, children = children })
+  layout.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F58620", draggable = true, children = children })
 end
 
 -- the IBIS: typed by the game as each trip begins, unless Omsi-Hub says the driver types it -
@@ -325,6 +329,9 @@ local trip = require("trip")
 local card = require("card")
 local watch = require("watch")
 card.setup(tr)
+-- (the live dashboard in Omsi-Hub's window, on every drive: `dash.lua`)
+local dash = require("dash")
+dash.setup(trip, assignment, has)
 
 -- the drive watch's notices: a card for a while, or a line of text in a game without panels
 watch.setup(tr, function(icon, title, text)
@@ -501,6 +508,7 @@ omsi.on("vehicle", function(name)
 end)
 
 omsi.on("ui_click", function(p, element)
+  if layout.click(p, element) then return end
   if card.click(p, element) then return end
   if messages.click(p, element) then return end
   if strip.click(p, element) then return end
@@ -546,11 +554,13 @@ omsi.on("key", function(key, down)
   if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then
     omsi.ui.focus(not omsi.ui.focused())
     panel()
+    layout.refresh()
   end
 end)
 
 omsi.on("stop", function()
-  if has["ui.remove"] then omsi.ui.remove(PANEL) end
+  layout.keep()
+  if has["ui.remove"] then layout.remove(PANEL) end
   strip.stop()
   ontime.stop()
 end)
@@ -579,10 +589,13 @@ end
 
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
+  -- (the panels gave the mouse back without F10 - Esc, a menu: their size rows go)
+  layout.watch()
   board.update((not assignment or assignment.board ~= false) and signon.at_work(), company_duty() and parts() or {}, assignment, { trip.boarded_on_trip(), trip.boarded_total(), fn("bus.passengers") and omsi.bus.passengers() or nil })
   messages.tick()
   strip.update(company_duty() and signon.at_work())
   if signon.at_work() then ontime.tick(1) end
+  if not fn("has_vehicle") or omsi.has_vehicle() then dash.tick(1) end
   dispatch()
 end)
 

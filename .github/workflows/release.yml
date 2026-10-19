@@ -1,10 +1,10 @@
-# Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon and Intel) and Linux,
+# Omsi-Hub's releases: the installers for Windows, macOS (Apple silicon; Intel Macs no longer) and Linux,
 # built by Tauri and put in a DRAFT release named after the version (`v<version>`) in the PUBLIC
 # repository Luc-nbr/Omsi-Hub-Releases (this one is private: players could not download from it;
 # the app's updater and the website read the releases there). Luc publishes the draft by hand
 # (docs/UPDATES.md §5): a draft or a pre-release is never offered to players.
 #
-# Writing there takes the secret RELEASES_TOKEN: a fine-grained token of Luc's with "Contents: Read
+# Writing there takes the secret OMSI_HUB_RELEASES: a fine-grained token of Luc's with "Contents: Read
 # and write" on Luc-nbr/Omsi-Hub-Releases only (this repository's own token cannot write to another).
 #
 # A pre-release (for testers) is the same draft with GitHub's pre-release mark: run by hand with
@@ -34,7 +34,7 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# (this repository is only read: the release goes to Omsi-Hub-Releases with RELEASES_TOKEN)
+# (this repository is only read: the release goes to Omsi-Hub-Releases with OMSI_HUB_RELEASES)
 permissions:
   contents: read
 
@@ -56,10 +56,6 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          - name: macOS Intel
-            os: macos-latest
-            target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
           # (the oldest Ubuntu we support: an AppImage runs on the same glibc or newer)
           - name: Linux x64
             os: ubuntu-22.04
@@ -127,10 +123,10 @@ jobs:
       - name: Releases repository token
         shell: bash
         env:
-          TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::error::The secret RELEASES_TOKEN is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
+            echo "::error::The secret OMSI_HUB_RELEASES is missing: a token with Contents read and write on Luc-nbr/Omsi-Hub-Releases (docs/UPDATES.md)."
             exit 1
           fi
 
@@ -153,7 +149,7 @@ jobs:
       - name: Build and upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -173,7 +169,7 @@ jobs:
             Needs openOMSI 0.2.22 or newer and an original OMSI 2. Omsi-Hub does not replace openOMSI: it builds on the openOMSI you have installed.
 
             - Windows: `Omsi-Hub_<version>_x64-setup.exe`
-            - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon) or `_x64.dmg` (Intel). The app is not notarised: the first time, right-click it and choose Open.
+            - macOS: `Omsi-Hub_<version>_aarch64.dmg` (Apple silicon; Intel Macs are not built). The app is not notarised: the first time, right-click it and choose Open.
             - Linux: `Omsi-Hub_<version>_amd64.AppImage` (updates itself), or the `.deb` / `.rpm`.
           releaseDraft: true
           prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}

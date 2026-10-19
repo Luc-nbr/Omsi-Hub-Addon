@@ -58,6 +58,12 @@ never changes their files.
   British roundel, the French, the Dutch, the Polish, the Russian or the Ukrainian sign. The route map of the
   drive's steps is the old one again: its stops with their times, dragged to move, the wheel or
   the + and - to zoom.
+- **Omsi-Hub's panels in the game, your size and your place**: with F10 each one (the duty board
+  beside the navigator, the company's panel, the duty strip, the on-time card, the control room's
+  messages) shows a size row: smaller, larger (60 to 200 %), and back to how it came. Dragged to
+  another place, a panel comes there again in your next drive. In an openOMSI with the navigator's
+  board (plugin UI 3, in openOMSI after 0.3.36), the duty board is in the navigator again, as in
+  the old Omsi-Hub, and is sized and moved with the navigator.
 - **Blue** is Omsi-Hub's colour unless you choose another (Settings, Accent colour).
 - **The drivers on this computer**, as in the old Omsi-Hub: "Who is driving today?" is the drive's
   first step again, with a tile for each driver (OMSI's own personnel files, `Drivers/<name>.odr`),

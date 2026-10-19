@@ -10,10 +10,16 @@ description = "Omsi-Hub's domain: the bus company, RosterFlow, careers; its own 
 hub-omsi.workspace = true
 # (Play together's company server: openOMSI's LAN layer for its key, its addresses, the
 # Cloudflare tunnel and openOMSI's relay - from Luc's fork, THIRD_PARTY_NOTICES.md)
-omsi-net.workspace = true
-omsi-cfg.workspace = true
+omsi-net = { workspace = true, optional = true }
+omsi-cfg = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-dirs.workspace = true
+dirs = { workspace = true, optional = true }
 anyhow.workspace = true
+
+[features]
+# (the desktop app: Play together's network, the data folder; without it, the company and RosterFlow
+# as plain logic over plain data, as the website runs them in the browser)
+default = ["native"]
+native = ["dep:omsi-net", "dep:omsi-cfg", "dep:dirs"]

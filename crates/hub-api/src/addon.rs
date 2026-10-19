@@ -141,7 +141,11 @@ pub fn plugins_dir() -> Result<PathBuf, String> {
 pub fn player_language() -> String {
     let l = Settings::load().language.trim().to_ascii_lowercase();
     if l.is_empty() {
+        #[cfg(feature = "native")]
         let page = crate::online::language();
+        // (the website: the page says its language with every command)
+        #[cfg(not(feature = "native"))]
+        let page = String::new();
         if page.is_empty() {
             "en".into()
         } else {

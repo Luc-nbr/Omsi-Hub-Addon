@@ -793,6 +793,10 @@ fn sync_now(id: &str) {
     let r = Engine { data: &d, remote: &mut Online }.sync(id);
     note(&r);
     let gone = trf("%{name} is no longer in the cloud: it stays on this PC as a local save.", &[("name", &name_of(id))]);
+    // (the content beside the save, for the website's bus company: `cloud_content`)
+    if matches!(r, Ok(Decision::Synced)) {
+        content_of(&d, id);
+    }
     let mut st = state();
     st.busy.remove(id);
     st.tried.insert(id.to_string(), now());
@@ -812,6 +816,18 @@ fn sync_now(id: &str) {
         Err(e) => {
             st.failed.insert(id.to_string(), e);
         }
+    }
+}
+
+/// The content beside a cloud company's save sent into its slot (at most every half hour;
+/// `cloud_content::send`). What goes wrong stays in the log: the save itself went up.
+fn content_of(d: &Path, id: &str) {
+    let s = sync_of(d, id);
+    if s.place != Place::Cloud {
+        return;
+    }
+    if let Err(e) = crate::cloud_content::send(d, id, s.slot) {
+        crate::launcher::log_to_file(&format!("cloud content of {id}: {e:?}"));
     }
 }
 
@@ -1063,7 +1079,11 @@ fn put(id: &str, replace: Option<u8>) -> Value {
     state().listed_at = 0;
     let _ = relist(&mut Online);
     match r {
-        Ok(Put::Done(slot)) => json!({ "ok": true, "slot": slot.slot, "message": trf("%{name} is in the cloud now.", &[("name", &name)]) }),
+        Ok(Put::Done(slot)) => {
+            let id = id.to_string();
+            let _ = std::thread::Builder::new().name("omsihub cloud content".into()).spawn(move || content_of(&data(), &id));
+            json!({ "ok": true, "slot": slot.slot, "message": trf("%{name} is in the cloud now.", &[("name", &name)]) })
+        }
         Ok(Put::Limit(slots)) => json!({
             "limit": true, "text": tr(Error::Code("limit").text()),
             "slots": slots.iter().map(|s| slot_json(s, None)).collect::<Vec<_>>(),

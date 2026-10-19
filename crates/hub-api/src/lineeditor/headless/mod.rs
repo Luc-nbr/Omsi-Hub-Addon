@@ -212,6 +212,11 @@ fn frame(s: &mut Session) {
         match rx.try_recv() {
             Ok(m) => {
                 s.reading = None;
+                // (no road read: said, not an empty map without a word)
+                if m.roads["roads"].as_array().is_none_or(Vec::is_empty) {
+                    log::warn!("line editor (page): no roads read of {}", m.key);
+                    s.say(crate::lineeditor::ui::tr("The map could not be read").into_owned(), true);
+                }
                 take(s, Arc::new(m));
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {

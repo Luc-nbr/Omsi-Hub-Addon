@@ -68,7 +68,6 @@ release without a `latest.json`.
 |---|---|---|---|
 | Windows x64 | `windows-x86_64` | `Omsi-Hub_<version>_x64-setup.exe` | the same |
 | macOS Apple silicon | `darwin-aarch64` | `Omsi-Hub_aarch64.app.tar.gz` | `Omsi-Hub_<version>_aarch64.dmg` |
-| macOS Intel | `darwin-x86_64` | `Omsi-Hub_x64.app.tar.gz` | `Omsi-Hub_<version>_x64.dmg` |
 | Linux x64 | `linux-x86_64` | `Omsi-Hub_<version>_amd64.AppImage` | the same, or the `.deb` / `.rpm` (not self-updating) |
 | Linux ARM64 | `linux-aarch64` | `Omsi-Hub_<version>_aarch64.AppImage` | the same |
 
@@ -85,7 +84,7 @@ matches the processor in the name: `x64`, `amd64` or `x86_64`; `aarch64` or `arm
    - make a **fine-grained token** (GitHub → Settings → Developer settings → Fine-grained tokens):
      repository access "Only select repositories" → `Omsi-Hub-Releases`, permission
      "Contents: Read and write", nothing else;
-   - add it to **this** repository as the secret `RELEASES_TOKEN` (Settings → Secrets and
+   - add it to **this** repository as the secret `OMSI_HUB_RELEASES` (Settings → Secrets and
      variables → Actions). The release workflow stops with a clear error without it.
 
    The openOMSI fork Cargo fetches (`Luc-nbr/openOMSI`) is private: CI and the release read it

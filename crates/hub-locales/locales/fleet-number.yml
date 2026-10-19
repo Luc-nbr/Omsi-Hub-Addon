@@ -1,0 +1,24 @@
+_version: 2
+# A bus's own fleet number (Luc 2026-10-19): typed on its tile in the fleet, empty for the
+# automatic one.
+"The bus's fleet number: type your own, or leave it empty for the automatic one.":
+  de: "Die Wagennummer des Busses: gib deine eigene ein oder lass das Feld leer für die automatische."
+  fr: "Le numéro de parc du bus : saisissez le vôtre, ou laissez vide pour le numéro automatique."
+  nl: "Het wagennummer van de bus: typ je eigen nummer, of laat het leeg voor het automatische."
+  pl: "Numer taborowy autobusu: wpisz własny albo zostaw puste, by użyć automatycznego."
+  ru: "Бортовой номер автобуса: введите свой или оставьте пустым для автоматического."
+  uk: "Бортовий номер автобуса: введіть свій або залиште порожнім для автоматичного."
+"A fleet number has at most 12 characters.":
+  de: "Eine Wagennummer hat höchstens 12 Zeichen."
+  fr: "Un numéro de parc compte au plus 12 caractères."
+  nl: "Een wagennummer heeft hoogstens 12 tekens."
+  pl: "Numer taborowy ma najwyżej 12 znaków."
+  ru: "Бортовой номер — не длиннее 12 символов."
+  uk: "Бортовий номер — не довший за 12 символів."
+"Another bus of the fleet has this number.":
+  de: "Ein anderer Bus der Flotte hat diese Nummer."
+  fr: "Un autre bus du parc porte déjà ce numéro."
+  nl: "Een andere bus van de vloot heeft dit nummer."
+  pl: "Inny autobus we flocie ma już ten numer."
+  ru: "Этот номер уже у другого автобуса парка."
+  uk: "Цей номер уже має інший автобус парку."

@@ -170,6 +170,11 @@ impl Client {
         }
     }
 
+    /// Whether a request may go out: the privacy statement agreed to (or not needed).
+    pub(crate) fn may_send(&self) -> bool {
+        self.free || self.agreed()
+    }
+
     fn agreed(&self) -> bool {
         matches!((&self.privacy, self.user_id()), (Some((user, v)), Some(me)) if user == me && *v >= privacy::VERSION)
     }

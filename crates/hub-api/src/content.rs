@@ -26,12 +26,19 @@
 //!   with openOMSI's readers (the old app's Bus3D): see [`bus3d`];
 //! * `hub_le` - the line editor: not available yet (it needs the map's lane graph).
 
+#[cfg(feature = "native")]
 pub mod bus3d;
 pub mod busbest;
+#[cfg(feature = "native")]
 pub mod busoptions;
 pub mod depots;
 pub mod facts;
 pub mod fonts;
+#[cfg(feature = "native")]
+pub mod mapview;
+// (the website: the maps as the desktop app exported them into the cloud save's content)
+#[cfg(not(feature = "native"))]
+#[path = "content/mapview_web.rs"]
 pub mod mapview;
 pub mod shifts;
 pub mod weather;
@@ -70,14 +77,18 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "hub_more_bus_best" => busbest::bus_best(args),
         "hub_more_weather_read" => weather::read(args),
         "hub_more_weather_write" => weather::write(args),
+        #[cfg(feature = "native")]
         "hub_more_bus_options" => busoptions::view(args),
+        #[cfg(feature = "native")]
         "hub_more_bus_option_set" => busoptions::set(args),
+        #[cfg(feature = "native")]
         "hub_more_setvars" => busoptions::for_game(args),
         "hub_more_font_view" => fonts::view(args),
         "hub_more_font_set" => fonts::set(args),
         "hub_more_font_add" => fonts::add(args),
         "hub_display_preview" => Ok(fonts::display_preview(&str_arg(args, "bus"), &str_arg(args, "text"))),
         // (the line editor, the old app's headless one: every change a request, the view answered)
+        #[cfg(feature = "native")]
         "hub_le" => Ok(crate::lineeditor::headless::serve(args)),
         _ => Err(format!("unknown command: {cmd}")),
     }

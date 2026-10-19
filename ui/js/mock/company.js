@@ -21,7 +21,7 @@ const companies = [
   { id: 'ruhrau-verkehr', name: 'Ruhrau Verkehr', short: 'RV', colours: ['#43a047', '#f5f5f5'], map: 'maps/Ruhrau/global.cfg', map_name: 'Ruhrau', depot: 'Betriebshof Ruhrau', mode: 'casual', cash: 4210000, trophies: 3, reputation: 48, date: '2026-05-02', minute: 9 * 60, played: 60 * 26 },
 ];
 
-const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
+const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, friendsJoin: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
 const co = () => companies.find((c) => c.id === st.open) || null;
 const bump = () => (st.gen += 1);
 const say = (text, error = false) => st.notices.push({ text, error });
@@ -418,8 +418,9 @@ function fleet(a) {
   } else {
     body = {
       kind: 'buses', order: 'An MAN NL202 is on order: delivered on Mon 2 Nov', empty: 'No bus yet.', to_dealer: 'To the dealer',
+      number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
       buses: BUSES.map((b) => ({
-        id: b.id, number: b.number, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, advert: b.id === 1 ? 'Stadtwerke Grundorf' : null,
         sub: `${b.plate}  ·  ${b.kind}`, facts: `${grouped(b.km)} km  ·  ${2026 - b.year} years`,
         condition: { frac: b.cond, tone: condTone(b.cond), tip: `Condition ${Math.round(b.cond * 100)} %` },
         tone: b.workshop ? 'danger' : b.id === 4 ? 'warn' : 'ok', status: b.workshop ? 'In the workshop until Wed' : TOURS.some((t) => t.bus === b.id) ? 'On line ' + TOURS.find((t) => t.bus === b.id).line : 'In the depot',
@@ -781,6 +782,7 @@ function settings(a) {
     buying: { caps: 'BUYING BUSES', mode: 1, modes: ['Simple', 'By contract'], say: 'Haggle with the dealer, agree on extras and sign a contract; new buses are delivered.' },
     currency: { caps: 'CURRENCY', value: 0, codes: ['EUR', 'GBP', 'PLN'], options: ['Euro (€)', 'Pound (£)', 'Złoty (zł)'], say: 'Money is shown in this currency.' },
     vehicles: null,
+    friends: { caps: 'MULTIPLAYER', on: st.friendsJoin, label: 'Friends can join without an invite', say: st.friendsJoin ? 'While you share the company, your Omsi-Hub friends see a Join button in their friends list: no session code needed.' : 'Off: friends join when you invite them from your friends list, or with the session code.' },
     date_caps: "THE COMPANY'S DATE", now: `${dayLabel(c.date)}  ·  ${hm()}`,
     realtime: { on: st.realtime, label: 'In step with the real clock', say: "The company's time goes on while Omsi-Hub is closed." },
     date: a.date || c.date, earliest: null, warn: 'Moving the date does not simulate the days between.',
@@ -993,9 +995,19 @@ function dayPanel(arm) {
   };
 }
 
-// - Casual's pages (its home; the others are left out of the mock) -
+// - Casual's pages (its home and its buses; the others are left out of the mock) -
 
 function casual(a) {
+  if (a.page === 'buses') {
+    return {
+      page: 'buses', order: null, number_tip: "The bus's fleet number: type your own, or leave it empty for the automatic one.",
+      head: { name: 'Buses', sub: `${BUSES.length} buses · repairs and services happen by themselves`, action: ['Buy a bus', 'add'], help: { icon: 'help', title: 'Buses', text: 'Your buses.', unlock: '', go: null }, help_tip: 'What is this page?' },
+      cards: BUSES.map((b) => ({
+        id: b.id, number: b.number, auto: b.auto ?? b.number, own: b.auto != null, name: b.name, file: b.file, livery: b.livery, age: `${2026 - b.year} years old`,
+        cond: b.cond, cond_tone: condTone(b.cond), word: b.cond >= 0.7 ? 'Good condition' : 'Worn: repaired soon', doing: b.workshop ? 'In the workshop: back on Wed' : 'Free today', tone: b.workshop ? 'warn' : 'dim',
+      })),
+    };
+  }
   if ((a.page || 'home') !== 'home') return {};
   const c = co();
   const go = (tab) => ({ kind: 'open', tab });
@@ -1055,7 +1067,13 @@ function ops() {
     buses: [{ kind: 'bus', sev: { key: 'medium', label: 'Medium' }, plate: plate(l101), bus: '18', delay: '+7 min', at: 'Marktplatz', cause: 'Traffic', detail: 'Road works on the Hauptstraße', map: 'bus:2', to: { key: 'staff:2', label: 'Anke Müller' }, min: 7,
       options: [{ icon: 'fast_forward', short: 'Short turn', label: 'Turn short at the Kirche', effect: 'Back on time at the next trip; 2 stops not served', best: true, good: true, args: { bus: 2, way: 'short' } }, { icon: 'hourglass_empty', short: 'Wait', label: 'Let it run late', effect: 'About 7 minutes late until the end', best: false, good: false, args: { bus: 2, way: 'none' } }] }],
     breaks: [{ kind: 'break', sev: { key: 'high', label: 'High' }, plate: null, bus: '2571', delay: '—', at: 'Depot', cause: 'Breakdown', detail: 'Starter motor', done: 'Bus 31 runs in its place', none: null, options: [] }],
-    drivers: [], msgs: [],
+    // (a late driver someone covers, and a duty nobody drives: `ops::open_json`)
+    drivers: [{ kind: 'driver', sev: { key: 'ok', label: 'Cover sent' }, plate: plate(lineOf('205')), bus: '22', delay: '+30 min', at: 'at Bahnhof', cause: 'Driver late', detail: 'Jonas Weber signs on at 08:10', done: 'Anke Müller drives the first trips until 08:10', options: [] }],
+    open: [{ kind: 'open', sev: { key: 'high', label: 'High' }, plate: plate(lineOf('102')), bus: '31', delay: 'from 08:05', at: 'at Bahnhof', cause: 'No driver', detail: 'Ill · 6 trips lost if nobody covers it', map: 'bus:3', nothing: 'Left as it is: 6 trips dropped, €0.00 in penalties, −0.4 reputation.',
+      options: [{ icon: 'person', short: 'Tim Becker', label: 'Tim Becker drives it (standby: free all day)', effect: 'Saves 6 trips (−€0.00)', best: true, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'colleague', id: 7 } } },
+        { icon: 'badge', short: 'Agency driver', label: 'The agency sends a driver for it', effect: 'Saves 6 trips (−€0.00); costs €148.00', best: false, good: true, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'agency' } } },
+        { icon: 'close', short: 'Drop trips', label: 'Drop its trips still to come today', effect: 'Left as it is: 6 trips dropped', best: false, good: false, args: { line: '102', tour: '3', duty: 0, fill: { kind: 'drop' } } }] }],
+    msgs: [],
     normal: [{ plate: plate(lineOf('102')), time: '07:31', age: 11 }, { plate: plate(lineOf('205')), time: '07:20', age: 22 }],
     map: { title: 'LIVE NETWORK MAP', sub: 'Every bus where it is', legend: [['ok', 'On time'], ['warn', 'Late'], ['danger', 'Very late'], ['dim', 'In the depot']], zoom_in: 'Zoom in', zoom_out: 'Zoom out', fit: 'Show all' },
     diversions: { title: 'DIVERSIONS AND ROADWORKS', sub: 'Planned diversions: the lines take the way round on those days.', events: ['Road works on the Hauptstraße: line 101 over the Kirchweg until Fri 23 Oct'], rows: [], none: 'No diversions planned.',
@@ -1698,6 +1716,10 @@ function doAct(a) {
       st.realtime = !!a.on;
       bump();
       return {};
+    case 'friends_join':
+      st.friendsJoin = !!a.on;
+      bump();
+      return {};
     case 'rosterflow':
       st.rosterflow = !!a.on;
       bump();
@@ -1775,6 +1797,17 @@ function doAct(a) {
       if (a.date) c.date = a.date;
       bump();
       return {};
+    case 'bus_number': {
+      // (`market::set_number`: an empty one back to the automatic number)
+      const b = BUSES.find((x) => x.id === Number(a.id));
+      const n = String(a.number || '').trim();
+      if (!b) return {};
+      if (BUSES.some((x) => x !== b && x.number === n)) return { popup: { icon: 'error', title: 'This cannot be done', text: 'Another bus of the fleet has this number.', unlock: '', go: null } };
+      if (!n || n === b.auto) [b.number, b.auto] = [b.auto ?? b.number, undefined];
+      else [b.number, b.auto] = [n, b.auto ?? b.number];
+      bump();
+      return {};
+    }
     case 'new_take':
       return { joined: 5 };
     case 'design_livery':

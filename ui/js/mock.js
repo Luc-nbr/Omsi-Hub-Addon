@@ -4,10 +4,12 @@
 // accepts any folder whose name contains "openOMSI" (a version in the name, as
 // `openOMSI-0.2.30`) and "OMSI 2"; what it keeps stays in this browser (`localStorage`), so a
 // reload opens the start. `?intro=off` leaves the opening out, `?page=<page>` opens a page
-// (`settings`, `bus company`, `drive:bus` … as `OMSIHUB_PAGE` would).
+// (`settings`, `bus company`, `drive:bus` … as `OMSIHUB_PAGE` would); `?drive` opens it with a
+// drive running (its live dashboard: ./mock/live.js).
 
 import { companyAnswers } from './mock/company.js';
 import { rosterflowAnswers } from './mock/rosterflow.js';
+import { liveAnswers, mockDriveAtStart, startMockDrive } from './mock/live.js';
 import { depotAtlas, depotHas } from './mock/depotmodels.js';
 
 const listeners = {};
@@ -246,8 +248,11 @@ const answers = {
     lo: [0, -200], hi: [900, 300], colors: ['#06102a', '#24345a', '#2d4170', '#f58620'],
   }),
   hub_drive: (a) => {
-    setTimeout(() => backend.emit('game-ended', { code: 0, seconds: 4 }), 4000);
-    return { started: true, args: ['--map', a.duty.map] };
+    // (the drive runs until it is ended: hub_game_stop, ./mock/live.js)
+    const d = a.duty || {};
+    const mode = d.company ? 'company' : (d.legs || []).length ? 'shift' : d.line && d.tour ? 'tour' : 'free';
+    startMockDrive(mode, emit);
+    return { started: true, pid: 4242, mode, args: ['--map', d.map] };
   },
   hub_update: () => ({ kind: 'none', shown: '0.1.0', line: 'Omsi-Hub 0.1.0 is the newest.', repo: 'github.com/Luc-nbr/Omsi-Hub-Releases', auto: false }),
   hub_drive_args: (a) => ({ args: ['--root', settings.openomsi_folder, '--map', a.duty.map, '--bus', a.duty.bus, ...(a.duty.line ? ['--line', a.duty.line, '--tour', a.duty.tour || ''] : []), '--time', a.duty.time] }),
@@ -294,6 +299,7 @@ const answers = {
 
   ...companyAnswers,
   ...rosterflowAnswers,
+  ...liveAnswers(emit),
 };
 
 // (the drivers on this computer, as `hub_profiles` lists them, and a service record of each)
@@ -306,6 +312,9 @@ const driverRecord = (name) => ({
   record: { runs: name === 'Luc' ? 2 : 0, first: RUN.time - 86400, maps: [], buses: [], hours: Array(24).fill(0), jolts: 3, km: 19.3 },
   trips: [], trip_totals: { trips: 0, timed: 0, stops: 0, early: 0, late: 0, average: null, worst: null, spotless: 0 },
 });
+function emit(event, payload) {
+  backend.emit(event, payload);
+}
 
 export const backend = {
   async call(cmd, args) {
@@ -331,3 +340,5 @@ export const backend = {
     for (const f of listeners[event] || []) f(payload);
   },
 };
+
+mockDriveAtStart(emit);

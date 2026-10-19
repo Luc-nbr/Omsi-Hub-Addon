@@ -10,7 +10,7 @@
 //! * `hub_setup_save {openomsi, omsi2, language?}` - both checked again and kept;
 //! * `hub_migrate_scan`, `hub_migrate_import`, `hub_migrate_skip` - the old saves (`~/.openomsi`);
 //! * `hub_drive {duty}`, `hub_drive_args {duty}`, `hub_game_state`, `hub_game_stop` - see
-//!   [`crate::drive`];
+//!   [`crate::drive`]; `hub_live` - the live dashboard of the drive that runs ([`crate::live`]);
 //! * `hub_log {line}` - a line into Omsi-Hub's log; `hub_quit` - end the app.
 
 use crate::{arg, drive, to_json, Answer, Platform};
@@ -53,6 +53,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         "hub_drive_args" => drive::args(&arg::<hub_core::Duty>(args, "duty")?),
         "hub_game_state" => Ok(drive::state()),
         "hub_game_stop" => Ok(drive::stop(p)),
+        "hub_live" => Ok(crate::live::view()),
         "hub_log" => {
             hub_core::log_line(&format!("page: {}", arg::<String>(args, "line")?));
             Ok(Value::Null)

@@ -49,7 +49,9 @@ fn a_map_is_read_and_a_new_line_routed_between_two_of_its_stops() {
     let maps = json!([["Linedorf", "maps/Linedorf/global.cfg"]]);
     let mut v = le(
         "open",
-        json!({ "maps": maps, "root": root.to_string_lossy(), "date": "1989-05-30", "choice_map": "maps/Linedorf/global.cfg", "company": "", "line": null, "new_days": null, "map_line": "" }),
+        // (no folder, as the page sends it: the line editor finds the map in the OMSI 2 folder of
+        // the settings)
+        json!({ "maps": maps, "root": "", "date": "1989-05-30", "choice_map": "maps/Linedorf/global.cfg", "company": "", "line": null, "new_days": null, "map_line": "" }),
     );
     for _ in 0..300 {
         if v["ready"].as_bool() == Some(true) {

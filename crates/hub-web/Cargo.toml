@@ -1,0 +1,18 @@
+[package]
+name = "hub-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The bus company and RosterFlow on the website: hub-api's commands (without \"native\") as a WebAssembly module (wasm32-wasip1) the page calls, over the cloud save's files laid out in the browser"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hub-api.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# (the cloud save's zstd, in pure Rust: the desktop's zstd is C)
+ruzstd = "0.9"
