@@ -1,164 +1,221 @@
-// The staff at work today about the 3D yard (`plan.staff`): each walks a way of the scene
-// (`scene.js`'s routes) for their role - the mechanics beside the buses in the bays, the
-// cleaners in the washing bay and between the parked buses, the drivers between the buses, the
-// diesel station and the offices, the service staff before the offices' door, the inspectors on
-// the pavement by the gate - stopping now and then (their idle), walking on (their walk) at the
-// pace their legs go. Two on one way keep a step apart. Without the animations everybody stands
-// where they would start.
-//
-// Not all of them: the drivers are mostly out on their duties (a quarter shows), and the yard
-// shows at most as many as its graphics level allows (`quality.js`), every role in turn.
+// The company's people at work in the depot (`plan.staff`): small figures, each with its round -
+// the mechanics at the buses in the bays (or between the hall and the stores), the cleaners up
+// and down the wash lanes (or among the spaces), the drivers between the offices and the buses
+// they take out, the office's people across the yard and at the pumps. Each walks or works with
+// its arms and legs moving; where it is is worked out from the time, so the round needs no state
+// of its own. Each is drawn as its role's figure (`figures.js`: the driver, the mechanic, the
+// cleaner, and for the office's people the service employee, the inspector or the researcher),
+// its walk while it walks and its idle while it works; until that figure is there, as one small
+// model for all of them whose arms and legs `renderer.js` swings.
 
-/** Floats an instance: x, z, heading, how far between the two frames; the frame's row in the
- * bones, the next one's, walking (the walk's skin) or not, and one spare. */
+import { Mesh } from './mesh.js';
+import { rgb01 } from './palette.js';
+import { seeded } from './city.js';
+
+/** Floats a figure: x, z, heading, phase; r, g, b, walking (0: at work where it stands). */
+export const PERSON = 8;
+/** Floats a role's figure: x, z, heading, how far between the two frames; the frame's row in
+ * the bones, the next one's, walking (the walk's skin) or not, and one spare. */
 export const FIGURE = 8;
+/** How many are shown at most (the rest are about somewhere else). */
+const MOST = { drivers: 24, mechanics: 12, cleaners: 8, office: 8 };
+/** Their clothes: the overalls, the high-visibility vests, the drivers' shirts in the company's
+ * colour, the office's white. */
+const WEAR = { mechanics: '#2f5f9e', cleaners: '#f2c230', office: '#e8ebef' };
+// (an easy pace: the figures' walk, drawn larger than life, goes about this fast as it was made)
+const WALK = 0.9;
+/** How much larger than life the figures are drawn (`renderer.js`), so they are seen from above
+ * the yard: their strides too. */
+const LARGER = 1.45;
 
-/** Where each role works, the ways it likes best first; the pavement where none of them is
- * built. */
-const WHERE = {
-  driver: ['parking', 'fuel', 'offices'],
-  mechanic: ['workshop'],
-  cleaner: ['wash', 'parking'],
-  service: ['offices'],
-  researcher: ['offices', 'workshop'],
-  inspector: ['street'],
-};
-export const ROLES = Object.keys(WHERE);
-
-const TURN = 4.5;
-const WALK = 0.65;
-
-/** A small seeded random, so a person starts where they started. */
-function seeded(seed) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
+/** The figure (1.8 m, its front at +z): its parts in the area slot - 1 and 2 the legs, 3 the
+ * body (its clothes' colour), 4 and 5 the arms, 0 the head and the shoes. */
+export function personMesh() {
+  const m = new Mesh();
+  const trousers = [0.22, 0.24, 0.3];
+  const skin = [0.86, 0.68, 0.55];
+  const shoe = [0.12, 0.12, 0.14];
+  const white = [1, 1, 1];
+  for (const [x, part] of [
+    [-0.11, 1],
+    [0.11, 2],
+  ]) {
+    m.box(x - 0.08, 0.08, -0.07, x + 0.08, 0.86, 0.07, trousers, { area: part });
+    m.box(x - 0.08, 0, -0.08, x + 0.08, 0.08, 0.12, shoe, { area: part });
+  }
+  m.box(-0.22, 0.86, -0.12, 0.22, 1.45, 0.12, white, { area: 3 });
+  for (const [x, part] of [
+    [-0.29, 4],
+    [0.29, 5],
+  ]) {
+    m.box(x - 0.06, 0.9, -0.06, x + 0.06, 1.42, 0.06, white, { area: part });
+    m.box(x - 0.05, 0.82, -0.05, x + 0.05, 0.9, 0.05, skin, { area: part });
+  }
+  m.box(-0.04, 1.45, -0.04, 0.04, 1.52, 0.04, skin);
+  m.prism(0, 0, 0.12, 0.11, 1.52, 1.78, skin, { n: 8 });
+  return m;
 }
 
-const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+/** Where a module stands, as `scene.js`'s picks have it: its centre, its corners. */
+const centre = (o) => [(o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2];
 
-/** Who of `staff` shows: a quarter of the drivers, then every role in turn up to `most`. */
-function chosen(staff, most) {
-  const by = new Map(ROLES.map((r) => [r, []]));
-  for (const e of [...staff].sort((a, b) => a.id - b.id)) by.get(e.role)?.push(e);
-  const drivers = by.get('driver');
-  by.set('driver', drivers.slice(0, Math.ceil(drivers.length / 4)));
+/**
+ * The rounds of the people at work, from the yard (`scene.js`: its picks and buses) and the
+ * staff (`plan.staff`); `colour` the company's (the drivers' shirts). A list of
+ * `at(t) -> [x, z, heading, walking]` with each one's colour and phase.
+ */
+export function rounds(scene, staff, colour) {
+  if (!staff) return [];
+  const rnd = seeded(5);
+  const picks = scene.picks.filter((o) => !o.building);
+  const of = (area) => picks.filter((o) => o.area === area);
+  const offices = of('offices')[0];
+  const bays = of('workshop');
+  const lanes = of('wash');
+  const pumps = of('fuel')[0];
+  const spaces = of('parking');
+  const yard = scene.yard;
+  const home = offices ? centre(offices) : [yard.w / 2, yard.d - 6];
   const out = [];
-  for (let k = 0; out.length < most; k++) {
-    const row = ROLES.map((r) => by.get(r)[k]).filter(Boolean);
-    if (!row.length) break;
-    out.push(...row.slice(0, most - out.length));
+  const wear = (k) => rgb01(WEAR[k]);
+  const shirt = rgb01(colour || '#2a75f7');
+
+  /** A walk to and fro along the points `pts` (and back), at walking pace, from `phase`. */
+  const walk = (pts, phase) => {
+    const legs = [];
+    let total = 0;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const len = Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]);
+      legs.push(len);
+      total += len;
+    }
+    // (a short stop at either end)
+    const stop = 4;
+    const round = total * 2 / WALK + stop * 2;
+    return (t) => {
+      let s = (t + phase * round) % round;
+      const back = s > round / 2;
+      if (back) s -= round / 2;
+      if (s < stop || total < 0.1) {
+        const p = back ? pts[0] : pts[pts.length - 1];
+        return [p[0], p[1], 0, 0];
+      }
+      let d = (s - stop) * WALK;
+      if (back) d = total - d;
+      for (let k = 0; k < legs.length; k++) {
+        if (d <= legs[k] || k === legs.length - 1) {
+          const f = legs[k] ? Math.min(1, d / legs[k]) : 0;
+          const [a, b] = [pts[k], pts[k + 1]];
+          const heading = Math.atan2(b[0] - a[0], b[1] - a[1]) + (back ? Math.PI : 0);
+          return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, heading, 1];
+        }
+        d -= legs[k];
+      }
+      return [pts[0][0], pts[0][1], 0, 0];
+    };
+  };
+  /** At work where it stands, facing `heading`. */
+  const stay = (x, z, heading) => () => [x, z, heading, 0];
+  // the office's people by who they are, in turn (all as service staff where the plan does not
+  // say)
+  const desk = [['service', staff.service], ['inspector', staff.inspectors], ['researcher', staff.researchers]].filter(([, n]) => n > 0);
+  const deskOf = (k) => {
+    if (!desk.length) return 'service';
+    const total = desk.reduce((a, [, n]) => a + n, 0);
+    let at = k % total;
+    for (const [role, n] of desk) {
+      if (at < n) return role;
+      at -= n;
+    }
+    return desk[0][0];
+  };
+  const ROLE = { drivers: 'driver', mechanics: 'mechanic', cleaners: 'cleaner' };
+  let desks = 0;
+  const add = (kind, at) => out.push({ at, colour: kind === 'drivers' ? shirt : wear(kind), phase: rnd() * 6.28, role: ROLE[kind] || deskOf(desks++) });
+
+  // the mechanics: two at each bus in a bay, the others to and fro between the hall and the
+  // offices (the stores)
+  const inBay = scene.buses.filter((b) => b.at === 'workshop');
+  let mechanics = Math.min(staff.mechanics || 0, MOST.mechanics);
+  for (const b of inBay) {
+    for (const side of [-1, 1]) {
+      if (mechanics <= 0) break;
+      const c = Math.cos(b.heading);
+      const s = Math.sin(b.heading);
+      const off = side * 1.9;
+      const along = (rnd() - 0.5) * b.len * 0.6;
+      add('mechanics', stay(b.x + c * off + s * along, b.z - s * off + c * along, b.heading - side * Math.PI / 2));
+      mechanics--;
+    }
+  }
+  for (let k = 0; k < mechanics && bays.length; k++) {
+    const bay = bays[k % bays.length];
+    add('mechanics', walk([centre(bay), home], rnd()));
+  }
+
+  // the cleaners: up and down a wash lane, else among the spaces
+  const cleaners = Math.min(staff.cleaners || 0, MOST.cleaners);
+  for (let k = 0; k < cleaners; k++) {
+    const lane = lanes[k % Math.max(1, lanes.length)];
+    if (lane) {
+      const [cx, cz] = centre(lane);
+      const wide = lane.x1 - lane.x0 > lane.z1 - lane.z0;
+      const half = (wide ? lane.x1 - lane.x0 : lane.z1 - lane.z0) / 2 + 3;
+      add('cleaners', walk(wide ? [[cx - half, cz + 1.5], [cx + half, cz + 1.5]] : [[cx + 1.5, cz - half], [cx + 1.5, cz + half]], rnd()));
+    } else if (spaces.length) {
+      const sp = spaces[k % spaces.length];
+      add('cleaners', walk([[sp.x0 + 2, sp.z1 + 1], [sp.x1 - 2, sp.z1 + 1]], rnd()));
+    }
+  }
+
+  // the drivers: from the offices to a bus in the spaces and back
+  const parked = scene.buses.filter((b) => b.at === 'parked');
+  const drivers = Math.min(staff.drivers || 0, MOST.drivers, parked.length + 4);
+  for (let k = 0; k < drivers; k++) {
+    const b = parked[Math.floor(rnd() * parked.length)];
+    const to = b ? [b.x + Math.cos(b.heading) * 1.8, b.z - Math.sin(b.heading) * 1.8] : [home[0] + (rnd() - 0.5) * 20, home[1] + 14];
+    const mid = [(home[0] + to[0]) / 2 + (rnd() - 0.5) * 6, Math.max(home[1], to[1]) + 3 + rnd() * 4];
+    add('drivers', walk([home, mid, to], rnd()));
+  }
+
+  // the office's people: one at the pumps when there are some, the others across the yard
+  let office = Math.min(staff.office || 0, MOST.office);
+  if (pumps && office > 0) {
+    const [px, pz] = centre(pumps);
+    add('office', walk([[px - 5, pz + 4], [px + 5, pz + 4]], rnd()));
+    office--;
+  }
+  for (let k = 0; k < office; k++) {
+    const there = picks[Math.floor(rnd() * picks.length)];
+    add('office', there ? walk([home, centre(there)], rnd()) : stay(home[0] + k * 1.2, home[1] + 8, 0));
   }
   return out;
 }
 
-export class Crowd {
-  /** `staff` as the plan has it ({ id, role }), `routes` the scene's, at most `most` shown. */
-  constructor(staff, routes, most) {
-    const used = routes.map(() => 0);
-    this.people = chosen(staff, most).map((e) => {
-      const rnd = seeded(e.id * 7919 + 17);
-      // the least walked of the ways the role likes, the one it likes best on a tie
-      const kinds = WHERE[e.role];
-      let best = -1;
-      routes.forEach((r, k) => {
-        const pref = kinds.indexOf(r.kind);
-        if (pref < 0) return;
-        if (best < 0 || used[k] < used[best] || (used[k] === used[best] && pref < kinds.indexOf(routes[best].kind))) best = k;
-      });
-      if (best < 0) best = routes.findIndex((r) => r.kind === 'street');
-      const route = routes[best];
-      // (a step apart from who else walks it)
-      const side = used[best] % 2 ? 1 : -1;
-      const off = [side * (0.35 + 0.3 * Math.floor(used[best] / 2)) * (rnd() < 0.5 ? 1 : -1), (rnd() - 0.5) * 0.6];
-      used[best]++;
-      const at = Math.floor(rnd() * route.pts.length);
-      const p = route.pts[at];
-      return {
-        role: e.role,
-        route,
-        off,
-        rnd,
-        at,
-        dir: rnd() < 0.5 ? 1 : -1,
-        x: p.x + off[0],
-        z: p.z + off[1],
-        heading: p.face ?? rnd() * Math.PI * 2,
-        walking: false,
-        wait: rnd() * 6,
-        t: rnd() * 10,
-      };
-    });
-  }
+/** The roles whose figures the people of `list` are. */
+export const rolesOf = (list) => [...new Set(list.map((p) => p.role))];
 
-  get count() {
-    return this.people.length;
-  }
-
-  /** The roles that show. */
-  roles() {
-    return [...new Set(this.people.map((f) => f.role))];
-  }
-
-  /** `dt` seconds on: who stands waits, then walks to the next point of their way. */
-  step(dt, speedOf = () => WALK) {
-    for (const f of this.people) {
-      f.t += dt;
-      const pts = f.route.pts;
-      if (f.wait > 0) {
-        f.wait -= dt;
-        const p = pts[f.at];
-        if (p.face !== null) f.heading += Math.max(-TURN * dt, Math.min(TURN * dt, wrap(p.face - f.heading)));
-        if (f.wait > 0 || pts.length < 2) continue;
-        // on to the next point, back the other way at an end
-        if (f.at + f.dir < 0 || f.at + f.dir >= pts.length) f.dir = -f.dir;
-        f.at += f.dir;
-      }
-      const p = pts[f.at];
-      const dx = p.x + f.off[0] - f.x;
-      const dz = p.z + f.off[1] - f.z;
-      const dist = Math.hypot(dx, dz);
-      if (!f.walking) {
-        f.walking = true;
-        f.t = f.rnd() * 2;
-      }
-      const turn = wrap(Math.atan2(dx, dz) - f.heading);
-      f.heading += Math.max(-TURN * dt, Math.min(TURN * dt, turn));
-      // (it turns on the spot before it walks off)
-      if (Math.abs(turn) > 0.9) continue;
-      const go = Math.min(dist, speedOf(f.role) * dt);
-      f.x += (dx / (dist || 1)) * go;
-      f.z += (dz / (dist || 1)) * go;
-      if (dist - go > 0.02) continue;
-      if (p.stop) {
-        f.walking = false;
-        f.wait = 2.5 + f.rnd() * 7;
-        f.t = f.rnd() * 4;
-      } else {
-        f.at += f.dir;
-        if (f.at < 0 || f.at >= pts.length) {
-          f.dir = -f.dir;
-          f.at += 2 * f.dir;
-        }
-      }
+/**
+ * The people at time `t` (seconds): `figures` by role (`FIGURE` floats each) for those whose
+ * figure `modelOf(role)` has (its `clips`, `fps` and `speed`), and `rest` (`PERSON` floats each)
+ * as the plain model for the others.
+ */
+export function people(list, t, modelOf = () => null) {
+  const rest = [];
+  const figures = new Map();
+  for (const p of list) {
+    const [x, z, heading, walking] = p.at(t);
+    const m = modelOf(p.role);
+    if (!m) {
+      rest.push(x, z, heading, p.phase, p.colour[0], p.colour[1], p.colour[2], walking);
+      continue;
     }
+    // (the walk played to the pace the round goes, so the feet do not slide)
+    const clip = m.clips[walking ? 'walk' : 'idle'];
+    const at = ((t + p.phase) * (walking ? WALK / (m.speed * LARGER) : 1) * m.fps) % clip.frames;
+    const k = Math.floor(at);
+    if (!figures.has(p.role)) figures.set(p.role, []);
+    figures.get(p.role).push(x, z, heading, at - k, clip.row + k, clip.row + ((k + 1) % clip.frames), walking ? 1 : 0, 0);
   }
-
-  /** The instances by role (`FIGURE` floats each), for the roles whose figure `modelOf(role)`
-   * has (its `clips` and `fps`). */
-  instances(modelOf) {
-    const groups = new Map();
-    for (const f of this.people) {
-      const m = modelOf(f.role);
-      if (!m) continue;
-      const clip = m.clips[f.walking ? 'walk' : 'idle'];
-      const at = (f.t * m.fps) % clip.frames;
-      const k = Math.floor(at);
-      if (!groups.has(f.role)) groups.set(f.role, []);
-      groups.get(f.role).push(f.x, f.z, f.heading, at - k, clip.row + k, clip.row + ((k + 1) % clip.frames), f.walking ? 1 : 0, 0);
-    }
-    return new Map([...groups].map(([k, v]) => [k, new Float32Array(v)]));
-  }
+  return { rest: new Float32Array(rest), figures: new Map([...figures].map(([k, v]) => [k, new Float32Array(v)])) };
 }

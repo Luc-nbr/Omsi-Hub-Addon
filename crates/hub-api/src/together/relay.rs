@@ -172,7 +172,9 @@ fn more_act_need(act: &str) -> Need {
         a if a.starts_with("pe_") => Any(&[Perm::Lines, Perm::Plans]),
         "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_pause" | "research_stop" => SPEND,
         // (the yard laid out: a module put down, moved or pulled down, land bought)
-        "depot_build_at" | "depot_move" | "depot_demolish" | "depot_land" => SPEND,
+        "depot_build_at" | "depot_move" | "depot_demolish" | "depot_land" | "depot_upgrade" => SPEND,
+        // (the depot's colours: the company's look, as its settings are)
+        "depot_look" => SETTINGS,
         "tender_pick" | "tender_bid" | "tender_buy" | "tender_step" => SPEND,
         "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" | "contract_hand_back" => SPEND,
         // (a tendered line's contract changed, or an offer for it: what the contracts cost)

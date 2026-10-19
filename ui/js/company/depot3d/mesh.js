@@ -1,10 +1,11 @@
 // The depot's geometry in metres (x east, y up, z south: the street is at the front): boxes,
 // prisms and flat marks, each vertex with its normal, its colour, the area it belongs to (the
-// Build list's row it lights up) and how much it glows at night. One buffer for the whole yard,
-// drawn in one call; the buses are instances of their own (`bus.js`).
+// Build list's row it lights up), how much it glows at night and its material (the texture it
+// wears: the colour's `mat`, `palette.js`; 0 for none). One buffer for the whole yard, drawn in
+// one call; the buses are instances of their own (`bus.js`).
 
-/** Floats a vertex: position 3, normal 3, colour 3, area 1, glow 1. */
-export const STRIDE = 11;
+/** Floats a vertex: position 3, normal 3, colour 3, area 1, glow 1, material 1. */
+export const STRIDE = 12;
 
 export class Mesh {
   constructor() {
@@ -16,7 +17,7 @@ export class Mesh {
   }
 
   vertex(p, n, c, area, glow) {
-    this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2], area, glow);
+    this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2], area, glow, c.mat || 0);
   }
 
   /** A quad a, b, c, d (counter-clockwise seen from where `n` points). */
@@ -98,13 +99,23 @@ export class Mesh {
     if (cap && r1 > 0) for (let k = 0; k < n; k++) for (const p of [[cx, y1, cz], at(k + 1, r1, y1), at(k, r1, y1)]) this.vertex(p, [0, 1, 0], col, area, glow);
   }
 
+  /** A mark on the ground (`renderer.js`'s decals): `w` across and `l` along, turned `turn`
+   * round its centre (cx, cz), of material `mat` at strength `s` (0 to 1). Its place in the
+   * picture rides in the colour. */
+  decal(cx, cz, w, l, turn, mat, s = 1, y = 0.035) {
+    const c = Math.cos(turn);
+    const sn = Math.sin(turn);
+    const at = (u, v) => [cx + (u - 0.5) * w * c + (v - 0.5) * l * sn, y, cz - (u - 0.5) * w * sn + (v - 0.5) * l * c];
+    for (const [u, v] of [[0, 0], [0, 1], [1, 1], [0, 0], [1, 1], [1, 0]]) this.vertex(at(u, v), [0, 1, 0], Object.assign([u, v, s], { mat }), 0, 0);
+  }
+
   /** Another mesh's vertices added, moved by `xf` (`{ pt([x, y, z]), dir([x, y, z]) }`). */
   append(other, xf) {
     const d = other.data;
     for (let i = 0; i < d.length; i += STRIDE) {
       const p = xf.pt([d[i], d[i + 1], d[i + 2]]);
       const n = xf.dir([d[i + 3], d[i + 4], d[i + 5]]);
-      this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], d[i + 6], d[i + 7], d[i + 8], d[i + 9], d[i + 10]);
+      this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], d[i + 6], d[i + 7], d[i + 8], d[i + 9], d[i + 10], d[i + 11]);
     }
   }
 

@@ -1,15 +1,17 @@
 //! The depot page (`crates/omsi-launcher-ui/src/company/depot.rs`): its figures, the yard from
 //! above - the offices, the workshop hall with its bays, the washing bay, the diesel station,
 //! the parking's blocks with their chargers, the buses where they stand tonight -, the areas to
-//! build (a bigger depot, level by level) and the workshop's jobs. The rules are
-//! `company::depot`'s.
+//! build (a bigger depot, level by level, and what can be added to each area), the building
+//! credit a new company has, its look, the staff the 3D depot shows at work, and the workshop's
+//! jobs. The rules are `company::depot`'s.
 
 use super::super::kit;
 use super::super::words::{day_label, eur, grade, tr, trf};
 use super::super::{act as apply, Session};
 use super::{popup_answer, str_arg, u32_arg};
 use crate::Answer;
-use hub_core::company::depot::{self as dp, Area, JobKind};
+use hub_core::company::depot::{self as dp, Area, Finish, JobKind, Look, Upgrade};
+use hub_core::company::model::Role;
 use hub_core::company::yard;
 use hub_core::company::{self as co, Company};
 use serde_json::{json, Value};
@@ -77,7 +79,8 @@ fn plan(c: &Company) -> Value {
     hall["bays"] = json!(c.site.bays());
     hall["max"] = json!(Area::Workshop.max());
     let mut wash = building(c, Area::Wash, "Washing bay");
-    wash["gates"] = json!(c.site.wash >= 2);
+    wash["lanes"] = json!(c.site.wash);
+    wash["gates"] = json!(c.site.has(Upgrade::Gantry));
     let mut fuel = building(c, Area::Fuel, "Diesel station");
     fuel["pumps"] = json!(c.site.fuel);
     let parking = json!({
@@ -95,8 +98,32 @@ fn plan(c: &Company) -> Value {
         "offices": offices, "hall": hall, "wash": wash, "fuel": fuel, "parking": parking,
         "in_ws": in_ws.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
         "parked": parked.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
-        "staff": c.staff.iter().filter(|e| co::staff::at_work(e, &today)).map(|e| json!({ "id": e.id, "role": e.role })).collect::<Vec<_>>(),
         "layout": layout(c),
+        "upgrades": c.site.upgrades.iter().map(|u| u.key()).collect::<Vec<_>>(),
+        "look": look(&c.site.look),
+        "staff": staff(c),
+    })
+}
+
+/// The depot's look as the page has it: its own colours (null: the depot's) and its walls.
+fn look(l: &Look) -> Value {
+    json!({ "wall": l.wall, "roof": l.roof, "trim": l.trim, "door": l.door, "finish": l.finish.key() })
+}
+
+/// The people at work at the depot today, as the 3D depot shows them: the drivers (those out on
+/// a duty now among them), the mechanics, the cleaners and the others (the offices': service,
+/// inspectors, research - each also counted alone, for its own figure).
+fn staff(c: &Company) -> Value {
+    let today = &c.date;
+    let n = |r: &[Role]| c.staff.iter().filter(|e| e.employed_on(today) && r.contains(&e.role)).count();
+    json!({
+        "drivers": n(&[Role::Driver]),
+        "mechanics": n(&[Role::Mechanic]),
+        "cleaners": n(&[Role::Cleaner]),
+        "office": n(&[Role::Service, Role::Inspector, Role::Researcher]),
+        "service": n(&[Role::Service]),
+        "inspectors": n(&[Role::Inspector]),
+        "researchers": n(&[Role::Researcher]),
     })
 }
 
@@ -144,7 +171,7 @@ fn effect(c: &Company, a: Area) -> String {
         Area::Parking => trf("%{n} spaces", &[("n", &s.spaces().to_string())]),
         Area::Workshop => trf("%{n} bays: buses worked on at once", &[("n", &s.bays().to_string())]),
         Area::Wash if s.wash == 0 => tr("None: the fleet is cleaned by hand"),
-        Area::Wash => trf("Washes %{n} buses a night", &[("n", &s.washes().to_string())]),
+        Area::Wash => trf("%{lanes} lanes: washes %{n} buses a night", &[("lanes", &s.wash.to_string()), ("n", &s.washes().to_string())]),
         Area::Fuel => trf("Fills %{n} diesel buses a night", &[("n", &s.diesel_served().to_string())]),
         Area::Charging if s.charging == 0 => tr("None: electric buses charge outside, dearer"),
         Area::Charging => trf("Charges %{n} electric buses a night", &[("n", &s.electric_served().to_string())]),
@@ -167,7 +194,8 @@ fn buildings(c: &Company) -> Value {
                 "lv": lv, "max": a.max(),
                 "effect": effect(c, *a),
             });
-            if let Some(w) = c.site.works_on(*a) {
+            row["upgrades"] = json!(upgrades(c, *a));
+            if let Some(w) = c.site.works_on(*a).filter(|w| w.upgrade.is_none()) {
                 row["works"] = json!(trf("Building until %{date}", &[("date", &day_label(&w.until))]));
             } else if let Some((cost, days)) = dp::next_cost(c, *a) {
                 let up = dp::step(*a, lv + 1).upkeep as f64 * c.price_index;
@@ -182,7 +210,33 @@ fn buildings(c: &Company) -> Value {
             row
         })
         .collect();
-    json!({ "title": tr("Build"), "rows": rows })
+    // (a new company's building credit, while some is left)
+    let credit = (c.site.credit > 0).then(|| json!({ "amount": eur(c.site.credit), "tip": tr("Building credit: what your company was given to build its first depot with, spent before your cash") }));
+    let empty = Area::ALL.iter().all(|a| c.site.level(*a) == 0) && c.site.works.is_empty();
+    let hint = empty.then(|| tr("Your land is empty: build parking spaces, a workshop, a diesel station and offices to start with."));
+    json!({ "title": tr("Build"), "rows": rows, "credit": credit, "hint": hint })
+}
+
+/// What can be added to an area (`depot::Upgrade`): each with what it does, and its price, the
+/// work under way or that it is there.
+fn upgrades(c: &Company, a: Area) -> Vec<Value> {
+    Upgrade::ALL
+        .iter()
+        .filter(|u| u.area() == a)
+        .map(|u| {
+            let mut row = json!({ "key": u.key(), "icon": u.icon(), "label": tr(u.label()), "what": tr(u.what()), "built": c.site.has(*u) });
+            if let Some(w) = c.site.works_for(*u) {
+                row["works"] = json!(trf("Building until %{date}", &[("date", &day_label(&w.until))]));
+            } else if c.site.level(a) == 0 && !c.site.has(*u) {
+                row["needs"] = json!(trf("Build the %{area} first", &[("area", &tr(a.label()).to_lowercase())]));
+            } else if let Some((cost, days)) = dp::upgrade_cost(c, *u) {
+                row["cost"] = json!(eur(cost));
+                row["busy"] = json!(c.site.works_on(a).is_some());
+                row["tip"] = json!(trf("%{days} days of work", &[("days", &days.to_string())]));
+            }
+            row
+        })
+        .collect()
 }
 
 /// The workshop's jobs, then every other bus by its condition, the one picked first
@@ -245,13 +299,20 @@ fn workshop(c: &Company, selected: Option<u32>) -> Value {
 /// opens it, or the money.
 fn first_refusal(c: &Company, a: Area) -> Option<Answer> {
     let (cost, _) = dp::next_cost(c, a)?;
+    refusal(c, a, cost)
+}
+
+/// The level that opens an area, or the money (the building credit counted), when they stand in
+/// the way of building work of `cost` on it.
+fn refusal(c: &Company, a: Area, cost: co::Cents) -> Option<Answer> {
     let casual = c.game_mode.casual();
     if !dp::area_allowed(c, a) {
         let f = if a == Area::Workshop { co::levels::Feature::Workshop } else { co::levels::Feature::ElectricBuses };
         return Some(popup_answer(kit::locked(c, f).json(casual)));
     }
-    if !c.can_pay(cost) {
-        return Some(popup_answer(kit::no_cash(c, cost).json(casual)));
+    let need = dp::cash_needed(c, cost);
+    if need > 0 && !c.can_pay(need) {
+        return Some(popup_answer(kit::no_cash(c, need).json(casual)));
     }
     None
 }
@@ -323,6 +384,33 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                     s.say(t, false);
                     Ok(json!({}))
                 }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_upgrade" => {
+            let Some(u) = Upgrade::from_key(&str_arg(args, "key")) else { return Some(Ok(json!({}))) };
+            let Some(c) = s.company.clone() else { return Some(Ok(json!({}))) };
+            let Some((cost, _)) = dp::upgrade_cost(&c, u) else { return Some(Ok(json!({}))) };
+            if let Some(no) = refusal(&c, u.area(), cost) {
+                return Some(no);
+            }
+            match apply(s, |c| dp::build_upgrade(c, u)) {
+                Ok(()) => {
+                    s.say(trf("Building work has begun: %{what}.", &[("what", &tr(u.label()))]), false);
+                    Ok(json!({ "ok": true }))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "depot_look" => {
+            let own = |k: &str| args.get(k).and_then(Value::as_str).and_then(dp::colour);
+            let finish = Finish::from_key(&str_arg(args, "finish")).unwrap_or_default();
+            let look = Look { wall: own("wall"), roof: own("roof"), trim: own("trim"), door: own("door"), finish };
+            match apply(s, |c| {
+                dp::set_look(c, look);
+                Ok::<(), &'static str>(())
+            }) {
+                Ok(()) => Ok(json!({ "ok": true })),
                 Err(p) => popup_answer(p),
             }
         }

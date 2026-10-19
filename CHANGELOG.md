@@ -25,12 +25,27 @@ never changes their files.
 - **The depot in 3D**: the yard as a model to turn round and zoom into (and from straight above,
   2D), every bus in it as its own model in the livery it wears (baked once from the bus as the
   game draws it), a hundred and more of them smoothly. Build it up as you like: put each block of
-  spaces, workshop bay, washing bay, diesel station and the offices where you want them on the
-  yard's grid, turn and move them, pull them down, buy more land beside it. The staff at work
-  walk about it, each role a cartoon figure of its own: the mechanics beside the buses in the
-  bays, the cleaners at the washing bay and between the buses, a few drivers, the service staff
-  before the offices' door, the inspectors on the pavement by the gate (with the animations off
-  they stand still). The graphics can be set lower for slower computers.
+  spaces, workshop bay, wash lane, diesel station and the offices where you want them on the
+  yard's grid, turn and move them, pull them down, buy more land beside it. The graphics can be
+  set lower for slower computers.
+- **Your depot, built by you**: a company founded now starts with its land only and a building
+  credit for a first depot (spent before its cash). Until it has a workshop its buses go to a
+  garage outside, dearer and a day longer; until it has spaces they stand in the street. Every
+  area grows - more wash lanes, up to six diesel pumps - and has things to add: lights and
+  cameras, carports or a parking hall, a paint booth, an inspection lane, a tyre store, wash
+  gantries, interior cleaning, an underbody wash, water recycling, a bulk tank, AdBlue, a canteen,
+  a control room, a training room and a solar roof, each with what it costs and does. Companies
+  of before keep the yard they rented.
+- **The depot's look**: its walls', roofs', trims' and doors' own colours, and walls of steel
+  cladding, brick or plaster.
+- **The depot in its town**: streets with their pavements, worn road markings, zebra crossings,
+  street lamps, trees and parked cars round it, the trading estate's halls next door and blocks
+  of flats further out, their windows lit in the evening; the surfaces textured (asphalt, concrete,
+  brick, the wash bay's tiles, the workshop's coated floor ...) with cracks, tyre tracks and oil
+  where they are used; and the company's people at work - mechanics at the buses in the bays,
+  cleaners in the wash lanes, drivers on their way to their buses -, each role a cartoon figure
+  of its own (the driver, the mechanic, the cleaner, the service employee, the inspector, the
+  researcher) that walks and, where it works, stands at ease.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.

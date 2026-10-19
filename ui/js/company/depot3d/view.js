@@ -18,10 +18,10 @@ import { buildScene, AREAS, moduleUnder, ghostMesh, gridMesh } from './scene.js'
 import { rectOf, whyNot } from './yard.js';
 import { busMesh, instances, pickBus, skinned } from './bus.js';
 import { skin, skinKey } from './skins.js';
-import { DepotRenderer, VIEW } from './renderer.js';
+import { personMesh, people, rolesOf, rounds } from './people.js';
+import { DepotRenderer, VIEW, ZOOM } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
-import { Crowd } from './people.js';
 import { figure } from './figures.js';
 
 /** The menu's levels: what is chosen, its name, and what it gives up. */
@@ -65,10 +65,10 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const [sure, setSure] = useState(false);
   const pointer = useRef(null);
   const [skins, setSkins] = useState(0);
-  const crowd = useRef(null);
+  const crowd = useRef(0);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
-  const pal = palette();
+  const pal = palette(p.look);
   const key = JSON.stringify([p, pal.dark, pal.accent]);
 
   // the renderer, on a canvas of its own for each level (smoothing is the context's); its
@@ -83,6 +83,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     }
     r.current = view;
     view.setBusModel(busMesh(pal));
+    if (LEVELS[level].staff) view.setPersonModel(personMesh());
     view.resize(w, h);
     const kept = ui('depot').cam;
     view.aim(kept || VIEW, true);
@@ -90,7 +91,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     const wheel = (e) => {
       e.preventDefault();
       const g = view.goal;
-      const zoom = Math.max(0.15, Math.min(1.45, g.zoom * Math.exp(e.deltaY * 0.0012)));
+      const zoom = Math.max(ZOOM[0], Math.min(ZOOM[1], g.zoom * Math.exp(e.deltaY * 0.0012)));
       const b = el.getBoundingClientRect();
       const hit = view.ground(e.clientX - b.left, e.clientY - b.top);
       const f = 1 - zoom / g.zoom;
@@ -113,11 +114,52 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     if (!view) return;
     const s = buildScene(p, pal, LEVELS[level]);
     scene.current = s;
-    view.setYard(s.mesh, s.bounds, pal);
+    view.setYard(s.mesh, s.bounds, pal, s.world);
+    view.setDecals(s.decals);
     buses(true);
-    staff(view, s);
     setBuilt((n) => n + 1);
   }, [key, level]);
+
+  // the people at work: their rounds from the yard and the staff, walked about some thirty
+  // times a second while the page shows (standing still when the animations are off)
+  useEffect(() => {
+    const view = r.current;
+    const s = scene.current;
+    crowd.current = 0;
+    if (!view || !s || !LEVELS[level].staff) return undefined;
+    const list = rounds(s, p.staff, p.colour);
+    crowd.current = list.length;
+    if (!list.length) return undefined;
+    const show = (t) => {
+      const { rest, figures } = people(list, t, (role) => view.figureModel(role));
+      view.setPeople(rest, t);
+      view.setFigures(figures);
+    };
+    // each role's figure asked for: drawn from the next picture on (at once when they stand)
+    let gone = false;
+    for (const role of rolesOf(list))
+      figure(role).then((m) => {
+        if (!m || gone || r.current !== view) return;
+        view.setFigureModel(role, m);
+        if (still()) show(0);
+      });
+    let frame = 0;
+    let last = 0;
+    const t0 = performance.now();
+    const tick = (now) => {
+      frame = requestAnimationFrame(tick);
+      if (now - last < 32) return;
+      last = now;
+      const t = (now - t0) / 1000;
+      show(t);
+    };
+    if (still()) show(0);
+    else frame = requestAnimationFrame(tick);
+    return () => {
+      gone = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [key, level, skins]);
 
   // the buses' own models, as they come
   useEffect(() => buses(true), [skins]);
@@ -149,24 +191,6 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     const states = { picked: selected, hover: under };
     view.setBuses(instances(s.buses, rgb01(p.colour), { ...states, own: (b) => own.has(b.id) }), moved);
     view.setSkinned(skinned(s.buses, (b) => own.get(b.id), states), moved);
-  }
-
-  /** The staff about the yard: their figures asked for (each drawn once it is there), walking
-   * while the animations are on. */
-  function staff(view, s) {
-    const c = new Crowd(p.staff || [], s.routes, LEVELS[level].people);
-    crowd.current = c;
-    const modelOf = (role) => view.figureModel(role);
-    const speedOf = (role) => view.figureModel(role)?.speed || 0.65;
-    const show = () => view.setFigures(c.instances(modelOf));
-    for (const role of c.roles())
-      figure(role).then((m) => {
-        if (!m || r.current !== view || crowd.current !== c) return;
-        view.setFigureModel(role, m);
-        show();
-      });
-    show();
-    view.setTicker(c.count && !still() ? (dt) => (c.step(dt, speedOf), show()) : null);
   }
 
   useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover]);
@@ -352,7 +376,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const tip = under && s?.buses.find((b) => b.id === under);
   const card = sel && s?.picks.find((o) => o.id === sel);
   const hint = placing ? tr('Click to put it down, R to turn it, Esc to stop') : flat ? tr('Drag to move, scroll to zoom') : tr('Drag to turn, right-drag to move, scroll to zoom');
-  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} data-people=${crowd.current?.count || 0} style=${`width:${w}px;height:${h}px`}>
+  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} data-people=${crowd.current} style=${`width:${w}px;height:${h}px`}>
     <canvas key=${level} ref=${canvas} class=${under ? 'on-bus' : ''} style=${`width:${w}px;height:${h}px`} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerLeave=${() => !drag.current && under !== null && setUnder(null)} onContextMenu=${(e) => e.preventDefault()}></canvas>
     <div class="dp-tags" ref=${tags}>${s?.labels.map(tagFor)}</div>
     ${tip && !placing && html`<div class="dp-tip">${tip.tip}</div>`}
