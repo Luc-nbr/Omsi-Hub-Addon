@@ -19,7 +19,7 @@ const wasm = join(root, 'target', 'wasm32-wasip1', 'web', 'hub_web.wasm');
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const d of ['css', 'fonts', 'img', 'js', 'vendor']) cpSync(join(root, 'ui', d), join(out, d), { recursive: true });
+for (const d of ['css', 'fonts', 'img', 'js', 'models', 'vendor']) cpSync(join(root, 'ui', d), join(out, d), { recursive: true });
 // (the mock backend and the app's own start stay behind: the website starts web/company.js)
 rmSync(join(out, 'js', 'mock'), { recursive: true, force: true });
 rmSync(join(out, 'js', 'mock.js'), { force: true });

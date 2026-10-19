@@ -3,16 +3,18 @@
 // "auto": a guess from the computer to start with, a level lower when the pictures come too
 // slowly while the yard is turned.
 //
-// * high: the sun's shadows at 2048², smoothed edges, the screen's full sharpness (up to 2x);
-// * medium: shadows at 1024², smoothed edges, at most 1.5x;
-// * low: no shadows, no smoothing, 1x, no trees, the buses' pictures at half their size.
+// * high: the sun's shadows at 2048², smoothed edges, the screen's full sharpness (up to 2x),
+//   up to 40 of the staff about the yard;
+// * medium: shadows at 1024², smoothed edges, at most 1.5x, up to 24 of the staff;
+// * low: no shadows, no smoothing, 1x, no trees, the buses' pictures at half their size, up to
+//   10 of the staff.
 
 const KEY = 'omsihub.depot3d.quality';
 
 export const LEVELS = {
-  high: { shadow: 2048, msaa: true, dpr: 2, trees: true, atlas: 1024 },
-  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true, atlas: 1024 },
-  low: { shadow: 0, msaa: false, dpr: 1, trees: false, atlas: 512 },
+  high: { shadow: 2048, msaa: true, dpr: 2, trees: true, atlas: 1024, people: 40 },
+  medium: { shadow: 1024, msaa: true, dpr: 1.5, trees: true, atlas: 1024, people: 24 },
+  low: { shadow: 0, msaa: false, dpr: 1, trees: false, atlas: 512, people: 10 },
 };
 const DOWN = { high: 'medium', medium: 'low', low: 'low' };
 

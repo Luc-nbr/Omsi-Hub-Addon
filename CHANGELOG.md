@@ -26,8 +26,11 @@ never changes their files.
   2D), every bus in it as its own model in the livery it wears (baked once from the bus as the
   game draws it), a hundred and more of them smoothly. Build it up as you like: put each block of
   spaces, workshop bay, washing bay, diesel station and the offices where you want them on the
-  yard's grid, turn and move them, pull them down, buy more land beside it. The graphics can be
-  set lower for slower computers.
+  yard's grid, turn and move them, pull them down, buy more land beside it. The staff at work
+  walk about it, each role a cartoon figure of its own: the mechanics beside the buses in the
+  bays, the cleaners at the washing bay and between the buses, a few drivers, the service staff
+  before the offices' door, the inspectors on the pavement by the gate (with the animations off
+  they stand still). The graphics can be set lower for slower computers.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.

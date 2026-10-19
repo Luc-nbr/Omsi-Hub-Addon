@@ -61,7 +61,8 @@ fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     json!({ "id": v.id, "number": v.number, "size": v.kind.size, "file": v.bus, "paint": paint, "tip": tip })
 }
 
-/// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.
+/// The yard from above (`depot::plan`): what is built, being built, where the buses stand, and
+/// the staff at work today (the 3D yard has them walk about it, each as their role's figure).
 fn plan(c: &Company) -> Value {
     let today = c.date.clone();
     let held: Vec<&co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(&today)).collect();
@@ -94,6 +95,7 @@ fn plan(c: &Company) -> Value {
         "offices": offices, "hall": hall, "wash": wash, "fuel": fuel, "parking": parking,
         "in_ws": in_ws.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
         "parked": parked.iter().map(|v| bus_at(c, v)).collect::<Vec<_>>(),
+        "staff": c.staff.iter().filter(|e| co::staff::at_work(e, &today)).map(|e| json!({ "id": e.id, "role": e.role })).collect::<Vec<_>>(),
         "layout": layout(c),
     })
 }

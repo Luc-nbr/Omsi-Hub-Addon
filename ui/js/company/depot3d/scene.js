@@ -37,9 +37,9 @@ export function frame(rot, x0, z0, lw, ld) {
   return { pt, dir, heading: (h) => h + (k * Math.PI) / 2 };
 }
 
-/** The yard: `{ mesh, buses, labels, bounds, picks }` (`picks`: each module's place in metres,
- * to point at). `pal` is the look's palette (`palette.js`), `level` how finely it is drawn
- * (`quality.js`: without trees at the lowest). */
+/** The yard: `{ mesh, buses, labels, bounds, picks, routes }` (`picks`: each module's place in
+ * metres, to point at; `routes`: where the staff walk, `people.js`). `pal` is the look's palette
+ * (`palette.js`), `level` how finely it is drawn (`quality.js`: without trees at the lowest). */
 export function buildScene(p, pal, level = { trees: true }) {
   const L = p.layout;
   const cell = L.cell;
@@ -47,6 +47,7 @@ export function buildScene(p, pal, level = { trees: true }) {
   const buses = [];
   const labels = [];
   const picks = [];
+  const routes = [];
   const W = L.cols * cell;
   const D = L.rows * cell;
   const MW = L.max_cols * cell;
@@ -103,6 +104,16 @@ export function buildScene(p, pal, level = { trees: true }) {
     picks.push({ id: o.id, area: o.area, title: o.title, what: o.what, works: o.works, building: o.building, rot: o.rot, x0: o.x * cell, z0: o.y * cell, x1: (o.x + o.w) * cell, z1: (o.y + o.h) * cell });
     return f;
   };
+  // a way the staff walk (`people.js`), in a module's frame: points [lx, lz, a stop, the way
+  // they face there (0: to the module's front)]
+  const route = (kind, f, pts) =>
+    routes.push({
+      kind,
+      pts: pts.map(([lx, lz, stop = false, face = null]) => {
+        const [x, , z] = f.pt([lx, 0, lz]);
+        return { x, z, stop, face: face === null ? null : f.heading(face) };
+      }),
+    });
   const tag = (key, f, lx, y, lz, o) => labels.push({ key, head: o.title, pos: f.pt([lx, y, lz]), built: !o.building, works: o.works });
   // building work: an amber outline, a site fence and a crane's mast
   const works = (mm, r, area, h = 4) => {
@@ -135,6 +146,19 @@ export function buildScene(p, pal, level = { trees: true }) {
       if (o.works) works(mm, r, A, h);
     });
     tag('offices', f, 10, h + 3, 14, o);
+    // before its door, and along its front
+    const s = shape('offices');
+    const lw = s.w * cell;
+    const ld = s.h * cell;
+    route('offices', f, [
+      [lw / 2, ld + 1.4, true, 0],
+      [lw / 2 - 6, ld + 2.2, true],
+      [lw / 2 + 6, ld + 2.2, true],
+    ]);
+    route('offices', f, [
+      [2, ld + 3, true],
+      [lw - 2, ld + 3, true],
+    ]);
   }
 
   // the workshop: a hall a bay, the bays side by side make one; the buses in their bays, nose
@@ -160,6 +184,22 @@ export function buildScene(p, pal, level = { trees: true }) {
     const bus = p.in_ws[k];
     if (bus) buses.push(place(bus, f, 4, 15, 'workshop'));
     if (k === 0) tag('workshop', f, 4, H + 3.5, 14, o);
+    // either side of the bus in the bay, facing it; its forecourt
+    const s = shape('workshop');
+    const lw = s.w * cell;
+    const ld = s.h * cell;
+    route('workshop', f, [
+      [lw - 1.4, 7, true, -Math.PI / 2],
+      [lw - 1.4, 23, true, -Math.PI / 2],
+    ]);
+    route('workshop', f, [
+      [1.4, 7, true, Math.PI / 2],
+      [1.4, 23, true, Math.PI / 2],
+    ]);
+    route('workshop', f, [
+      [1.5, ld + 3, true, Math.PI],
+      [lw - 1.5, ld + 3, true, Math.PI],
+    ]);
   });
   if (bays.length) {
     const s = shape('workshop');
@@ -185,6 +225,18 @@ export function buildScene(p, pal, level = { trees: true }) {
       if (o.works) works(mm, r, A, 6);
     });
     tag('wash', f, 6, 9, 14, o);
+    // beside the lane, clear of the brushes; before it
+    const s = shape('wash');
+    const lw = s.w * cell;
+    const ld = s.h * cell;
+    route('wash', f, [
+      [1.6, 4, true, Math.PI / 2],
+      [1.6, ld - 4, true, Math.PI / 2],
+    ]);
+    route('wash', f, [
+      [2, ld + 2, true],
+      [lw - 2, ld + 2, true],
+    ]);
   }
 
   // the diesel station: a canopy on four columns over its pumps, a band in the accent
@@ -213,6 +265,18 @@ export function buildScene(p, pal, level = { trees: true }) {
       if (o.works) works(mm, r, A, 6);
     });
     tag('fuel', f, 10, 10, 10, o);
+    // from the forecourt to beside a pump
+    const s = shape('fuel');
+    const lw = s.w * cell;
+    const ld = s.h * cell;
+    const pumps = Math.max(1, p.fuel.pumps || 1);
+    for (let k = 0; k < pumps; k++) {
+      const x = ((k + 1) * lw) / (pumps + 1);
+      route('fuel', f, [
+        [x + 1.3, ld / 2 + 2.4, true, Math.PI],
+        [x + 1.3, ld + 3, true],
+      ]);
+    }
   }
 
   // the parking: blocks of spaces, a charger at the head of the spaces it serves; the bus in
@@ -241,10 +305,35 @@ export function buildScene(p, pal, level = { trees: true }) {
       n++;
     }
     if (k === 0) tag('parking', f, (ps.w * cell) / 2, 7, 10, o);
+    // along the lane before the spaces, and in between the buses
+    const lw = ps.w * cell;
+    const ld = ps.h * cell;
+    route('parking', f, [
+      [2, ld + 2.5, true],
+      [lw / 2, ld + 2.5],
+      [lw - 2, ld + 2.5, true],
+    ]);
+    for (let s = 1; s < per; s += 3)
+      route('parking', f, [
+        [s * sw, ld + 2.5, true],
+        [s * sw, 5, true, 0],
+      ]);
   });
   // the buses the yard has no space for: along the street, a warning ring round each
   const streetFrame = frame(0, 0, 0, 0, 0);
   p.parked.slice(n, n + 10).forEach((bus, k) => buses.push(place(bus, streetFrame, bx0 + 12 + k * 14, street.z0 + 3, 'street', Math.PI / 2)));
+
+  // the pavement along the street, either side of the gate; beside the gatehouse
+  const pave = street.z0 - 0.8;
+  route('street', streetFrame, [
+    [Math.max(bx0 + 4, gate.x0 - 30), pave, true],
+    [gate.x0 - 2, pave, true],
+  ]);
+  route('street', streetFrame, [
+    [gate.x1 + 2, pave, true],
+    [gate.x1 + 30, pave, true],
+  ]);
+  route('street', streetFrame, [[gate.x1 + 2.75, D + 1, true, 0]]);
 
   // trees on the verge, round the land but not on the street
   if (level.trees) {
@@ -264,7 +353,7 @@ export function buildScene(p, pal, level = { trees: true }) {
     for (let x = bx0 + 6; x < bx1 - 2; x += 10 + rnd() * 8) if (x < gate.x0 - 8 || x > gate.x1 + 8) tree(x, street.z1 + 3 + rnd() * 2);
   }
 
-  return { mesh: m, buses, labels, picks, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, yard: { w: W, d: D } };
+  return { mesh: m, buses, labels, picks, routes, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, yard: { w: W, d: D } };
 }
 
 /** A bus where it stands, in a module's frame: its centre, its heading (0: nose to the

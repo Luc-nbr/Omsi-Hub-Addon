@@ -6,9 +6,10 @@
 // Escape or a right click stops. Drag to turn the yard round (in 2D: to move it), right-drag (or
 // Shift) to move it,
 // scroll to zoom; the camera is kept for when the page comes back. Each bus is drawn as its own
-// model in its livery once that is there (`skins.js`), until then as the plain one. How finely it is drawn is
-// chosen in its menu (`quality.js`). Without WebGL2 the page draws its plan from above instead
-// (`onFail`).
+// model in its livery once that is there (`skins.js`), until then as the plain one. The staff at
+// work walk about the yard (`people.js`, their figures `figures.js`); with the animations off
+// they stand still. How finely it is drawn is chosen in its menu (`quality.js`). Without WebGL2
+// the page draws its plan from above instead (`onFail`).
 
 import { html, useEffect, useRef, useState, tr, Icon, IconBtn, Btn, ui, setUi } from '../kit.js';
 import { actMore } from '../more.js';
@@ -20,6 +21,8 @@ import { skin, skinKey } from './skins.js';
 import { DepotRenderer, VIEW } from './renderer.js';
 import { palette, rgb01 } from './palette.js';
 import { LEVELS, chooseQuality, chosenQuality, levelOf, stepDown } from './quality.js';
+import { Crowd } from './people.js';
+import { figure } from './figures.js';
 
 /** The menu's levels: what is chosen, its name, and what it gives up. */
 const QUALITY = [
@@ -62,6 +65,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const [sure, setSure] = useState(false);
   const pointer = useRef(null);
   const [skins, setSkins] = useState(0);
+  const crowd = useRef(null);
   const auto = useRef(quality === 'auto');
   auto.current = quality === 'auto';
   const pal = palette();
@@ -111,6 +115,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     scene.current = s;
     view.setYard(s.mesh, s.bounds, pal);
     buses(true);
+    staff(view, s);
     setBuilt((n) => n + 1);
   }, [key, level]);
 
@@ -144,6 +149,24 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     const states = { picked: selected, hover: under };
     view.setBuses(instances(s.buses, rgb01(p.colour), { ...states, own: (b) => own.has(b.id) }), moved);
     view.setSkinned(skinned(s.buses, (b) => own.get(b.id), states), moved);
+  }
+
+  /** The staff about the yard: their figures asked for (each drawn once it is there), walking
+   * while the animations are on. */
+  function staff(view, s) {
+    const c = new Crowd(p.staff || [], s.routes, LEVELS[level].people);
+    crowd.current = c;
+    const modelOf = (role) => view.figureModel(role);
+    const speedOf = (role) => view.figureModel(role)?.speed || 0.65;
+    const show = () => view.setFigures(c.instances(modelOf));
+    for (const role of c.roles())
+      figure(role).then((m) => {
+        if (!m || r.current !== view || crowd.current !== c) return;
+        view.setFigureModel(role, m);
+        show();
+      });
+    show();
+    view.setTicker(c.count && !still() ? (dt) => (c.step(dt, speedOf), show()) : null);
   }
 
   useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover]);
@@ -329,7 +352,7 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
   const tip = under && s?.buses.find((b) => b.id === under);
   const card = sel && s?.picks.find((o) => o.id === sel);
   const hint = placing ? tr('Click to put it down, R to turn it, Esc to stop') : flat ? tr('Drag to move, scroll to zoom') : tr('Drag to turn, right-drag to move, scroll to zoom');
-  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} style=${`width:${w}px;height:${h}px`}>
+  return html`<div class="cm-plan cm-plan3d" data-buses=${s ? s.buses.length : 0} data-people=${crowd.current?.count || 0} style=${`width:${w}px;height:${h}px`}>
     <canvas key=${level} ref=${canvas} class=${under ? 'on-bus' : ''} style=${`width:${w}px;height:${h}px`} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerLeave=${() => !drag.current && under !== null && setUnder(null)} onContextMenu=${(e) => e.preventDefault()}></canvas>
     <div class="dp-tags" ref=${tags}>${s?.labels.map(tagFor)}</div>
     ${tip && !placing && html`<div class="dp-tip">${tip.tip}</div>`}

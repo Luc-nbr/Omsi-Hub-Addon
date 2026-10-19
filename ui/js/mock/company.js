@@ -1232,7 +1232,10 @@ function depot() {
     }
     const v = depot();
     depot.inner = false;
-    return { ...v, plan: { ...v.plan, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8) } };
+    // (and a staff to match: a driver a bus, the rest by the roles' share)
+    const roles = ['driver', 'driver', 'driver', 'driver', 'mechanic', 'cleaner', 'driver', 'service', 'driver', 'researcher', 'driver', 'inspector'];
+    const staff = Array.from({ length: Math.round(many * 1.3) }, (_, k) => ({ id: 2000 + k, role: roles[k % roles.length] }));
+    return { ...v, plan: { ...v.plan, wash: { ...v.plan.wash, gates: true }, fuel: { ...v.plan.fuel, pumps: 3 }, offices: { ...v.plan.offices, floors: 3 }, parking: { ...v.plan.parking, chargers: 24 }, in_ws: fleet.slice(0, 8), parked: fleet.slice(8), staff } };
   }
   return {
     figures: [
@@ -1247,6 +1250,9 @@ function depot() {
       parking: { label: 'PARKING', works: null, blocks: 8, built: SITE.parking, building: false, per: 12, chargers: 0 },
       layout: yardOf(SITE),
       in_ws: BUSES.filter((b) => b.workshop).map(busAt), parked: BUSES.filter((b) => !b.workshop).map(busAt),
+      // the staff at work (the dispatcher as a service employee), and a cleaner, an inspector and
+      // a researcher besides, so every figure shows
+      staff: [...STAFF.map((e) => ({ id: e.id, role: { Driver: 'driver', Mechanic: 'mechanic', Dispatcher: 'service' }[e.role] })), { id: 8, role: 'cleaner' }, { id: 9, role: 'inspector' }, { id: 10, role: 'researcher' }],
     },
     build: {
       title: 'Build',
