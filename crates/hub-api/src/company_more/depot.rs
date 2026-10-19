@@ -2,8 +2,7 @@
 //! above - the offices, the workshop hall with its bays, the washing bay, the diesel station,
 //! the parking's blocks with their chargers, the buses where they stand tonight -, the areas to
 //! build (a bigger depot, level by level, and what can be added to each area), the building
-//! credit a new company has, its look, the staff the 3D depot shows at work, and the workshop's
-//! jobs. The rules are `company::depot`'s.
+//! credit a new company has, its look, and the workshop's jobs. The rules are `company::depot`'s.
 
 use super::super::kit;
 use super::super::words::{day_label, eur, grade, tr, trf};
@@ -11,7 +10,6 @@ use super::super::{act as apply, Session};
 use super::{popup_answer, str_arg, u32_arg};
 use crate::Answer;
 use hub_core::company::depot::{self as dp, Area, Finish, JobKind, Look, Upgrade};
-use hub_core::company::model::Role;
 use hub_core::company::yard;
 use hub_core::company::{self as co, Company};
 use serde_json::{json, Value};
@@ -63,8 +61,7 @@ fn bus_at(c: &Company, v: &co::Vehicle) -> Value {
     json!({ "id": v.id, "number": v.number, "size": v.kind.size, "file": v.bus, "paint": paint, "tip": tip })
 }
 
-/// The yard from above (`depot::plan`): what is built, being built, where the buses stand, and
-/// the staff at work today (the 3D yard has them walk about it, each as their role's figure).
+/// The yard from above (`depot::plan`): what is built, being built, and where the buses stand.
 fn plan(c: &Company) -> Value {
     let today = c.date.clone();
     let held: Vec<&co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(&today)).collect();
@@ -101,30 +98,12 @@ fn plan(c: &Company) -> Value {
         "layout": layout(c),
         "upgrades": c.site.upgrades.iter().map(|u| u.key()).collect::<Vec<_>>(),
         "look": look(&c.site.look),
-        "staff": staff(c),
     })
 }
 
 /// The depot's look as the page has it: its own colours (null: the depot's) and its walls.
 fn look(l: &Look) -> Value {
     json!({ "wall": l.wall, "roof": l.roof, "trim": l.trim, "door": l.door, "finish": l.finish.key() })
-}
-
-/// The people at work at the depot today, as the 3D depot shows them: the drivers (those out on
-/// a duty now among them), the mechanics, the cleaners and the others (the offices': service,
-/// inspectors, research - each also counted alone, for its own figure).
-fn staff(c: &Company) -> Value {
-    let today = &c.date;
-    let n = |r: &[Role]| c.staff.iter().filter(|e| e.employed_on(today) && r.contains(&e.role)).count();
-    json!({
-        "drivers": n(&[Role::Driver]),
-        "mechanics": n(&[Role::Mechanic]),
-        "cleaners": n(&[Role::Cleaner]),
-        "office": n(&[Role::Service, Role::Inspector, Role::Researcher]),
-        "service": n(&[Role::Service]),
-        "inspectors": n(&[Role::Inspector]),
-        "researchers": n(&[Role::Researcher]),
-    })
 }
 
 /// The yard laid out (`yard`), as the 3D depot draws it and its build mode puts modules down:

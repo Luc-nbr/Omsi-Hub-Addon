@@ -1,5 +1,2 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-
-# the depot's staff figures (`tools/staff_models.py`)
-*.bin binary

@@ -1275,7 +1275,6 @@ function depot() {
       layout: yardOf(SITE),
       in_ws: EMPTY ? [] : BUSES.filter((b) => b.workshop).map(busAt), parked: EMPTY ? [] : BUSES.filter((b) => !b.workshop).map(busAt),
       upgrades: SITE.upgrades, look: SITE.look,
-      staff: EMPTY ? { drivers: 0, mechanics: 0, cleaners: 0, office: 0, service: 0, inspectors: 0, researchers: 0 } : { drivers: 14, mechanics: 3, cleaners: 2, office: 3, service: 1, inspectors: 1, researchers: 1 },
     },
     build: {
       title: 'Build',
