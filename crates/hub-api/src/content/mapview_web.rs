@@ -69,8 +69,23 @@ pub fn trips_page(map: &str, global: &Path, date: &str, trips: &[String]) -> Val
     let tracks = v.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
     let route: Vec<Value> = tracks.iter().filter_map(|t| t.get("p").filter(|p| p.as_array().is_some_and(|a| !a.is_empty())).cloned()).collect();
     let stops: Vec<Value> = tracks.iter().flat_map(|t| t.get("stops").and_then(Value::as_array).cloned().unwrap_or_default()).filter(|s| s.is_array()).map(|at| json!({ "at": at, "k": -1 })).collect();
+    // (each trip by its name: its route's place in `route` and its stops, null where the map
+    // lacks one - the live dashboard's navigator follows the trip under way on it)
+    let mut at = 0;
+    let named: Vec<Value> = tracks
+        .iter()
+        .map(|t| {
+            let has = t.get("p").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+            let k = has.then(|| {
+                at += 1;
+                at - 1
+            });
+            json!({ "name": t.get("name"), "route": k, "stops": t.get("stops") })
+        })
+        .collect();
     v["route"] = json!(route);
     v["stops"] = json!(stops);
+    v["trips"] = json!(named);
     v["entries"] = json!([]);
     if let Some(o) = v.as_object_mut() {
         o.remove("tracks");

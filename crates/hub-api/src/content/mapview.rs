@@ -44,39 +44,59 @@ pub struct RoadPiece {
 /// trip's own track (`.ttr`) when it has one, else the station links between its stops, as the
 /// game walks them.
 pub fn trip_path(map: &str, date: &str, trip: &str) -> Result<TripPath, String> {
-    let global = hub_core::paths::resolve_content(map).ok_or_else(|| format!("the map {map} is not there"))?;
-    let map_dir = global.parent().map(Path::to_path_buf).ok_or("map folder")?;
-    let date = if date.trim().is_empty() { "1989-05-30" } else { date.trim() };
-    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| format!("'{date}' is not a date (YYYY-MM-DD)"))?;
-    let chrono = hub_omsi::map::active_chrono_dirs(&map_dir, day);
-    let off = hub_omsi::map::chrono_deactivated_lines(&chrono);
-    let data = hub_omsi::timetable::Timetable::load_with_chrono(&hub_core::paths::resolve_path(&map_dir, "TTData"), &chrono, &off);
-    let mut out = TripPath::default();
-    let Some(t) = data.trip(trip) else { return Ok(out) };
-    out.stops = t.stops.iter().map(|s| s.id).collect();
-    // (the tile of a step is the index of its entry in `[map]`, as the game reads it)
-    let tiles = hub_omsi::map::GlobalCfg::load(&global).map(|g| g.tiles).unwrap_or_default();
-    let at = |index: usize| tiles.get(index).copied();
-    if let Some(track) = data.track_of(t) {
-        for e in &track.entries {
-            if let Some(tile) = at(e.tile) {
-                out.route.push(RoadPiece { tile_x: tile.0, tile_y: tile.1, spline: e.spline, path: e.path.max(0) as u16 });
+    Ok(Trips::read(map, date)?.path(trip))
+}
+
+/// The timetable of a map on a day and its tiles, read once for the routes of many trips (the
+/// fleet map's: `fleet_export`).
+pub struct Trips {
+    data: hub_omsi::timetable::Timetable,
+    /// The tiles of `global.cfg`'s `[map]` list, in its order.
+    tiles: Vec<(i32, i32)>,
+}
+
+impl Trips {
+    pub fn read(map: &str, date: &str) -> Result<Trips, String> {
+        let global = hub_core::paths::resolve_content(map).ok_or_else(|| format!("the map {map} is not there"))?;
+        let map_dir = global.parent().map(Path::to_path_buf).ok_or("map folder")?;
+        let date = if date.trim().is_empty() { "1989-05-30" } else { date.trim() };
+        let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| format!("'{date}' is not a date (YYYY-MM-DD)"))?;
+        let chrono = hub_omsi::map::active_chrono_dirs(&map_dir, day);
+        let off = hub_omsi::map::chrono_deactivated_lines(&chrono);
+        let data = hub_omsi::timetable::Timetable::load_with_chrono(&hub_core::paths::resolve_path(&map_dir, "TTData"), &chrono, &off);
+        // (the tile of a step is the index of its entry in `[map]`, as the game reads it)
+        let tiles = hub_omsi::map::GlobalCfg::load(&global).map(|g| g.tiles).unwrap_or_default();
+        Ok(Trips { data, tiles })
+    }
+
+    /// The route of trip `trip` (`trip_path`).
+    pub fn path(&self, trip: &str) -> TripPath {
+        let data = &self.data;
+        let mut out = TripPath::default();
+        let Some(t) = data.trip(trip) else { return out };
+        out.stops = t.stops.iter().map(|s| s.id).collect();
+        let at = |index: usize| self.tiles.get(index).copied();
+        if let Some(track) = data.track_of(t) {
+            for e in &track.entries {
+                if let Some(tile) = at(e.tile) {
+                    out.route.push(RoadPiece { tile_x: tile.0, tile_y: tile.1, spline: e.spline, path: e.path.max(0) as u16 });
+                }
+            }
+            return out;
+        }
+        for w in out.stops.clone().windows(2) {
+            let Some(link) = data.stn_links.iter().find(|l| l.from_id == w[0] && l.to_id == w[1]) else { continue };
+            for e in &link.entries {
+                let Some(tile) = at(e[2].max(0.0) as usize) else { continue };
+                let p = RoadPiece { tile_x: tile.0, tile_y: tile.1, spline: e[0] as i64, path: e[1].max(0.0) as u16 };
+                // (consecutive links repeat the piece they share)
+                if out.route.last() != Some(&p) {
+                    out.route.push(p);
+                }
             }
         }
-        return Ok(out);
+        out
     }
-    for w in out.stops.clone().windows(2) {
-        let Some(link) = data.stn_links.iter().find(|l| l.from_id == w[0] && l.to_id == w[1]) else { continue };
-        for e in &link.entries {
-            let Some(tile) = at(e[2].max(0.0) as usize) else { continue };
-            let p = RoadPiece { tile_x: tile.0, tile_y: tile.1, spline: e[0] as i64, path: e[1].max(0.0) as u16 };
-            // (consecutive links repeat the piece they share)
-            if out.route.last() != Some(&p) {
-                out.route.push(p);
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// What the map should show. Changing `map` reads the tiles again; changing `trip` only walks
@@ -316,8 +336,23 @@ pub fn trips_page(map: &str, global: &Path, date: &str, trips: &[String]) -> ser
     let tracks = v.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
     let route: Vec<Value> = tracks.iter().filter_map(|t| t.get("p").filter(|p| p.as_array().is_some_and(|a| !a.is_empty())).cloned()).collect();
     let stops: Vec<Value> = tracks.iter().flat_map(|t| t.get("stops").and_then(Value::as_array).cloned().unwrap_or_default()).filter(|s| s.is_array()).map(|at| json!({ "at": at, "k": -1 })).collect();
+    // (each trip by its name: its route's place in `route` and its stops, null where the map
+    // lacks one - the live dashboard's navigator follows the trip under way on it)
+    let mut at = 0;
+    let named: Vec<Value> = tracks
+        .iter()
+        .map(|t| {
+            let has = t.get("p").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+            let k = has.then(|| {
+                at += 1;
+                at - 1
+            });
+            json!({ "name": t.get("name"), "route": k, "stops": t.get("stops") })
+        })
+        .collect();
     v["route"] = json!(route);
     v["stops"] = json!(stops);
+    v["trips"] = json!(named);
     v["entries"] = json!([]);
     if let Some(o) = v.as_object_mut() {
         o.remove("tracks");
@@ -342,14 +377,15 @@ pub fn fleet_export(map: &str, global: &Path, date: &str, trips: &[String], tole
     // the roads, as `export` has them
     let list: Vec<serde_json::Value> = roads.roads.iter().map(|r| json!({ "w": (r.width * 10.0).round() / 10.0, "main": r.main, "p": flat(&r.points, tolerance) })).collect();
     let rel = |q: DVec2| [r1(q.x - o.x), r1(q.y - o.y)];
-    // the trips' routes and stops
+    // the trips' routes and stops (the timetable read once for all of them)
     let mut tracks = Vec::new();
+    let mut read: Option<Result<Trips, String>> = None;
     for name in trips {
         if name.trim().is_empty() {
             continue;
         }
-        let path = match trip_path(map, date, name) {
-            Ok(p) => p,
+        let path = match read.get_or_insert_with(|| Trips::read(map, date)) {
+            Ok(t) => t.path(name),
             Err(e) => {
                 log::debug!("trip path for {name}: {e}");
                 tracks.push(json!({ "name": name, "p": [], "stops": [] }));

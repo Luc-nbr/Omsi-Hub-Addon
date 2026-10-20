@@ -19,6 +19,7 @@ pub mod company;
 pub mod compose;
 pub mod depot;
 pub mod duty;
+pub mod ibis;
 pub mod linehof;
 pub mod lines;
 pub mod log;

@@ -1,6 +1,7 @@
 // The live dashboard (Luc, 2026-10-19): what the launcher shows while a drive it started runs -
-// a shift, a tour, a free drive or a company's duty alike. Six cards: the duty (its route, bus,
-// start and how far it has come, the next break), the bus on the map, the drive's figures (this
+// a shift, a tour, a free drive or a company's duty alike. Six cards: the duty (its route, where
+// it goes, what the IBIS is set to, start and how far it has come, the next break), the
+// navigator (`navigator.js`; the whole duty's map before the bus moves), the drive's figures (this
 // drive, the week, the month), the next stops with when the bus gets there, the alerts, and
 // quick actions. It stands in place of the launcher's pages until the driver goes back to them
 // (a pill in the corner brings it back) and while the window rests in the background.
@@ -16,6 +17,7 @@ import { Icon, tr } from './bits.js';
 import { SYMBOLS } from '../symbols.js';
 import { dark } from './theme.js';
 import { flipLook } from './bar.js';
+import { Navigator } from './navigator.js';
 
 let cssLoaded = false;
 function loadCss() {
@@ -57,6 +59,8 @@ function distance(metres) {
   return metres < 1000 ? [fmt(Math.round(metres / 10) * 10), 'm'] : [fmt(metres / 1000, metres < 100_000 ? 1 : 0), 'km'];
 }
 const distanceText = (m) => distance(m).join(' ');
+/** The words of numbers the navigator says. */
+const WORDS = { distance: (m) => distanceText(m), hhmm: (s) => hhmm(s), delay: (d) => delayText(d) };
 const speedOf = (kmh) => (imperial() ? [fmt(kmh / 1.609344), 'mph'] : [fmt(kmh), 'km/h']);
 
 /** How late (`+2 min`), early (`−1 min`) or on time. */
@@ -74,10 +78,13 @@ function useLive() {
   useEffect(() => {
     let alive = true;
     let timer = 0;
+    // (an answer like the last changes nothing: not the whole page drawn again for it)
+    let last = '';
     const tick = async () => {
       const v = await call('hub_live').catch(() => null);
       if (!alive) return;
-      if (v) set({ live: v });
+      const text = v ? JSON.stringify(v) : '';
+      if (v && text !== last) ((last = text), set({ live: v }));
       // (the game ended without the page hearing it: back to the launcher)
       if (v && v.running === false && S.game?.running) set({ game: { ...S.game, running: false } });
       timer = setTimeout(tick, document.hasFocus() ? 1000 : 3000);
@@ -125,6 +132,39 @@ function modeLine(v) {
   return tr('A drive of your own');
 }
 
+const pad = (n, k) => (n == null ? '' : String(n).padStart(k, '0'));
+
+/** What the driver types into the IBIS for the trip (`v.ibis`, from the bus's depot file): the
+ * keys and their numbers, what the IBIS then shows, and whether the bus's IBIS is set so. */
+export function IbisPanel({ v, full = false }) {
+  const i = v.ibis;
+  if (!i || (!i.trip && !i.codes)) return null;
+  const c = i.codes;
+  const when = i.for === 'now' ? tr('This trip') : i.for === 'next' ? tr('Next trip, %{time}', { time: hhmm(i.departure) }) : tr('First trip, %{time}', { time: hhmm(i.departure) });
+  const chip = i.matches === true ? html`<span class="dash-chip ok"><${Icon} name="check_circle" size=${13} />${tr('IBIS set')}</span>` : i.matches === false ? html`<span class="dash-chip warn"><${Icon} name="warning" size=${13} />${tr('Check the IBIS')}</span>` : null;
+  let body;
+  if (!c) {
+    const why = !i.hof ? tr('The bus names no depot file, so its IBIS knows no destination.') : !i.file ? tr('The bus has no depot file %{hof}: its IBIS knows no destination.', { hof: i.hof }) : tr('The depot file %{hof} has no destination for this trip.', { hof: i.hof });
+    body = html`<p class="ibis-none">${why}</p>`;
+  } else {
+    const key = (label, value, note) => html`<div class="ibis-key"><span>${label}</span><b>${value}</b>${note && html`<small>${note}</small>`}</div>`;
+    body = html`<div class="ibis-row">
+      ${key(tr('Linie/Kurs'), c.line ?? '–', i.kurs ? tr('Kurs %{kurs}', { kurs: pad(i.kurs, 2) }) : '')}
+      ${c.route != null ? key(tr('Route'), pad(c.route, 2), c.route_code) : key(tr('Ziel'), pad(c.terminus ?? c.terminus_code, 3), '')}
+      <div class="ibis-lcd" title=${c.route_name || ''}><b class="cut">${c.display || c.terminus_name}</b><small>${tr('Ziel %{code}', { code: pad(c.terminus_code, 3) })}${i.stop != null ? ` · ${tr('stop %{n}', { n: i.stop + 1 })}` : ''}</small></div>
+    </div>`;
+  }
+  const set = i.set;
+  const shows = i.matches === false && set ? tr('The IBIS shows line %{line}, destination %{dest}.', { line: set.line != null ? Math.round(set.line) : '–', dest: set.terminus != null ? pad(Math.round(set.terminus), 3) : '–' }) : '';
+  return html`<div class=${'dash-ibis' + (full ? ' full' : '')}>
+    <div class="ibis-head"><b>IBIS</b><span class="cut">${[when, i.hof && i.hof + '.hof'].filter(Boolean).join(' · ')}</span>${chip}</div>
+    ${body}
+    ${shows && html`<p class="ibis-none warn">${shows}</p>`}
+    ${full && c && (c.front || []).length > 0 && html`<div class="ibis-front">${c.front.map((r) => html`<span>${r}</span>`)}</div>`}
+    ${full && i.next?.codes && html`<p class="ibis-after">${tr('Next trip %{time}', { time: hhmm(i.next.departure) })}: ${tr('Linie/Kurs')} <b>${i.next.codes.line ?? '–'}</b>${i.next.codes.route != null ? html` · ${tr('Route')} <b>${pad(i.next.codes.route, 2)}</b>` : html` · ${tr('Ziel')} <b>${pad(i.next.codes.terminus ?? i.next.codes.terminus_code, 3)}</b>`} · ${i.next.codes.display}</p>`}
+  </div>`;
+}
+
 function DutyCard({ v }) {
   const [word, tone] = STATUS[v.status] || STATUS.waiting;
   const r = v.route || {};
@@ -134,22 +174,22 @@ function DutyCard({ v }) {
   const share = total ? Math.min(1, elapsed / total) : 0;
   const b = v.next_break;
   const start = free ? v.series?.[0]?.[0] : v.start;
-  return html`<${Card} icon="calendar_month" title=${tr('Duty summary')} sub=${modeLine(v)} cls="duty"
+  const trip = v.plan?.[(r.trip || 1) - 1];
+  const to = r.to || trip?.terminus || v.end_place || '';
+  const route = r.number || (free ? '–' : r.line || '–');
+  const sub = [modeLine(v), v.vehicle?.number, v.vehicle?.name].filter(Boolean).join(' · ');
+  return html`<${Card} icon="calendar_month" title=${tr('Duty summary')} sub=${sub} cls="duty"
     tools=${html`<span class=${'dash-chip ' + tone}>${tr(word)}</span>`}>
     <div class="dash-facts">
-      <div><span>${tr('Route')}</span><b class="big">${r.number || (free ? '–' : r.line || '–')}</b><small class="cut">${free ? r.free_route || tr('Free drive') : [r.from, r.to].filter(Boolean).join(' – ')}</small></div>
-      <div><span>${tr('Vehicle')}</span><b class="big cut">${v.vehicle?.number || '–'}</b><small class="cut">${v.vehicle?.name || ''}</small></div>
+      <div><span>${tr('Route')}</span><b class=${'big cut' + (route.length > 6 ? ' long' : '')} title=${route}>${route}</b><small class="cut">${free ? r.free_route || tr('Free drive') : r.from ? tr('from %{place}', { place: r.from }) : ''}</small></div>
+      <div><span>${tr('Destination')}</span><b class="mid cut" title=${to}>${to || '–'}</b><small class="cut">${r.trips > 0 && r.trip ? tr('Trip %{n} of %{of}', { n: r.trip, of: r.trips }) : ''}</small></div>
       <div><span>${tr('Start time')}</span><b class="big">${hhmm(start)}</b><small class="cut">${v.start_place || ''}</small></div>
     </div>
+    <${IbisPanel} v=${v} />
     <div class="dash-progress">
       <div class="row"><span>${free ? tr('Driving for') : tr('Time elapsed')}</span><b>${total ? `${duration(elapsed)} / ${duration(total)}` : duration(elapsed)}</b></div>
       ${total && html`<div class="bar" role="progressbar" aria-valuenow=${Math.round(share * 100)} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${share * 100}%`}></i></div>`}
-      ${r.trips > 0 && r.trip && html`<div class="row faint"><span>${tr('Trip %{n} of %{of}', { n: r.trip, of: r.trips })}</span><span>${v.end != null ? tr('Ends %{time} at %{place}', { time: hhmm(v.end), place: v.end_place || '' }) : ''}</span></div>`}
-    </div>
-    <div class="dash-break">
-      <${Icon} name="schedule" size=${18} />
-      <span>${b?.kind === 'layover' ? tr('Next layover') : tr('Next break')}</span>
-      <b>${b ? `${hhmm(b.from)}${v.clock != null ? ` (${b.from > v.clock ? tr('in %{t}', { t: duration(b.from - v.clock) }) : tr('now')})` : ''}` : tr('None planned')}</b>
+      ${v.end != null && html`<div class="row faint"><span>${b ? `${b.kind === 'layover' ? tr('Next layover') : tr('Next break')} ${hhmm(b.from)}${v.clock != null ? ` (${b.from > v.clock ? tr('in %{t}', { t: duration(b.from - v.clock) }) : tr('now')})` : ''}` : tr('No break planned')}</span><span>${tr('Ends %{time} at %{place}', { time: hhmm(v.end), place: v.end_place || '' })}</span></div>`}
     </div>
   </${Card}>`;
 }
@@ -197,10 +237,30 @@ function useRoads(v) {
  * a pixel, in steps). */
 function Roads({ g, u }) {
   return html`<g>
-    ${(g.roads || []).map((r) => html`<polyline points=${flat(r.p)} fill="none" stroke=${r.main ? 'var(--dash-road-main)' : 'var(--dash-road)'} stroke-width=${Math.max(r.w || 6, u * 2)} stroke-linecap="round" stroke-linejoin="round" />`)}
+    ${roadPaths(g).map((e) => html`<path d=${e.d} fill="none" stroke=${e.main ? 'var(--dash-road-main)' : 'var(--dash-road)'} stroke-width=${Math.max(e.w, u * 2)} stroke-linecap="round" stroke-linejoin="round" />`)}
     ${(g.route || []).map((p) => html`<polyline points=${flat(p)} fill="none" stroke="var(--hub-accent)" stroke-opacity="0.35" stroke-width=${u * 6} stroke-linecap="round" stroke-linejoin="round" />`)}
     ${(g.stops || []).filter((s) => s.at).map((s) => html`<circle cx=${s.at[0]} cy=${-s.at[1]} r=${u * 3.5} fill="var(--hub-panel)" stroke="var(--hub-accent)" stroke-opacity="0.6" stroke-width=${u * 1.5} />`)}
   </g>`;
+}
+
+/** The roads as a few paths, one a kind and width of road (`[{ main, w, d }]`): thousands of
+ * lines of their own made the map slow to draw. Kept a map read. */
+const paths = new WeakMap();
+function roadPaths(g) {
+  let out = paths.get(g);
+  if (out) return out;
+  const by = new Map();
+  for (const r of g.roads || []) {
+    const w = r.w || 6;
+    const key = (r.main ? 'm' : 's') + w;
+    let e = by.get(key);
+    if (!e) by.set(key, (e = { main: !!r.main, w, parts: [] }));
+    if (r.p.length >= 4) e.parts.push('M' + flat(r.p));
+  }
+  // (the side streets first, the main roads over them)
+  out = [...by.values()].sort((a, b) => a.main - b.main).map((e) => ({ main: e.main, w: e.w, d: e.parts.join('') }));
+  paths.set(g, out);
+  return out;
 }
 
 /** `[x, y, x, y …]` (y north) as an SVG polyline's points. */
@@ -287,12 +347,46 @@ export function LiveMap({ v, big = false }) {
   </div>`;
 }
 
+/** The navigator once the bus is on the map, else (or asked for) the whole duty's routes. */
+function NavOrMap({ v, big = false }) {
+  const g = useRoads(v);
+  const [overview, setOverview] = useState(false);
+  if (v.map?.bus && !overview) return html`<${Navigator} v=${v} g=${g} words=${WORDS} big=${big} onOverview=${() => setOverview(true)} />`;
+  return html`<div class="dash-mapwrap">
+    <${LiveMap} v=${v} big=${big} />
+    ${v.map?.bus && html`<button type="button" class="hub-btn dash-backnav" onClick=${() => setOverview(false)}><${Icon} name="navigation" size=${16} />${tr('Back to the navigator')}</button>`}
+  </div>`;
+}
+
 function MapCard({ v, onOpen }) {
-  const sub = v.map?.bus ? tr('Live position and route') : tr('The way the bus went');
-  return html`<${Card} icon="map" title=${tr('Route map')} sub=${sub} cls="map"
-    tools=${html`<button type="button" class="dash-iconbtn" title=${tr('Open the route map')} onClick=${onOpen}><${Icon} name="fullscreen" size=${18} /></button>`}>
-    <${LiveMap} v=${v} />
+  const live = !!v.map?.bus;
+  const sub = live ? (v.route?.to ? tr('Route %{route} to %{place}', { route: v.route.number || v.route.line || '', place: v.route.to }) : tr('Following the bus')) : tr('The duty’s routes; it follows the bus once you drive');
+  return html`<${Card} icon=${live ? 'navigation' : 'map'} title=${live ? tr('Navigator') : tr('Route map')} sub=${sub} cls="map"
+    tools=${html`<button type="button" class="dash-iconbtn" title=${tr('Open the navigator')} onClick=${onOpen}><${Icon} name="fullscreen" size=${18} /></button>`}>
+    <${NavOrMap} v=${v} />
   </${Card}>`;
+}
+
+/** The big navigator: the map, and beside it the trip's IBIS and its stops ahead. */
+function NavDialog({ v, onClose }) {
+  const ahead = (v.trip_stops || []).filter((s) => s.stops && !s.passed);
+  const late = (v.delay || 0) >= 60;
+  return html`<${Dialog} icon="navigation" title=${tr('Navigator')} onClose=${onClose} wide>
+    <div class="dash-navbig">
+      <div class="map"><${NavOrMap} v=${v} big /></div>
+      <aside>
+        <${IbisPanel} v=${v} full />
+        <h4 class="dash-h4">${v.route?.to ? tr('Stops to %{place}', { place: v.route.to }) : tr('Next stops')}</h4>
+        ${ahead.length
+          ? html`<ol class="nav-stops">${ahead.map((s, i) => html`<li class=${i === 0 ? 'first' : ''}>
+              <b class="cut">${s.name}</b>
+              <span>${s.metres != null ? distanceText(s.metres) : ''}</span>
+              <span class="t">${late ? html`<s>${hhmm(s.due)}</s> ` : ''}${hhmm(s.eta)}</span>
+            </li>`)}</ol>`
+          : html`<p class="dash-empty">${v.mode === 'free' ? tr('A free drive has no timetable to follow.') : tr('The stops show here once the duty has started.')}</p>`}
+      </aside>
+    </div>
+  </${Dialog}>`;
 }
 
 // --- the figures -----------------------------------------------------------------------------
@@ -463,6 +557,11 @@ export function alertsOf(v) {
   const nextStop = v.stops?.[0];
   if (d != null && d >= 180) out.push({ id: 'late', kind: 'warning', title: tr('Running %{m} min late', { m: Math.round(d / 60) }), text: nextStop ? tr('Expected at %{stop} at %{time}.', { stop: nextStop.name, time: hhmm(nextStop.eta) }) : '', at: c });
   else if (d != null && d <= -60) out.push({ id: 'early', kind: 'info', title: tr('Running %{m} min early', { m: Math.round(-d / 60) }), text: tr('Wait at the stop until it is time to leave.'), at: c });
+  const ic = v.ibis?.codes;
+  if (v.ibis?.matches === false && ic) {
+    const keys = `${tr('Linie/Kurs')} ${ic.line ?? '–'} · ${ic.route != null ? `${tr('Route')} ${pad(ic.route, 2)}` : `${tr('Ziel')} ${pad(ic.terminus ?? ic.terminus_code, 3)}`}`;
+    out.push({ id: 'ibis', kind: 'warning', title: v.ibis.for === 'now' ? tr('Set the IBIS for this trip') : tr('Set the IBIS for the next trip'), text: `${keys} (${ic.display})`, at: c });
+  }
   const b = v.next_break;
   if (b && c != null && b.from > c && b.from - c <= 15 * 60) {
     out.push({ id: 'break', kind: 'info', title: b.kind === 'layover' ? tr('Layover at %{time}', { time: hhmm(b.from) }) : tr('Break at %{time}', { time: hhmm(b.from) }), text: tr('At %{place}, until %{time}.', { place: b.at || '', time: hhmm(b.to) }), at: c });
@@ -494,7 +593,7 @@ function ActionsCard({ onMap, onTimetable, onMessages }) {
   const act = (icon, label, on, primary) => html`<button type="button" class=${'dash-action' + (primary ? ' primary' : '')} onClick=${on}><${Icon} name=${icon} size=${24} /><span>${label}</span><${Icon} name="arrow_forward" size=${18} class="go" /></button>`;
   return html`<${Card} icon="bolt" title=${tr('Quick actions')} sub=${tr('Tools for your shift')} cls="actions">
     <div class="dash-actions">
-      ${act('map', tr('Open route map'), onMap, true)}
+      ${act('navigation', tr('Open navigator'), onMap, true)}
       ${act('departure_board', tr('View timetable'), onTimetable)}
       ${act('forum', tr('Messages'), onMessages)}
       ${act('settings', tr('Settings'), () => set({ page: 'settings', liveDash: { ...(S.liveDash || {}), hidden: true } }))}
@@ -603,7 +702,7 @@ export function DriveDash({ still = false }) {
       <${AlertsCard} v=${v} />
       <${ActionsCard} onMap=${() => setOpen('map')} onTimetable=${() => setOpen('timetable')} onMessages=${() => setOpen('messages')} />
     </div>
-    ${open === 'map' && html`<${Dialog} icon="map" title=${tr('Route map')} onClose=${close} wide><div class="dash-bigmap"><${LiveMap} v=${v} big /></div></${Dialog}>`}
+    ${open === 'map' && html`<${NavDialog} v=${v} onClose=${close} />`}
     ${open === 'timetable' && html`<${TimetableDialog} v=${v} onClose=${close} />`}
     ${open === 'messages' && html`<${MessagesDialog} v=${v} onClose=${close} />`}
     ${open === 'end' && html`<${EndDialog} onClose=${close} />`}

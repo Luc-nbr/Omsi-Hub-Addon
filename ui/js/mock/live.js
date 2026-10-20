@@ -16,8 +16,9 @@ const STOPS = [
   ['Opera', 19, 7400],
   ['Central Station', 24, 9400],
 ];
-/** The road the bus drives, the map's metres (a stop lies along it by its metres). */
-const ROAD = [[0, 0], [600, 420], [1100, 600], [1600, 1150], [2300, 1400], [3000, 2100], [3500, 2350], [4300, 2700], [4900, 3400], [5600, 3600]];
+/** The road the bus drives, the map's metres (a stop lies along it by its metres): corners
+ * and bends, for the navigator's turns. */
+const ROAD = [[0, 0], [700, 0], [700, 600], [1500, 600], [1900, 1000], [1900, 1700], [2700, 1700], [2700, 2500], [3600, 2500], [4200, 3100], [5000, 3100]];
 const TRIP_MIN = 26;
 const LAYOVER_MIN = 8;
 const FIRST_DEP = 7 * 3600 + 45 * 60;
@@ -59,6 +60,25 @@ function stopsOf(k) {
   return list.map(([name, min, metres]) => ({ name, due: t.departure + min * 60, metres }));
 }
 
+/** The way the bus heads `metres` along the trip there (back: the other way). */
+function headingAt(metres, back) {
+  const [a, b] = [at(metres - 3), at(metres + 3)];
+  const h = (Math.atan2(b[0] - a[0], b[1] - a[1]) * 180) / Math.PI;
+  return back ? (h + 180) % 360 : h;
+}
+
+/** The IBIS of trip `k` (from 0) as `live::ibis_view` has it: the way there route 01 to
+ * Central Station (105), the way back route 02 to Riverside (104). */
+function ibisCodes(k) {
+  const back = k % 2 === 1;
+  const names = (back ? [...STOPS].reverse() : STOPS).map(([n]) => n);
+  return {
+    line: 2300, route: back ? 2 : 1, terminus: null, terminus_code: back ? 104 : 105, terminus_name: back ? 'Riverside' : 'Central Station',
+    display: back ? 'RIVERSIDE' : 'CENTRAL STATION', front: back ? ['RIVERSIDE', 'via Market Square'] : ['CENTRAL STATION', 'via Opera'],
+    route_code: back ? 2302 : 2301, route_name: back ? 'CENTRAL-RIVERSIDE' : 'RIVERSIDE-CENTRAL', route_index: back ? 1 : 0, route_stops: names, stations: names.map((_, i) => i),
+  };
+}
+
 /** The drive `seconds` after it began, as hub-api's `live::view` gives it. */
 function view() {
   const mode = drive.mode;
@@ -77,6 +97,7 @@ function view() {
   const speed = t && (clock < t.departure || next < 0 || atStop) ? 0 : 28 + 18 * Math.abs(Math.sin(secs / 9));
   const back = k % 2 === 1;
   const pos = at(back ? TRIP_M - along : along);
+  const heading = headingAt(back ? TRIP_M - along : along, back);
   drive.trail.push(pos);
   if (drive.trail.length > 600) drive.trail.shift();
   if (t && next >= 0) drive.last = next;
@@ -94,12 +115,23 @@ function view() {
   const end = company ? plan[plan.length - 1].arrival + 15 * 60 : plan[plan.length - 1]?.arrival ?? null;
   const served = Math.floor(secs / 4);
   const days = (n, km) => Array.from({ length: n }, (_, i) => (i % 3 === 1 ? 0 : Math.round(km * (0.6 + 0.4 * Math.sin(i)) * 10) / 10));
+  // the IBIS: the trip's codes (the next trip's between two), set wrong for the first while
+  const ik = t ? (next < 0 && k + 1 < plan.length ? k + 1 : k) : 0;
+  const it = plan[ik];
+  const codes = it ? ibisCodes(ik) : null;
+  const set = codes && (secs < 20 ? { line: 23, route_index: 1 - codes.route_index, terminus: codes.route_index ? 105 : 104 } : { line: 23, route_index: codes.route_index, terminus: codes.terminus_code });
+  const ibis = mode === 'free' ? { hof: 'Riverside', file: 'Vehicles/MB_O530/Riverside.hof', for: 'first', trip: null, codes: null } : {
+    hof: 'Riverside', file: 'Vehicles/MB_O530/Riverside.hof', for: t && ik === k ? 'now' : t ? 'next' : 'first', trip: it?.name, kurs: '4', number: '23', departure: it?.departure,
+    codes, stop: t && ik === k && nextIdx < stops.length ? nextIdx : null,
+    next: t && ik === k && plan[k + 1] ? { trip: plan[k + 1].name, number: '23', departure: plan[k + 1].departure, codes: ibisCodes(k + 1) } : null,
+    set, matches: set ? set.route_index === codes.route_index && set.terminus === codes.terminus_code : null,
+  };
   const brk = plan.slice(0, -1).map((p, i) => [p, plan[i + 1]]).find(([a, b]) => clock < b.departure);
   return {
     running: true, live: true, plugin: true, began: drive.began / 1000, mode, status,
     company: company ? 'Stadtbus Riverside' : '', duty: company ? '23 4 2' : '', driver: 'Driver',
     clock, date: '2025-04-22',
-    route: { number: mode === 'free' ? '' : '23', line: '23', tour: '4', from: t?.from ?? '', to: t?.terminus ?? '', trip: t ? k + 1 : null, trips: plan.length, free_route: null },
+    route: { trip_name: t?.name ?? '', number: mode === 'free' ? '' : '23', line: '23', tour: '4', from: t?.from ?? '', to: t?.terminus ?? '', trip: t ? k + 1 : null, trips: plan.length, free_route: null },
     vehicle: { number: 'A-284', name: 'Mercedes Citaro (Solo)', file: 'Vehicles/MB_O530/Citaro.bus' },
     start, end, elapsed: start != null ? Math.max(0, clock - start) : null,
     start_place: company ? 'Riverside Depot' : plan[0]?.from ?? '', end_place: company ? 'Riverside Depot' : plan[plan.length - 1]?.terminus ?? '',
@@ -108,6 +140,7 @@ function view() {
     stops: stops.map(stopView).filter((s) => !s.passed).slice(0, 4),
     trip_stops: stops.map(stopView),
     plan,
+    ibis,
     today: { metres, seconds: secs * 10, boarded: Math.floor(secs / 3), served, early: Math.floor(served / 12), late: Math.floor(served / 7), on_time: served ? ((served - Math.floor(served / 12) - Math.floor(served / 7)) / served) * 100 : null, avg_speed: secs > 6 ? 22.3 : null, jolts: 1, crashes: 0 },
     told: company
       ? [
@@ -117,7 +150,7 @@ function view() {
       : [],
     brief: [],
     series: drive.series,
-    map: { map: 'maps/Riverside/global.cfg', bus: pos, heading: null, trail: drive.trail, stood: STOPS.slice(0, Math.max(1, drive.last)).map(([name, , m]) => ({ name, at: at(back ? TRIP_M - m : m) })) },
+    map: { map: 'maps/Riverside/global.cfg', bus: pos, heading, trail: drive.trail, stood: STOPS.slice(0, Math.max(1, drive.last)).map(([name, , m]) => ({ name, at: at(back ? TRIP_M - m : m) })) },
     week: { now: { trips: 31, metres: 284_000, boarded: 3120, on_time: 89.5, avg_speed: 21.4 }, before: { trips: 27, metres: 251_000, boarded: 2710, on_time: 86.1, avg_speed: 20.2 }, days: days(7, 48) },
     month: { now: { trips: 122, metres: 1_102_000, boarded: 12_480, on_time: 87.2, avg_speed: 20.9 }, before: { trips: 109, metres: 980_000, boarded: 11_900, on_time: 88.0, avg_speed: 21.1 }, days: days(30, 45) },
   };
@@ -129,13 +162,18 @@ function view() {
 export function liveRouteMap() {
   const o = [1000, 2000];
   const flat = (pts) => pts.flatMap(([x, y]) => [x, y]);
-  const side = [[[600, 420], [300, 1200]], [[1600, 1150], [2200, 400]], [[3000, 2100], [2600, 3000]], [[4300, 2700], [5000, 2000]], [[1100, 600], [2300, 1400]]];
+  const side = [[[700, 0], [700, -600]], [[700, 600], [0, 600]], [[1500, 600], [1500, 1400], [1900, 1400]], [[1900, 1700], [1900, 2400]], [[2700, 1700], [3400, 1700], [3600, 2500]], [[2700, 2500], [2200, 2500]], [[4200, 3100], [4200, 3800]], [[1900, 1000], [2600, 1000]]];
   return {
     origin: o,
     roads: [{ p: flat(ROAD), w: 9, main: true }, ...side.map((r) => ({ p: flat(r), w: 6 }))].map((r) => ({ ...r, p: r.p.map((v, i) => v - o[i % 2]) })),
-    route: [flat(ROAD).map((v, i) => v - o[i % 2])],
+    route: [flat(ROAD).map((v, i) => v - o[i % 2]), flat([...ROAD].reverse()).map((v, i) => v - o[i % 2])],
     stops: STOPS.map(([, , m], k) => ({ k, at: at(m).map((v, i) => v - o[i]) })),
-    lo: [-o[0], -o[1]], hi: [5600 - o[0], 3600 - o[1]], entries: [],
+    // (the duty's trips by name, as `trips_page` gives them)
+    trips: [
+      { name: '23 Riverside-Central', route: 0, stops: STOPS.map(([, , m]) => at(m).map((v, i) => v - o[i])) },
+      { name: '23 Central-Riverside', route: 1, stops: [...STOPS].reverse().map(([, , m]) => at(m).map((v, i) => v - o[i])) },
+    ],
+    lo: [-o[0], -o[1]], hi: [5000 - o[0], 3800 - o[1]], entries: [],
   };
 }
 

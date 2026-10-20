@@ -36,14 +36,26 @@ end
 local function bus()
   local b = { speed = num(omsi.speed and omsi.speed()) or 0 }
   if fn(omsi, "position") then
-    local x, y = omsi.position()
-    if num(x) and num(y) then b.x, b.y = num(x), num(y) end
+    local x, y, _, heading = omsi.position()
+    if num(x) and num(y) then b.x, b.y, b.heading = num(x), num(y), num(heading) end
   end
   if fn(omsi.bus, "file") then b.file = omsi.bus.file() or "" end
   if fn(omsi.bus, "passengers") then b.passengers = num(omsi.bus.passengers()) end
   if fn(omsi.bus, "odometer") then b.odometer = num(omsi.bus.odometer()) end
   if fn(omsi.bus, "fuel") then b.fuel = num(omsi.bus.fuel()) end
   return b
+end
+
+-- what the bus's IBIS is set to (its scripts' variables; nil on a bus without them)
+local function ibis()
+  if not fn(omsi, "var") then return nil end
+  local i = { line = num(omsi.var("IBIS_LinieKurs")), route_index = num(omsi.var("IBIS_RouteIndex")), terminus = num(omsi.var("IBIS_TerminusCode")) }
+  if fn(omsi, "str") then
+    local n = omsi.str("IBIS_terminus_name")
+    if type(n) == "string" and n ~= "" then i.terminus_name = n end
+  end
+  if i.line == nil and i.route_index == nil and i.terminus == nil then return nil end
+  return i
 end
 
 -- the duty under way and its trip's stations (none on a free drive)
@@ -81,6 +93,7 @@ function M.view()
     at = fn(omsi.util, "now") and omsi.util.now() or 0,
     clock = type(i) == "table" and num(i.clock) or nil,
     bus = bus(),
+    ibis = ibis(),
     duty = d,
     -- (an empty list would be written as `{}`, which is no list: left out then)
     stops = stops and #stops > 0 and stops or nil,

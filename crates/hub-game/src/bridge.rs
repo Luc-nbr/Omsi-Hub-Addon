@@ -687,14 +687,15 @@ pub fn read_traffic(plugin_dir: &Path) -> Option<Traffic> {
 }
 
 /// The bus as the live dashboard has it (each where the game says it): its speed (km/h), where
-/// it is (the map's metres), its file, the passengers on board, the odometer (km) and the fuel
-/// (litres).
+/// it is (the map's metres) and the way it faces (degrees clockwise from north), its file, the
+/// passengers on board, the odometer (km) and the fuel (litres).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DashBus {
     pub speed: f64,
     pub x: Option<f64>,
     pub y: Option<f64>,
+    pub heading: Option<f64>,
     pub file: String,
     pub passengers: Option<f64>,
     pub odometer: Option<f64>,
@@ -766,6 +767,20 @@ pub struct Dash {
     pub duty: Option<DashDuty>,
     pub stops: Vec<DashStop>,
     pub drive: DashDrive,
+    /// What the bus's IBIS is set to, where its scripts say it (none: a bus without one).
+    pub ibis: Option<DashIbis>,
+}
+
+/// The bus's IBIS as its scripts have it: the line typed (`IBIS_LinieKurs`: the line × 100 and
+/// its letter's code), the route's place in the depot file (`IBIS_RouteIndex`, -1: none), the
+/// destination's code (`IBIS_TerminusCode`) and its name (`IBIS_terminus_name`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashIbis {
+    pub line: Option<f64>,
+    pub route_index: Option<f64>,
+    pub terminus: Option<f64>,
+    pub terminus_name: Option<String>,
 }
 
 /// The plugin's live dashboard, if it wrote one.

@@ -11,10 +11,14 @@
 //! * The duty's plan (its trips in order with their times, the lengths between their stops) is
 //!   read from the map's timetable of the day once, on a thread of its own as the drive begins.
 //! * The week's and month's figures come from the driver's trip records (`trips/<driver>.jsonl`).
+//! * What the driver types into the IBIS for each trip (Luc, 2026-10-20): read with the plan from
+//!   the depot file the bus reads (`--hof`, else the map's standard one; [`hub_core::ibis`]),
+//!   and set against what the plugin says the bus's IBIS shows.
 //!
 //! The view says what is so; the page words it (its alerts are kinds and numbers, or the
 //! company's own words).
 
+use hub_core::ibis::TripIbis;
 use hub_core::trips::TripRun;
 use hub_core::{Duty, LineInfo};
 use hub_game::bridge::{self, Assignment, Dash, Inbox, Notice, SheetRow};
@@ -99,6 +103,17 @@ struct Plan {
     trips: Vec<PlanTrip>,
     /// The metres from a trip's first station to each of its stations, by the trip's file.
     metres: HashMap<String, Vec<f64>>,
+    /// The depot file the bus reads, and each trip's IBIS from it (by the trip's file).
+    depot: Depot,
+    ibis: HashMap<String, TripIbis>,
+}
+
+/// The depot file the bus reads: the name it goes by and the file found for it (none: the bus
+/// has no such file, and its IBIS knows no destination).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Depot {
+    pub name: String,
+    pub file: Option<String>,
 }
 
 static DRIVE: Mutex<Option<Drive>> = Mutex::new(None);
@@ -314,8 +329,14 @@ fn ensure_plan() {
     let lines = hub_core::list_lines(&duty.map, &date).unwrap_or_default();
     let trips = plan_of(&duty, a.as_ref(), &lines);
     let mut metres = HashMap::new();
+    let mut ibis = HashMap::new();
     let day = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok();
-    let tt = hub_core::paths::vfs().zip(day).and_then(|(v, day)| hub_omsi::timetable::timetable_for(&v, &duty.map, day).ok().flatten());
+    let vfs = hub_core::paths::vfs();
+    let tt = vfs.as_ref().zip(day).and_then(|(v, day)| hub_omsi::timetable::timetable_for(v, &duty.map, day).ok().flatten());
+    let (depot, hof) = match &vfs {
+        Some(v) => depot_of(v, &duty),
+        None => (Depot::default(), None),
+    };
     if let Some(tt) = &tt {
         let mut names: Vec<String> = trips.iter().map(|t| t.name.clone()).collect();
         if let Some(f) = duty.free_line.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
@@ -323,17 +344,65 @@ fn ensure_plan() {
         }
         for n in names {
             if let Some(m) = metres_of(tt, &n) {
-                metres.insert(n, m);
+                metres.insert(n.clone(), m);
+            }
+            if let Some(i) = hof.as_ref().and_then(|h| ibis_of(tt, h, &n)) {
+                ibis.insert(n, i);
             }
         }
     }
     let bus_name = hub_core::paths::vfs().and_then(|v| v.resolve(&duty.bus)).and_then(|p| hub_omsi::vehicle::Bus::load(&p).ok()).map(|b| hub_core::display_bus_name(&b.name()));
     let mut g = drive();
     if let Some(d) = g.as_mut() {
-        d.plan = Some(Arc::new(Plan { trips, metres }));
+        d.plan = Some(Arc::new(Plan { trips, metres, depot, ibis }));
         d.planning = false;
         d.bus_name = bus_name;
     }
+}
+
+/// The depot file the bus of `d` reads: the one it was started with (`--hof`), else the map's
+/// standard one - found as the game looks for it: in the bus's folder, else its pack's, else
+/// beside another bus.
+fn depot_of(vfs: &hub_omsi::Vfs, d: &Duty) -> (Depot, Option<hub_core::linehof::Depot>) {
+    let given = d.hof.as_deref().map(str::trim).filter(|h| !h.is_empty()).map(str::to_string);
+    let name = given.or_else(|| hub_core::paths::resolve_content(&d.map).and_then(|g| hub_omsi::map::GlobalCfg::load(&g).ok()).and_then(|g| g.standard_depot)).unwrap_or_default();
+    let name = name.strip_suffix(".hof").or_else(|| name.strip_suffix(".HOF")).unwrap_or(&name).trim().to_string();
+    let bus = d.bus.replace('\\', "/");
+    let own = bus.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap_or_default();
+    let pack = bus.split('/').take(2).collect::<Vec<_>>().join("/");
+    let hofs = |dir: &str| -> Vec<(String, std::path::PathBuf)> {
+        vfs.list_dir(dir)
+            .into_iter()
+            .filter(|(n, is_dir)| !is_dir && n.to_lowercase().ends_with(".hof"))
+            .filter_map(|(n, _)| vfs.resolve(&format!("{dir}/{n}")).map(|p| (format!("{dir}/{n}"), p)))
+            .collect()
+    };
+    let pick = |list: Vec<(String, std::path::PathBuf)>| {
+        if name.is_empty() {
+            // (no name anywhere: the bus's only file)
+            return (list.len() == 1).then(|| list.into_iter().next()).flatten();
+        }
+        list.into_iter().find(|(_, p)| hub_core::depot::answers_to(p, &name))
+    };
+    let mut found = pick(hofs(&own));
+    if found.is_none() && pack != own {
+        found = pick(hofs(&pack));
+    }
+    if found.is_none() && !name.is_empty() {
+        found = vfs.list_dir("Vehicles").into_iter().filter(|(_, is_dir)| *is_dir).find_map(|(f, _)| pick(hofs(&format!("Vehicles/{f}"))));
+    }
+    let depot = found.as_ref().and_then(|(_, p)| hub_core::linehof::Depot::load(p, &d.map));
+    let name = if name.is_empty() { depot.as_ref().map(|x| x.hof.name.trim().to_string()).unwrap_or_default() } else { name };
+    (Depot { name, file: found.filter(|_| depot.is_some()).map(|(rel, _)| rel) }, depot)
+}
+
+/// The IBIS of the timetable's trip `name` from the depot file `hof`: its line, its target and
+/// its stations' names, as the game types them.
+fn ibis_of(tt: &hub_omsi::timetable::Timetable, hof: &hub_core::linehof::Depot, name: &str) -> Option<TripIbis> {
+    let t = tt.trip(name)?;
+    let names: Vec<String> = t.stops.iter().map(|s| if s.name.trim().is_empty() { tt.stop_name(s.id).unwrap_or("").to_string() } else { s.name.trim().to_string() }).collect();
+    let stops: Vec<&str> = names.iter().map(String::as_str).collect();
+    hub_core::ibis::trip_ibis(hof, &t.line, &t.terminus, &stops)
 }
 
 // --- the view --------------------------------------------------------------------------------
@@ -347,6 +416,8 @@ pub struct Facts<'a> {
     pub metres: &'a HashMap<String, Vec<f64>>,
     pub first: Option<(String, String, u32)>,
     pub bus_name: Option<&'a str>,
+    pub depot: &'a Depot,
+    pub ibis: &'a HashMap<String, TripIbis>,
 }
 
 /// A clock of the day near `start`: one just after midnight is the next day's.
@@ -393,6 +464,45 @@ fn from_first<'a>(plan: &'a [PlanTrip], first: &Option<(String, String, u32)>) -
         Some((l, t, n)) => plan.iter().position(|p| &p.line == l && &p.tour == t && p.index == *n as usize).map_or(plan, |k| &plan[k..]),
         None => plan,
     }
+}
+
+/// What the driver types into the IBIS, and what it is set to: the codes of the trip under way
+/// (`for`: `now`), else of the one to come (`next`: between two trips, `first`: before the
+/// duty), the next trip's too while one is under way, the IBIS's stop of the next stop, and
+/// what the bus's IBIS shows (the plugin's) and whether that is the trip's.
+fn ibis_view(f: &Facts, trips: &[PlanTrip], k: Option<usize>, trip_done: bool, clock: Option<f64>, next: usize) -> Value {
+    let x = f.dash;
+    let u = x.and_then(|x| x.duty.as_ref());
+    let free = f.duty.free_line.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let (which, idx) = match (k, u) {
+        (Some(k), Some(_)) if trip_done => ("next", Some(k + 1)),
+        (Some(k), Some(_)) => ("now", Some(k)),
+        _ => ("first", clock.and_then(|c| trips.iter().position(|t| t.arrival > near(c, t.departure))).or((!trips.is_empty()).then_some(0))),
+    };
+    let trip = idx.and_then(|i| trips.get(i));
+    let name = match (u, which) {
+        (Some(u), "now") if !u.trip_name.is_empty() => Some(u.trip_name.clone()),
+        _ => trip.map(|t| t.name.clone()).or_else(|| free.map(str::to_string)),
+    };
+    let codes = name.as_ref().and_then(|n| f.ibis.get(n));
+    let after = (which == "now").then(|| k.and_then(|k| trips.get(k + 1))).flatten();
+    let set = x.and_then(|x| x.ibis.as_ref());
+    // (the bus's IBIS against the trip's: the line, then the route, else the destination)
+    let matches = set.zip(codes).map(|(s, c)| {
+        let line = c.line.is_none_or(|l| s.line.is_some_and(|v| v.round() as u32 == l / 100));
+        let route = c.route_index.is_none_or(|r| s.route_index.is_none_or(|v| v.round() as i64 == r as i64));
+        let dest = s.terminus.is_none_or(|t| t.round() as i32 == c.terminus_code);
+        line && route && dest
+    });
+    let stop = codes.filter(|_| which == "now").and_then(|c| c.stations.get(next).copied().flatten());
+    json!({
+        "hof": f.depot.name, "file": f.depot.file,
+        "for": which, "trip": name, "kurs": trip.map(|t| t.tour.clone()).or_else(|| f.duty.tour.clone()),
+        "number": trip.map(|t| t.number.clone()), "departure": trip.map(|t| t.departure),
+        "codes": codes, "stop": stop,
+        "next": after.and_then(|t| f.ibis.get(&t.name).map(|c| json!({ "trip": t.name, "number": t.number, "departure": t.departure, "codes": c }))),
+        "set": set, "matches": matches,
+    })
 }
 
 /// The dashboard's view of a drive.
@@ -454,7 +564,7 @@ pub fn build(f: &Facts) -> Value {
         "clock": clock,
         "date": f.duty.date,
         "route": {
-            "number": number, "line": u.map(|u| u.line.clone()).or_else(|| f.duty.line.clone()), "tour": u.map(|u| u.tour.clone()).or_else(|| f.duty.tour.clone()),
+            "trip_name": trip_name, "number": number, "line": u.map(|u| u.line.clone()).or_else(|| f.duty.line.clone()), "tour": u.map(|u| u.tour.clone()).or_else(|| f.duty.tour.clone()),
             "from": first_stop, "to": terminus, "trip": k.map(|k| k + 1), "trips": trips.len(),
             "free_route": f.duty.free_line,
         },
@@ -469,6 +579,7 @@ pub fn build(f: &Facts) -> Value {
         "stops": upcoming,
         "trip_stops": all_stops,
         "plan": trips,
+        "ibis": ibis_view(f, trips, k, trip_done, clock, next),
         "today": x.map(|x| {
             let d = &x.drive;
             json!({
@@ -543,7 +654,17 @@ pub fn view() -> Value {
     let dash = d.plugin_dir.as_deref().and_then(|dir| fresh_dash(dir, d.began));
     let empty = Plan::default();
     let plan = d.plan.as_deref().unwrap_or(&empty);
-    let facts = Facts { duty: &d.duty, assignment: d.assignment.as_ref(), dash: dash.as_ref(), plan: &plan.trips, metres: &plan.metres, first: d.first.clone(), bus_name: d.bus_name.as_deref() };
+    let facts = Facts {
+        duty: &d.duty,
+        assignment: d.assignment.as_ref(),
+        dash: dash.as_ref(),
+        plan: &plan.trips,
+        metres: &plan.metres,
+        first: d.first.clone(),
+        bus_name: d.bus_name.as_deref(),
+        depot: &plan.depot,
+        ibis: &plan.ibis,
+    };
     let mut v = build(&facts);
     v["running"] = json!(true);
     v["plugin"] = json!(d.plugin_dir.is_some());
@@ -564,8 +685,9 @@ pub fn view() -> Value {
         }
     }
     let bus = dash.as_ref().and_then(|x| x.bus.x.zip(x.bus.y)).map(|(a, b)| [a, b]);
-    let heading =
-        d.trail.iter().rev().skip(1).find(|p| d.trail.last().is_some_and(|l| (l[0] - p[0]).hypot(l[1] - p[1]) >= 8.0)).zip(d.trail.last()).map(|(p, l)| (l[0] - p[0]).atan2(l[1] - p[1]).to_degrees());
+    let heading = dash.as_ref().and_then(|x| x.bus.heading).or_else(|| {
+        d.trail.iter().rev().skip(1).find(|p| d.trail.last().is_some_and(|l| (l[0] - p[0]).hypot(l[1] - p[1]) >= 8.0)).zip(d.trail.last()).map(|(p, l)| (l[0] - p[0]).atan2(l[1] - p[1]).to_degrees())
+    });
     v["map"] = json!({ "map": d.duty.map, "bus": bus, "heading": heading, "trail": trail, "stood": d.stood.iter().map(|(n, at)| json!({ "name": n, "at": at })).collect::<Vec<_>>() });
     let driver = d.assignment.as_ref().map(|a| a.driver.clone()).filter(|x| !x.trim().is_empty()).unwrap_or_else(crate::launcher::driver);
     drop(g);
@@ -658,7 +780,17 @@ mod tests {
         let x = dash();
         let mut metres = HashMap::new();
         metres.insert("23_a".to_string(), vec![0.0, 2000.0, 3500.0, 6000.0, 9400.0]);
-        let f = Facts { duty: &tour_duty(), assignment: None, dash: Some(&x), plan: &plan, metres: &metres, first: Some(("23".into(), "1".into(), 1)), bus_name: Some("Mercedes Citaro") };
+        let f = Facts {
+            duty: &tour_duty(),
+            assignment: None,
+            dash: Some(&x),
+            plan: &plan,
+            metres: &metres,
+            first: Some(("23".into(), "1".into(), 1)),
+            bus_name: Some("Mercedes Citaro"),
+            depot: &Depot::default(),
+            ibis: &HashMap::new(),
+        };
         let v = build(&f);
         assert_eq!(v["status"], "in_service");
         assert_eq!(v["mode"], "tour");
@@ -691,7 +823,7 @@ mod tests {
         let plan = plan_of(&tour_duty(), Some(&a), &lines());
         let x = dash();
         let metres = HashMap::new();
-        let f = Facts { duty: &tour_duty(), assignment: Some(&a), dash: Some(&x), plan: &plan, metres: &metres, first: None, bus_name: None };
+        let f = Facts { duty: &tour_duty(), assignment: Some(&a), dash: Some(&x), plan: &plan, metres: &metres, first: None, bus_name: None, depot: &Depot::default(), ibis: &HashMap::new() };
         let v = build(&f);
         assert_eq!((v["start"].as_f64(), v["end"].as_f64()), (Some(445.0 * 60.0), Some(720.0 * 60.0)));
         assert_eq!((v["start_place"].as_str(), v["end_place"].as_str()), (Some("Riverside Depot"), Some("Riverside Depot")));
@@ -701,6 +833,42 @@ mod tests {
         // no dashboard yet: the game is starting
         let f = Facts { dash: None, ..f };
         assert_eq!(build(&f)["status"], "starting");
+    }
+
+    #[test]
+    fn the_ibis_of_the_trip_and_whether_the_bus_is_set_to_it() {
+        let plan = plan_of(&tour_duty(), None, &lines());
+        let codes = |route: u32, dest: i32, index: usize| TripIbis {
+            line: Some(2300),
+            route: Some(route),
+            terminus_code: dest,
+            route_index: Some(index),
+            stations: vec![Some(0), Some(1), Some(2), Some(3), Some(4)],
+            ..TripIbis::default()
+        };
+        let mut ibis = HashMap::new();
+        ibis.insert("23_a".to_string(), codes(1, 105, 0));
+        ibis.insert("23_b".to_string(), codes(2, 107, 1));
+        let depot = Depot { name: "Riverside".into(), file: Some("Vehicles/MB_Citaro/Riverside.hof".into()) };
+        let mut x = dash();
+        x.ibis = Some(bridge::DashIbis { line: Some(23.0), route_index: Some(0.0), terminus: Some(105.0), terminus_name: None });
+        let metres = HashMap::new();
+        let f = Facts { duty: &tour_duty(), assignment: None, dash: Some(&x), plan: &plan, metres: &metres, first: Some(("23".into(), "1".into(), 1)), bus_name: None, depot: &depot, ibis: &ibis };
+        let v = build(&f)["ibis"].clone();
+        // the trip under way: its codes, the IBIS's stop of the next stop, the next trip's codes
+        assert_eq!((v["for"].as_str(), v["trip"].as_str(), v["hof"].as_str()), (Some("now"), Some("23_a"), Some("Riverside")));
+        assert_eq!((v["codes"]["route"].as_u64(), v["codes"]["terminus_code"].as_i64(), v["stop"].as_u64()), (Some(1), Some(105), Some(2)));
+        assert_eq!((v["next"]["trip"].as_str(), v["next"]["codes"]["route"].as_u64()), (Some("23_b"), Some(2)));
+        assert_eq!(v["matches"], true);
+        // the IBIS on another destination: not the trip's
+        let mut y = x.clone();
+        y.ibis.as_mut().unwrap().terminus = Some(107.0);
+        let f = Facts { dash: Some(&y), ..f };
+        assert_eq!(build(&f)["ibis"]["matches"], false);
+        // before the game is there: the first trip's codes, nothing known of the bus's IBIS
+        let f = Facts { dash: None, ..f };
+        let v = build(&f)["ibis"].clone();
+        assert_eq!((v["for"].as_str(), v["trip"].as_str(), v["matches"].is_null()), (Some("first"), Some("23_a"), true));
     }
 
     #[test]
