@@ -24,19 +24,13 @@ import { Photo } from './fleet.js';
 import { cmd } from './kit.js';
 import { dark } from '../hub/theme.js';
 import { S, useStore } from '../store.js';
-import { drawStopSign, stopSign } from '../hub/stopsigns.js';
+import { stampStopSign, stopSign } from '../hub/stopsigns.js';
+import { roadLayer, cityRoads, SETTLE } from '../hub/roadlayer.js';
 import { useMemo } from '../../vendor/preact-htm.js';
 
 /** The stops are drawn as signs below this many metres a point (zoomed in that far). */
 const STOP_SIGNS_MPP = 4;
 
-/** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
-const ROAD_PX = 1.4;
-const CASING_EDGE_FAR = 0.5;
-const CASING_EDGE_NEAR = 1.5;
-const SURFACE_GROW_NEAR = 1.0;
-const LANE_MIN = 3.6;
-const ROAD_MARGIN = 0.3;
 const MPP_MIN = 0.15;
 const NOTCH = 1.12;
 
@@ -79,16 +73,10 @@ const CARD_GAP = 22;
 
 /** The map's colours in either look (`mapview::palette`): the roads' casing, a road, a main
  * road, a marker's rim. */
+const PAL_DARK = { casing: '#212833', road: '#3c4552', main: '#495261', edge: '#090c18' };
+const PAL_LIGHT = { casing: '#ac9c86', road: '#fcf9f4', main: '#ffffff', edge: '#60564c' };
 function palette() {
-  return dark() ? { casing: '#212833', road: '#3c4552', main: '#495261', edge: '#090c18' } : { casing: '#ac9c86', road: '#fcf9f4', main: '#ffffff', edge: '#60564c' };
-}
-
-/** The roads' casing round their surface and how far their surface grows past its metres, in
- * points, at `mpp` metres a point (`mapview::casing_edge`, its zoom bands). */
-function casingEdge(mpp) {
-  const tol = Math.min(24, Math.max(0.05, 2 ** Math.round(Math.log2(Math.max(mpp * 0.5, 1e-6)))));
-  const t = Math.max(0, Math.min(1, Math.log2(4 / (tol * 2)) / 3));
-  return [CASING_EDGE_FAR + (CASING_EDGE_NEAR - CASING_EDGE_FAR) * t, SURFACE_GROW_NEAR * t];
+  return dark() ? PAL_DARK : PAL_LIGHT;
 }
 
 /** The accent darkened (`Color::darken`): the casing under the company's lines. */
@@ -116,7 +104,8 @@ let read = null;
 export function FleetMapPage() {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 250);
+    // (the buses glide between two answers: two a second are enough)
+    const t = setInterval(() => setTick((x) => x + 1), 500);
     return () => clearInterval(t);
   }, []);
   const v = useMore('fleetmap', { tick });
@@ -169,7 +158,7 @@ function useRoads(v) {
 export function MiniMap({ paint, ctl, W, H }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 500);
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(t);
   }, []);
   const v = useMore('fleetmap', { tick });
@@ -326,6 +315,11 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const cardEl = useRef();
   const cam = useRef(null);
   const ptr = useRef({ down: null, moved: 0 });
+  // (the roads drawn once for a zoom: `roadlayer.js`; the map drawn when the screen draws next, the
+  // buses only while one glides or something about them changed)
+  const layer = useRef(null);
+  if (!layer.current) layer.current = roadLayer();
+  const frame = useRef({ base: 0, zoomedAt: 0, settle: 0, until: 0, dirty: true });
   // (the buses as drawn: key -> { from, to, t0, dur, b }; when the last answer came)
   const anim = useRef(new Map());
   const hits = useRef([]);
@@ -377,48 +371,32 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     if (!map || map.error || !map.roads) return;
     if (!cam.current) cam.current = fit();
     const k = cam.current;
+    // (the buses follow the map)
+    frame.current.dirty = true;
     const poly = (p) => {
       g.beginPath();
       for (let i = 0; i + 1 < p.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, X(p[i]), Y(p[i + 1]));
     };
-    g.lineJoin = 'round';
     const pal = palette();
-    const [edge, grow] = casingEdge(k.mpp);
-    const surface = (r) => Math.max((Math.max(r.w, LANE_MIN) + 2 * ROAD_MARGIN) / k.mpp, ROAD_PX) + 2 * grow;
-    g.lineCap = 'round';
-    g.strokeStyle = pal.casing;
-    for (const r of map.roads) {
-      poly(r.p);
-      g.lineWidth = surface(r) + 2 * edge;
-      g.stroke();
-    }
-    g.fillStyle = pal.main;
-    for (const r of map.roads) {
-      if (!r.main || r.p.length < 2) continue;
-      for (const i of [0, r.p.length - 2]) {
-        g.beginPath();
-        g.arc(X(r.p[i]), Y(r.p[i + 1]), surface(r) / 2, 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-    g.strokeStyle = pal.road;
-    for (const r of map.roads) {
-      if (r.main) continue;
-      poly(r.p);
-      g.lineWidth = surface(r);
-      g.stroke();
-    }
-    g.lineCap = 'butt';
-    g.strokeStyle = pal.main;
-    for (const r of map.roads) {
-      if (!r.main) continue;
-      poly(r.p);
-      g.lineWidth = surface(r);
-      g.stroke();
-    }
+    const { W: w, H: h } = size.current;
+    layer.current.put(g, {
+      roads: map.roads,
+      look: pal,
+      cam: k,
+      W: w,
+      H: h,
+      dpr: c.width / w || 1,
+      zoomedAt: frame.current.zoomedAt,
+      later: () => {
+        clearTimeout(frame.current.settle);
+        frame.current.settle = setTimeout(kickBase, SETTLE + 10);
+      },
+      paint: cityRoads(pal),
+    });
+    g.lineJoin = 'round';
     // the company's lines, each trip's route once in its line's colour on a dark casing
     g.lineCap = 'round';
-    g.strokeStyle = darker(css('--hub-accent') || '#2a75f7', 0.56);
+    g.strokeStyle = darker(kept.current.accent, 0.56);
     for (const l of map.lines || []) {
       poly(l.p);
       g.lineWidth = 8;
@@ -434,8 +412,16 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
     // apart (further out they would cover the lines)
     if (k.mpp < STOP_SIGNS_MPP) {
       const style = stopSign();
-      for (const st of map.stops || []) if (st.at) drawStopSign(g, style, X(st.at[0]), Y(st.at[1]), 13);
+      for (const st of map.stops || []) {
+        if (!st.at) continue;
+        const [x, y] = [X(st.at[0]), Y(st.at[1])];
+        if (x > -13 && y > -13 && x < w + 13 && y < h + 13) stampStopSign(g, style, x, y, 13);
+      }
     }
+  };
+  /** The roads drawn when the screen draws next, however often the map moved meanwhile. */
+  const kickBase = () => {
+    if (!frame.current.base) frame.current.base = requestAnimationFrame(() => ((frame.current.base = 0), drawBase()));
   };
   /** The buses where they are this frame, their tags, and the card beside the one picked. */
   const drawBuses = (t) => {
@@ -541,7 +527,9 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
       const now = glide(a, t);
       const far = Math.hypot(to[0] - now[0], to[1] - now[1]) > SNAP_M;
       anim.current.set(key, { from: far ? to : now, to, t0: t, dur, b, moved: t });
+      frame.current.until = Math.max(frame.current.until, t + dur);
     };
+    frame.current.dirty = true;
     for (const b of v.buses) put(b.key, [b.at[0], b.at[1], b.h], { ...b, co: true });
     const tr8 = v.traffic;
     if (tr8) {
@@ -558,13 +546,25 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   // every frame: the buses
   useEffect(() => {
     let id = 0;
-    const frame = (t) => {
-      drawBuses(t);
-      id = requestAnimationFrame(frame);
+    const step = (t) => {
+      // (nothing gliding and nothing changed: the last frame stands)
+      const f = frame.current;
+      if (f.dirty || t <= f.until + 20) {
+        f.dirty = false;
+        drawBuses(t);
+      }
+      id = requestAnimationFrame(step);
     };
-    id = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(id);
+    id = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(id);
+      cancelAnimationFrame(frame.current.base);
+      clearTimeout(frame.current.settle);
+      frame.current.base = 0;
+    };
   }, [map]);
+  // (a pick, the size or the look changed: the buses drawn again)
+  frame.current.dirty = true;
   // the roads, when the map, its box or the look changed (a new map fitted in view first)
   useEffect(() => {
     cam.current = null;
@@ -576,12 +576,12 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
       zoom: (f) => {
         if (!cam.current) return;
         cam.current.mpp = Math.min(Math.max(cam.current.mpp * f, MPP_MIN), 400);
-        drawBase();
+        kickBase();
       },
       fit: () => {
         if (!map?.roads) return;
         cam.current = fit();
-        drawBase();
+        kickBase();
       },
       focus: (key) => {
         const a = anim.current.get(key);
@@ -590,7 +590,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
         cam.current.cx = x;
         cam.current.cy = y;
         cam.current.mpp = Math.min(cam.current.mpp, 6);
-        drawBase();
+        kickBase();
         return true;
       },
     };
@@ -649,9 +649,10 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
           ptr.current.down = p;
           cam.current.cx -= dx * cam.current.mpp;
           cam.current.cy += dy * cam.current.mpp;
-          drawBase();
+          kickBase();
         } else if (!e.target.closest?.('.fm-card')) {
           const h = blocked(p) ? null : busAt(p);
+          if (hover.current !== h) frame.current.dirty = true;
           hover.current = h;
           top.current.style.cursor = h ? 'pointer' : 'grab';
         }
@@ -664,7 +665,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
         const key = busAt(at(e));
         if (key !== pick) choose(key);
       }}
-      onPointerLeave=${() => (hover.current = null)}
+      onPointerLeave=${() => ((hover.current = null), (frame.current.dirty = true))}
       onWheel=${(e) => {
         const p = at(e);
         if (blocked(p) || !cam.current || e.target.closest?.('.fm-card')) return;
@@ -675,7 +676,8 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
         k.mpp = Math.min(Math.max(k.mpp * (e.deltaY > 0 ? NOTCH : 1 / NOTCH), MPP_MIN), 400);
         k.cx = wx - (p[0] - W / 2) * k.mpp;
         k.cy = wy + (p[1] - H / 2) * k.mpp;
-        drawBase();
+        frame.current.zoomedAt = performance.now();
+        kickBase();
       }}>
     <canvas ref=${base} style=${`width:${W}px;height:${H}px`}></canvas>
     <canvas ref=${top} class="fm-buses" style=${`width:${W}px;height:${H}px;cursor:grab`}></canvas>

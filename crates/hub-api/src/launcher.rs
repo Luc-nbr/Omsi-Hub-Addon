@@ -34,13 +34,17 @@ pub const DEFAULT_DRIVER: &str = "Driver";
 /// The driver whose career, trips and company duties these are: `driver` in the settings
 /// (taken over from the old launcher's profile by `migrate::import`), else "Driver".
 pub fn driver() -> String {
-    let s = settings::Settings::load();
+    driver_of(&settings::Settings::load())
+}
+
+fn driver_of(s: &settings::Settings) -> String {
     s.other.get("driver").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).unwrap_or(DEFAULT_DRIVER).to_string()
 }
 
+/// One read of the settings for both.
 pub fn load_config() -> Config {
     let s = settings::Settings::load();
-    Config { root: s.omsi2_folder, profile: driver() }
+    Config { profile: driver_of(&s), root: s.omsi2_folder }
 }
 
 /// The OMSI 2 folder, when it is chosen and there.

@@ -512,8 +512,7 @@ fn calendar(s: &Session, c: &Company, l: &LineDesign, name: &str, shown: usize) 
         .map(|k| {
             let date = co::dates::add(&c.date, k);
             let natural = super::days::group_of(co::plan::weekday_of(&date));
-            let lines = company::lines_of(s, &date);
-            let group = lines.as_ref().map(|x| group_run(l, x, name, natural));
+            let group = company::with_lines_of(s, &date, |x| group_run(l, x, name, natural));
             let tip = match group {
                 None => tr("Reading the timetable…"),
                 Some(None) => tr("No trips of this line on this day"),

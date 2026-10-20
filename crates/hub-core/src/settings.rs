@@ -5,9 +5,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 /// The file in the data folder.
 pub const FILE: &str = "settings.json";
+
+type Stamp = (PathBuf, SystemTime, u64);
+
+/// The settings last read, and the file they were read from (see [`Settings::load`]).
+static KEPT: Mutex<Option<(Stamp, Settings)>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,17 +39,42 @@ impl Settings {
         crate::paths::data_dir().join(FILE)
     }
 
-    /// The settings as saved (the defaults when there is no file, or it does not read).
+    /// The settings as saved (the defaults when there is no file, or it does not read). Read
+    /// once and kept while the file is the same one (its path, time written and length): the
+    /// company's pages ask on every command, the file seldom changes.
     pub fn load() -> Settings {
-        std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        let path = Self::path();
+        let read = || std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let Some(key) = Self::stamp(&path) else {
+            return read();
+        };
+        let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, s)) = kept.as_ref() {
+            if *k == key {
+                return s.clone();
+            }
+        }
+        // Stamped before it is read: a change while reading stamps the file anew, and the next
+        // load reads it again.
+        let s: Settings = read();
+        *kept = Some((key, s.clone()));
+        s
     }
 
     /// Saved, through a temporary file so a crash never leaves half a file.
     pub fn save(&self) -> std::io::Result<()> {
         let path = Self::path();
         let tmp = path.with_extension("json.tmp");
+        let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+        *kept = None;
         std::fs::write(&tmp, serde_json::to_string_pretty(self).unwrap_or_default())?;
         std::fs::rename(&tmp, &path)
+    }
+
+    /// The file's path, time written and length: what the kept settings were read from.
+    fn stamp(path: &std::path::Path) -> Option<Stamp> {
+        let m = std::fs::metadata(path).ok()?;
+        Some((path.to_path_buf(), m.modified().ok()?, m.len()))
     }
 
     /// Both folders are chosen.

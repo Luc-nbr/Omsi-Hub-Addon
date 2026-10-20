@@ -17,24 +17,36 @@ import { Btn, Icon, loadSheet, Switch, tr } from './online/bits.js';
 
 loadSheet();
 
+/** The last answer as text: an answer like it changes nothing (the whole page would be drawn
+ * again every second for nothing). */
+let last = '';
+
 const ask = (what, args = {}) =>
   call(what ? 'hub_update_act' : 'hub_update', { ...args, what, lang: language() })
     .then((u) => {
       // ("Updated to ..." once, kept on screen for its nine seconds)
       if (u.updated) set({ hubUpdated: { text: u.updated, at: Date.now() } });
       if (u.open) openUrl(u.open).catch(() => {});
-      set({ hubUpdate: u });
+      const text = JSON.stringify(u);
+      if (text !== last) {
+        last = text;
+        set({ hubUpdate: u });
+      }
       return u;
     })
     .catch(() => null);
 
-/** The state asked for once a second while the app is open (not in its selftest). */
+/** The state asked for while the app is open (not in its selftest): once a second while the
+ * dialog is up (a download's bar), else every few seconds. */
 export function useUpdates() {
   useEffect(() => {
     if (window.__OMSIHUB_SELFTEST__) return;
-    ask();
-    const k = setInterval(() => ask(), 1000);
-    return () => clearInterval(k);
+    let k = 0;
+    const next = () => {
+      k = setTimeout(() => ask().then(next), get().hubUpdate?.dialog ? 1000 : 4000);
+    };
+    ask().then(next);
+    return () => clearTimeout(k);
   }, []);
 }
 

@@ -103,23 +103,54 @@ export async function act(name, args = {}) {
   return r;
 }
 
-/** Ask the clock's shell again at once (after an action), and every view with it. */
-export function refresh() {
-  setCo((c) => ({ bump: c.bump + 1 }));
-  cmd('co_tick', { modal: true, still: true })
-    .then((sh) => takeShell(sh))
-    .catch(() => {});
+/** Ask the clock's shell again at once (after an action), and every view with it: the shell and
+ * the views' bump taken in one go, so that a view is asked again once - not on the bump and then
+ * once more on the shell's generation. `also`: what changes with them (RosterFlow's own bump). */
+export function refresh(also) {
+  const take = (sh) => {
+    takeShell(sh, (c) => ({ bump: c.bump + 1 }));
+    if (typeof also === 'function') also();
+  };
+  return cmd('co_tick', { modal: true, still: true }).then(take, () => take(null));
 }
 
+/** What of a shell tells whether it changed, cheaply: its generation (every change of the company)
+ * and what changes without it - the clock's head, the cover, the day's reports, the players
+ * online's badges, the language its words are in. */
+function shellKey(sh) {
+  const badges = (sh.rail || []).map((g) => (Array.isArray(g) ? g.map((x) => (x?.badge ? `${x.badge.n}${x.badge.tone}` : '')).join(',') : '')).join(';');
+  const status = (sh.status || []).map((x) => `${x.value}${x.tab}`).join(',');
+  return [sh.gen, sh.rf_gen, language(), sh.open, sh.id, sh.companies, JSON.stringify(sh.clock ?? null), sh.cover, sh.asking, sh.reports, sh.away, sh.launch, sh.sheet, sh.today_read, sh.casual, sh.bell, sh.together?.on, (sh.pages || []).join(','), status, badges].join('|');
+}
+
+/** How often the whole shell is compared all the same (what `shellKey` leaves out, as a sandbox's
+ * badge or the company's mark, changes with the generation: this is for the odd one that does not). */
+const WHOLE_EVERY = 5000;
 let lastShell = '';
-/** The shell the clock sent: kept when it changed; what it says in its corner shown. */
-export function takeShell(sh) {
-  if (!sh) return;
+let lastWhole = '';
+let wholeAt = 0;
+/** The shell the clock sent: kept when it changed; what it says in its corner shown. `also`: more
+ * to change with it (a patch, or a function of what the company's screen keeps). */
+export function takeShell(sh, also) {
+  const more = typeof also === 'function' ? also(S.co) : also || {};
+  if (!sh) {
+    if (Object.keys(more).length) setCo(more);
+    return;
+  }
   const notices = sh.notices || [];
-  const key = JSON.stringify({ ...sh, notices: [] });
-  const patch = {};
+  const patch = { ...more };
+  const key = sh.same ? lastShell : shellKey(sh);
+  // (`same`: the clock says nothing changed since the generation it was sent - the shell kept)
+  let changed = !sh.same && (key !== lastShell || !S.co?.shell);
+  // (the whole of it only when the key changed, and now and then for what the key leaves out)
+  if (!sh.same && (changed || Date.now() - wholeAt >= WHOLE_EVERY)) {
+    const whole = JSON.stringify({ ...sh, notices: [] });
+    changed = changed || whole !== lastWhole;
+    lastWhole = whole;
+    wholeAt = Date.now();
+  }
   // (the company entered again: its shell is taken even when it is the one last seen)
-  if (key !== lastShell || !S.co?.shell) {
+  if (changed) {
     lastShell = key;
     patch.shell = sh;
   }

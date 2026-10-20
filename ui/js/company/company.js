@@ -5,8 +5,9 @@
 // the dialog open, the day's report, a decision the clock waits for, and the popup.
 //
 // What the company is and does lives in Rust (`omsi-launcher-api`'s `omsihub/company`): this
-// page asks for views and sends actions, and ticks the company's clock four times a second
-// (`co_tick`), which answers with the bar's and the strip's shell.
+// page asks for views and sends actions, and ticks the company's clock - four times a second while
+// it runs fast, less often else (`tickEvery`) - with `co_tick`, which answers with the bar's and
+// the strip's shell.
 
 import { useRef, useState } from '../../vendor/preact-htm.js';
 import { S, useStore, set } from '../store.js';
@@ -117,28 +118,65 @@ function askTour() {
     .catch(() => startCompanyTour(0));
 }
 
-/** The clock's tick (`clock::tick`): four times a second, the shell back with it; a dialog or
- * a decision open holds what waits for it (`modal`). */
+/** How often the clock ticks: four times a second while it runs fast (or catches up behind its
+ * cover), once a second stopped or at the real clock's pace, every two seconds while the window
+ * is not seen. */
+function tickEvery() {
+  const sh = S.co.shell;
+  const fast = sh?.clock?.speed > 0 || sh?.cover;
+  // (hidden, a running clock still asked once a second: the clock goes on by at most a second a
+  // tick, and would run slow)
+  if (document.hidden) return fast ? 1000 : 2000;
+  return fast ? 250 : 1000;
+}
+
+/** The clock's tick (`clock::tick`): the shell back with it, as often as `tickEvery` says (the
+ * generation it has sent along: nothing changed, the clock says `same` and the shell is kept); a
+ * dialog or a decision open holds what waits for it (`modal`). */
 function startTick() {
   if (stopTick) return;
+  let timer = 0;
   let busy = false;
-  const t = setInterval(async () => {
-    if (busy || S.page !== 'company') return;
+  let gone = false;
+  // (when the clock was last asked: looked at four times a second, asked as often as
+  // `tickEvery` says - a clock set running is ticked fast at once)
+  let at = 0;
+  const next = (ms = 250) => {
+    clearTimeout(timer);
+    if (!gone) timer = setTimeout(tick, ms);
+  };
+  const tick = async () => {
+    if (busy) return;
+    if (S.page !== 'company' || Date.now() - at < tickEvery() - 20) return next();
+    at = Date.now();
     if (S.co.remote) {
-      if (Date.now() - remoteAt < 1500) return;
+      if (Date.now() - remoteAt < 1500) return next();
       remoteAt = Date.now();
     }
     busy = true;
     try {
       // (the self-check holds the clock: nothing is simulated while it looks)
-      takeShell(await cmd('co_tick', { modal: modalOpen(), still: !!S.boot?.selftest }));
+      const gen = S.co.shell?.gen;
+      takeShell(await cmd('co_tick', { modal: modalOpen(), still: !!S.boot?.selftest, ...(gen != null ? { gen } : {}) }));
     } catch (e) {
       // (the next tick tries again; what went wrong is shown while the companies are read)
       if (!S.co.shell) setCo({ failed: e.message });
     }
     busy = false;
-  }, 250);
-  stopTick = () => clearInterval(t);
+    next();
+  };
+  // (the window seen again: a tick at once, then at the pace it has)
+  const seen = () => {
+    at = 0;
+    if (!document.hidden && !busy) next(0);
+  };
+  document.addEventListener('visibilitychange', seen);
+  next();
+  stopTick = () => {
+    gone = true;
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', seen);
+  };
 }
 
 /** Into the bus company: the companies read, the one wanted opened (or the first, as our

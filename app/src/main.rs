@@ -83,8 +83,23 @@ fn updater_pubkey(app: &AppHandle) -> String {
 #[tauri::command]
 async fn call(app: AppHandle, cmd: String, args: Option<Value>) -> Result<Value, String> {
     let args = args.unwrap_or(Value::Null);
-    tauri::async_runtime::spawn_blocking(move || hub_api::call(&cmd, &args, &App(app))).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t0 = std::time::Instant::now();
+        let answer = hub_api::call(&cmd, &args, &App(app));
+        // (a command the page waited long for, in the log: where the app lags is read there)
+        let ms = t0.elapsed().as_millis();
+        if ms >= SLOW_MS {
+            let op = args.get("op").and_then(Value::as_str).map(|o| format!(" {o}")).unwrap_or_default();
+            hub_core::log::log_line(&format!("slow: {cmd}{op} took {ms} ms"));
+        }
+        answer
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
+
+/// A command slower than this is written in the log (ms).
+const SLOW_MS: u128 = 250;
 
 #[tauri::command]
 async fn call_bytes(app: AppHandle, cmd: String, args: Option<Value>) -> Result<tauri::ipc::Response, String> {

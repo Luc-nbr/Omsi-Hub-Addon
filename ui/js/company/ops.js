@@ -27,7 +27,8 @@ import { html, act, useView, useState, useRef, useSize, Icon, Seg, Plate } from 
 import { LateAdvice } from './late.js';
 import { MiniMap } from './fleetmap.js';
 import { Kpi, Ring, Card, Empty } from './pagesb.js';
-import { useCallback } from '../../vendor/preact-htm.js';
+import { useMemo } from '../../vendor/preact-htm.js';
+import { dark } from '../hub/theme.js';
 import { MsgButton, Compose, MsgLog } from './messages.js';
 
 // (this page's own look, loaded with it)
@@ -101,7 +102,9 @@ function painter(at) {
 function NetMap({ v, ctl }) {
   const [ref, size] = useSize();
   const at = v.alert_at || 5;
-  const paint = useCallback(painter(at), [at]);
+  // (the page's colours read once a look and alert, not on every drawing)
+  const look = dark();
+  const paint = useMemo(() => painter(at), [at, look]);
   const m = v.map;
   return html`<${Card} class="co-pgb-op-map" icon="map" title=${m.title}>
     <div class="co-pgb-op-map-sub">

@@ -27,8 +27,9 @@ import { L, le, redraw } from '../editors/lines/state.js';
 import { LineMap } from '../editors/lines/map.js';
 import { EstimateCard, ChangeDialog } from '../editors/lines/company.js';
 import { inkOn } from '../editors/lines/plate.js';
-import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN } from './state.js';
+import { setRf, setPart, rfCmd, after, bump, say, rfGen, TIMEPLAN } from './state.js';
 import { Icon } from './ui.js';
+import { Spinner } from '../ui.js';
 
 // (its own look, beside rosterflow.css)
 if (!document.querySelector('link[data-rf-routes-css]')) {
@@ -55,8 +56,9 @@ const KINDS = [
 
 /** What the tab keeps besides `S.rf.rt`: the company the line editor was opened for, the line
  * editor's last word passed on, changes in hand said once before they are left, the route the
- * camera was put on, the colour being dragged, the company being read again. */
-const RT = { open: null, seen: 0, warned: false, fitted: null, colourNext: null, colourBusy: false, rereading: Promise.resolve() };
+ * camera was put on, the colour being dragged, the company being read again, the view last shown
+ * (shown again at once when the tab comes back, while it is read anew). */
+const RT = { open: null, seen: 0, warned: false, fitted: null, colourNext: null, colourBusy: false, rereading: Promise.resolve(), shown: null, busy: null };
 
 /** What the tab shows (`S.rf.rt`): the route chosen (a line editor's id, or a map's line by its
  * timetable name), the colour's picker open, the strip's cell typed into and its text, the
@@ -75,7 +77,6 @@ async function openFor(company) {
   // (only what the line editor says from now on is passed on)
   RT.seen = Date.now() - 1;
   L.hooks = { timeplan: toTimeplan, companyChanged };
-  L.view = null;
   await coCmd('co_leave').catch(() => {});
   const maps = (S.maps || []).map((m) => [mapLabel(m), m.file]);
   // (line 0 is none of the line editor's: no new line made, the company's first one shown)
@@ -277,9 +278,13 @@ function OwnRoutes() {
     return html`<div class="rf-tp rt"><div class="tp-why rt-failed"><p>${tr('The line editor could not be opened.')}</p>
       <button type="button" class="rt-act" onClick=${() => setTries((n) => n + 1)}><${Icon} name="refresh" size=${17} /><span>${tr('Try again')}</span></button></div></div>`;
   }
-  if (opened !== company || !v) return html`<div class="rf-tp rt"><p class="tp-why">${tr('Loading...')}</p></div>`;
+  // (the tab back: what it showed last, as it was, while the line editor reads the company anew -
+  // nothing clicked in it until then)
+  const again = opened !== company && RT.shown && RT.shown.company === company && RT.shown.view === v && v?.company;
+  if ((opened !== company || !v) && !again) return html`<div class="rf-tp rt"><p class="tp-why">${tr('Loading...')}</p></div>`;
   if (!v.company) return html`<div class="rf-tp rt"><p class="tp-why">${tr("The company's map is not installed.")}</p></div>`;
-  return html`<div class="rf-tp rt" data-rf="rf-routes">
+  if (!again) RT.shown = { company, view: v };
+  return html`<div class=${'rf-tp rt' + (again ? ' rt-again' : '')} data-rf="rf-routes">
     <${RouteBar} v=${v} />
     <div class="rt-main">
       <${StopsPanel} v=${v} />
@@ -371,7 +376,24 @@ function ColourPop({ v }) {
 function Saving({ v }) {
   const line = v.line;
   if (!line) return null;
-  const act = (label, onClick, { primary = false, why = null, icon = 'save' } = {}) => html`<button type="button" class=${'rt-act' + (primary ? ' primary' : '') + (why ? ' blocked' : '')} title=${why || label} onClick=${() => (why ? say(why, true) : onClick())}><${Icon} name=${icon} size=${17} /><span>${label}</span></button>`;
+  // (a button pressed shows it at once - a spinner, the others still - until the line editor
+  // has answered: paying and saving take a few rounds)
+  const act = (label, onClick, { primary = false, why = null, icon = 'save' } = {}) => {
+    const busy = RT.busy === label;
+    const press = () => {
+      if (RT.busy) return;
+      if (why) return say(why, true);
+      RT.busy = label;
+      redraw();
+      Promise.resolve(onClick())
+        .catch(() => {})
+        .finally(() => {
+          RT.busy = null;
+          redraw();
+        });
+    };
+    return html`<button type="button" class=${'rt-act' + (primary ? ' primary' : '') + (why ? ' blocked' : '') + (busy ? ' busy' : '')} disabled=${!!RT.busy} aria-busy=${busy} title=${why || label} onClick=${press}>${busy ? html`<${Spinner} />` : html`<${Icon} name=${icon} size=${17} />`}<span>${label}</span></button>`;
+  };
   const small = (icon, title, onClick) => html`<button type="button" class="tp-ib" title=${title} onClick=${onClick}><${Icon} name=${icon} size=${17} /></button>`;
   if (line.map) {
     const fee = v.company_view?.map_fee;
@@ -401,15 +423,33 @@ function Saving({ v }) {
 function TypedField({ value, placeholder, onInput, cls = '' }) {
   const [text, setText] = useState(value ?? '');
   const focused = useRef(false);
+  // (what is typed sent once the typing pauses, or the field is left: each sending is a round to
+  // the line editor and the route's figures worked out anew)
+  const soon = useRef({ k: 0, t: null });
+  const send = () => {
+    clearTimeout(soon.current.k);
+    if (soon.current.t != null) onInput(soon.current.t);
+    soon.current.t = null;
+  };
+  useEffect(() => () => send(), []);
   useEffect(() => {
     if (!focused.current) setText(value ?? '');
   }, [value]);
   return html`<input class=${'rt-field ' + cls} value=${text} placeholder=${placeholder} spellcheck=${false}
-    onFocus=${() => (focused.current = true)} onBlur=${() => ((focused.current = false), setText(value ?? ''))}
+    onFocus=${() => (focused.current = true)}
+    onBlur=${() => {
+      // (a text just sent stays until the line editor's answer brings it back)
+      const pending = soon.current.t != null;
+      send();
+      focused.current = false;
+      if (!pending) setText(value ?? '');
+    }}
     onInput=${(e) => {
       const t = e.currentTarget.value;
       setText(t);
-      onInput(t);
+      soon.current.t = t;
+      clearTimeout(soon.current.k);
+      soon.current.k = setTimeout(send, 300);
     }} />`;
 }
 
@@ -625,7 +665,7 @@ function useTimeplanRun(name, dir, stops, day) {
     return () => {
       gone = true;
     };
-  }, [name, dir, stops, day, S.rf.bump, S.rf.tp.rev, S.co.shell?.gen]);
+  }, [name, dir, stops, day, S.rf.bump, S.rf.tp.rev, rfGen()]);
   return [x, setX];
 }
 

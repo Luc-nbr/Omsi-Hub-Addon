@@ -19,7 +19,7 @@ import { tr } from '../hub/bits.js';
 import { HOME, setCo, handOverHooks, useSize } from '../company/kit.js';
 import { togetherOn, blockedLabel } from '../company/gate.js';
 import { pal } from './pal.js';
-import { fresh, setRf, setPart, rfCmd, rfAct, rfRemote, after, told, holds, letGo, toggle, panelIs, settle, rfOpen, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { fresh, setRf, setPart, rfCmd, rfAct, rfRemote, rfGen, readBegun, readDone, after, told, holds, letGo, toggle, panelIs, settle, rfOpen, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 import { Mark, Wordmark, Opening, SUBTITLE } from './brand.js';
 import { Icon, IconBtn } from './ui.js';
 import { Studio } from './studio.js';
@@ -112,14 +112,16 @@ async function rereadDays() {
   if (on?.days && on.company === S.rf.company) setRf({ days: on.days });
 }
 
-/** The day's board (`rf_board`), asked again when the day, the company or the language changed
- * or an action was taken; kept as it was when the Rust side says it is the same. */
+/** The day's board (`rf_board`), asked again when the day, the company (as RosterFlow counts its
+ * changes: `rfGen`) or the language changed or an action was taken - not on a tab's switch, the
+ * board is the same on each; kept as it was when the Rust side says it is the same. */
 function useBoard() {
   const r = S.rf;
-  const gen = S.co.shell?.gen ?? 0;
+  const gen = rfGen();
   const lang = language();
   useEffect(() => {
     let gone = false;
+    const n = readBegun('board');
     rfCmd('rf_board', { day: r.day, have: S.rf.rev })
       .then((v) => {
         if (gone) return;
@@ -127,15 +129,18 @@ function useBoard() {
         // (the company's day moved on since the switcher's days were read: read again, or every
         // day of the switcher - and every copy to one - is the day after the one it says)
         if (v.head?.date && S.rf.days?.[r.day] && S.rf.days[r.day].date !== v.head.date) rereadDays();
-        if (v.same) setRf({ data: { ...S.rf.data, head: v.head } });
-        else if (v.board) setRf({ data: v, rev: v.rev });
+        // (the same board: drawn again only when its head says something else)
+        if (v.same) {
+          if (JSON.stringify(v.head) !== JSON.stringify(S.rf.data?.head)) setRf({ data: { ...S.rf.data, head: v.head } });
+        } else if (v.board) setRf({ data: v, rev: v.rev });
         else setRf({ data: { head: v.head, reading: v.reading }, rev: '' });
       })
-      .catch((e) => !gone && setRf({ data: { head: S.rf.data?.head, reading: e.message }, rev: '' }));
+      .catch((e) => !gone && setRf({ data: { head: S.rf.data?.head, reading: e.message }, rev: '' }))
+      .finally(() => !gone && readDone('board', n));
     return () => {
       gone = true;
     };
-  }, [r.day, gen, r.bump, lang, r.view]);
+  }, [r.day, gen, r.bump, lang]);
 }
 
 /** How often the page says it is in RosterFlow (`rf_here`): who else is in it comes back, and

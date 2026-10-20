@@ -16,7 +16,7 @@ use super::super::launch::DutyLaunch;
 use super::super::lines::plate;
 use super::super::people::lack_text;
 use super::super::words::{day_label, eur, share_tone, tr, trf, MONTHS, WEEKDAYS};
-use super::super::{act as apply, lines_of, plan_of, week_work, Session};
+use super::super::{act as apply, lines_of, plan_of, week_work, with_lines_of, Session};
 use super::{popup_answer, str_arg};
 use crate::Answer;
 use hub_core::company::plan::{self as pl, BusOf, DayPlan, DayTour, Disruption, Fill, Problem, Source, Warn, Who};
@@ -395,7 +395,7 @@ fn day_tab(s: &mut Session, c: &Company, k: usize, day: usize) -> Value {
 fn tools(s: &Session, c: &Company, date: &str, clear_armed: bool) -> Value {
     let wd = pl::weekday_of(date);
     let repeat = if wd < 5 { "Repeat Mon–Fri" } else { "Repeat on the weekend" };
-    let lack = lines_of(s, date).map(|lines| co::ownline::shortfall(c, &co::network::tours_of_day(c, &lines, date))).unwrap_or_default();
+    let lack = with_lines_of(s, date, |lines| co::ownline::shortfall(c, &co::network::tours_of_day(c, lines, date))).unwrap_or_default();
     let (text, tone, icon) = match lack.first() {
         Some(x) => (
             trf(

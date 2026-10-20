@@ -9,7 +9,8 @@ import { call } from '../api.js';
 import { t, plain } from '../i18n.js';
 import { Spinner } from '../ui.js';
 import { useStore } from '../store.js';
-import { drawStopSign, stopSign } from './stopsigns.js';
+import { stampStopSign, stopSign } from './stopsigns.js';
+import { roadLayer, SETTLE } from './roadlayer.js';
 
 const cache = new Map();
 
@@ -53,6 +54,14 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
   const [hover, setHover] = useState(-1);
   // (the stops' signs in the style chosen: `stopsigns.js`)
   const signs = useStore((s) => s.settings?.stop_style);
+  // Omsi-Hub: the roads drawn once for a zoom (`roadlayer.js`), a frame drawn when the screen
+  // draws next however often the mouse moved meanwhile
+  const layer = useRef(null);
+  if (!layer.current) layer.current = roadLayer();
+  const frame = useRef({ raf: 0, zoomedAt: 0, settle: 0 });
+  const kick = () => {
+    if (!frame.current.raf) frame.current.raf = requestAnimationFrame(() => ((frame.current.raf = 0), latest.current()));
+  };
 
   useEffect(() => {
     if (!map) return;
@@ -102,16 +111,30 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
       g.beginPath();
       for (let i = 0; i < p.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, X(p[i]), Y(p[i + 1]));
     };
-    g.lineCap = g.lineJoin = 'round';
     const [casing, road, main, red] = colors || d.colors;
-    for (let pass = 0; pass < 2; pass++) {
-      for (const r of d.roads) {
-        line(r.p);
-        g.strokeStyle = pass ? (r.main ? main : road) : casing;
-        g.lineWidth = Math.max((r.w + (pass ? 0 : 2)) / v.mpp, pass ? 1.4 : 2.4);
-        g.stroke();
-      }
-    }
+    // (the casings, then the surfaces: the side streets', the main roads' over them)
+    layer.current.put(g, {
+      roads: d.roads,
+      look: `${casing}|${road}|${main}`,
+      cam: v,
+      W,
+      H,
+      dpr,
+      zoomedAt: frame.current.zoomedAt,
+      later: () => {
+        clearTimeout(frame.current.settle);
+        frame.current.settle = setTimeout(kick, SETTLE + 10);
+      },
+      paint: (g2, gs, mpp) => {
+        g2.strokeStyle = casing;
+        for (const e of gs) ((g2.lineWidth = Math.max(e.w + 2, 2.4 * mpp)), g2.stroke(e.path));
+        for (const top of [false, true]) {
+          g2.strokeStyle = top ? main : road;
+          for (const e of gs) if (e.main === top) ((g2.lineWidth = Math.max(e.w, 1.4 * mpp)), g2.stroke(e.path));
+        }
+      },
+    });
+    g.lineCap = g.lineJoin = 'round';
     g.strokeStyle = red;
     g.lineWidth = 4.5;
     for (const p of d.route) {
@@ -128,7 +151,8 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
     for (const s of d.stops) {
       const x = X(s.at[0]);
       const y = Y(s.at[1]);
-      drawStopSign(g, style, x, y, SIGN);
+      if (x < -200 || y < -50 || x > W + 200 || y > H + 50) continue;
+      stampStopSign(g, style, x, y, SIGN);
       const st = stops[s.k];
       if (st) {
         const label = `${st.time}  ${st.name}`;
@@ -187,6 +211,9 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
     return () => {
       ro.disconnect();
       scale.removeEventListener('change', redraw);
+      cancelAnimationFrame(frame.current.raf);
+      clearTimeout(frame.current.settle);
+      frame.current.raf = 0;
     };
   }, []);
 
@@ -234,7 +261,7 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
           d.p = p;
           view.current.cx -= dx * view.current.mpp;
           view.current.cy += dy * view.current.mpp;
-          draw();
+          kick();
         } else {
           const h = entryAt(p);
           if (h !== hover) setHover(h);
@@ -261,7 +288,8 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
         v.mpp = Math.min(Math.max(v.mpp * (e.deltaY > 0 ? 1.15 : 1 / 1.15), 0.15), 200);
         v.cx = wx - (px - W / 2) * v.mpp;
         v.cy = wy + (py - H / 2) * v.mpp;
-        draw();
+        frame.current.zoomedAt = performance.now();
+        kick();
       }}>
     <canvas ref=${cv}></canvas>
     ${!data && html`<div class="state"><${Spinner} /> ${t('Reading the map…')}</div>`}

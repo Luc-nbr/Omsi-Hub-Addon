@@ -139,10 +139,25 @@ export function statOf(b, row, stat) {
 /** Buses' numbers in their natural order ("2" before "10"). */
 const BUS_ORDER = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
+/** The rows last worked out, for the Vehicles (0) and the Drivers (1) tab, and what of. */
+const rowsKept = [null, null];
+
 /** The rows as shown (`rf_gantt::rows`): pinned first, then (filtered) the buses by line and
  * number and the duties in the order of their rows (`rosterflow::RowOrder`), or as a stats
- * column sorts them. */
+ * column sorts them. Worked out again only when the board, the filter, the sort or the pinned
+ * changed (it is asked for at every frame drawn, and by the page around it). The rows are the
+ * same list each time: not to be changed. */
 export function rowsOf(data, drivers) {
+  const r = S.rf;
+  const k = drivers ? 1 : 0;
+  const was = rowsKept[k];
+  if (was && was.board === data.board && was.lines === data.lines && was.filter === r.filter && was.sort === r.sort && was.pinned === r.pinned) return was.rows;
+  const rows = makeRows(data, drivers);
+  rowsKept[k] = { board: data.board, lines: data.lines, filter: r.filter, sort: r.sort, pinned: r.pinned, rows };
+  return rows;
+}
+
+function makeRows(data, drivers) {
   const r = S.rf;
   const f = r.filter;
   const b = data.board;
@@ -157,13 +172,17 @@ export function rowsOf(data, drivers) {
       out.push({ kind: 'duty', i: d, id: x.id, pinned: false });
     });
   } else {
-    const lineAt = (l) => {
-      const k = data.lines.findIndex((x) => eq(x.name, l));
-      return k < 0 ? 1e9 : k;
-    };
+    // (where each line is in the list, by its name as `eq` takes it: looked up once, not at each
+    // comparison of the sort)
+    const lineIdx = new Map();
+    (data.lines || []).forEach((x, k) => {
+      const key = String(x.name).trim().toLowerCase();
+      if (!lineIdx.has(key)) lineIdx.set(key, k);
+    });
+    const at = b.blocks.map((t) => lineIdx.get(String(t.line).trim().toLowerCase()) ?? 1e9);
     // (by line, then by the bus's number: a bus split off or added has the next number, so it is a
     // new row at the bottom of its line and every other row stays where it was - Luc, Beta 65)
-    const idx = b.blocks.map((_, i) => i).sort((a, c) => lineAt(b.blocks[a].line) - lineAt(b.blocks[c].line) || BUS_ORDER.compare(b.blocks[a].tour, b.blocks[c].tour) || b.blocks[a].from - b.blocks[c].from || a - c);
+    const idx = b.blocks.map((_, i) => i).sort((a, c) => at[a] - at[c] || BUS_ORDER.compare(b.blocks[a].tour, b.blocks[c].tour) || b.blocks[a].from - b.blocks[c].from || a - c);
     for (const i of idx) {
       const t = b.blocks[i];
       if (issueRows && !issueRows.includes(`vehicle|${i}`)) continue;
@@ -181,6 +200,7 @@ export function rowsOf(data, drivers) {
     out = out.map((row, k) => [row, k]).sort((a, c) => (asc ? v(a[0]) - v(c[0]) : v(c[0]) - v(a[0])) || a[1] - c[1]).map((x) => x[0]);
   }
   // (the pinned on top, in the order pinned)
+  if (!r.pinned.length) return out;
   const top = [];
   for (const id of r.pinned) {
     const k = out.findIndex((x) => x.id === id);
@@ -965,8 +985,9 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     if (!g.raf) g.raf = requestAnimationFrame(paint);
   };
   g.again = again;
+  // (drawn once a frame, however often the page draws meanwhile)
   useEffect(() => {
-    paint();
+    again();
   });
   useEffect(() => {
     const ro = new ResizeObserver(() => again());
@@ -975,6 +996,7 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       ro.disconnect();
       forget(g.owner);
       cancelAnimationFrame(g.raf);
+      g.raf = 0;
     };
   }, []);
 

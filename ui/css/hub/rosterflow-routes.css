@@ -126,3 +126,11 @@
 .rt-strip .rt-tpday .hub-icon { right: 4px; }
 /* (RosterFlow's page takes no selection; what is typed here does) */
 .rf-tp.rt input { user-select: text; -webkit-user-select: text; }
+/* the tab back: what it showed last, untouchable while the line editor reads the company anew */
+.rf-tp.rt.rt-again > * { pointer-events: none; }
+.rf-tp.rt.rt-again { cursor: progress; }
+/* a button pressed: its spinner until the line editor answered, the others still meanwhile */
+.rt-act:disabled { cursor: default; opacity: 0.6; }
+.rt-act.busy { opacity: 1; cursor: progress; }
+.rt-act.busy .spinner { width: 14px; height: 14px; border-width: 2px; }
+.rt-act.primary.busy .spinner { border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }

@@ -18,10 +18,11 @@ import { openDutyCard } from '../company/dutycard.js';
 import { alpha, mix, hex, tone, css, lighten } from './pal.js';
 import * as D from './draw.js';
 import { AXIS } from './draw.js';
-import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN, DRIVERS } from './state.js';
+import { setRf, setPart, rfCmd, rfGen, after, bump, say, press, busyIs, readBegun, readDone, nextRead, TIMEPLAN, DRIVERS } from './state.js';
 import { Icon, RfButton, IconBtn, MenuItem } from './ui.js';
 import { anchor, begin, forget } from './anchors.js';
 import { BAR, barLook, drawBar } from './gantt.js';
+import { BusyButton } from './studio.js';
 // (the day's trips that ran late or were dropped, marked on the tours and duties)
 import * as SV from './service.js';
 
@@ -45,8 +46,20 @@ function rowPitch(room, rows) {
   return rows ? Math.max(ROW_MIN, Math.min(ROW_MAX, Math.floor(room / rows))) : ROW_MAX;
 }
 
+/** The Roster tab's acts of its toolbar's buttons: pressed at once, until the roster is read
+ * again (one at a time). */
+const BUTTONS = ['repeat', 'clear', 'fill', 'off_many'];
+
 /** An action of the Roster tab (`rf_roster_act`) on the day shown. */
 async function rAct(act, args = {}) {
+  if (BUTTONS.includes(act)) {
+    if (BUTTONS.some((k) => busyIs('roster-' + k))) return null;
+    return press('roster-' + act, () => rSend(act, args, true));
+  }
+  return rSend(act, args, false);
+}
+
+async function rSend(act, args, wait) {
   let r;
   try {
     r = await rfCmd('rf_roster_act', { act, day: S.rf.day, ...args });
@@ -55,7 +68,9 @@ async function rAct(act, args = {}) {
     return null;
   }
   after(r);
+  const read = wait ? nextRead('roster') : null;
   bump();
+  if (read) await read;
   return r;
 }
 
@@ -186,23 +201,32 @@ function useRosterKeys() {
   }, []);
 }
 
-/** The tab's view (`rf_roster`), asked again when the day, the choice or the company changed. */
+/** The tab's last view, of which company: shown at once when the tab is opened again, while it
+ * is asked for anew (the tab is drawn anew on each switch). */
+let lastRoster = null;
+
+/** The tab's view (`rf_roster`), asked again when the day, the choice or the company (as
+ * RosterFlow counts its changes: `rfGen`) changed. */
 function useRoster() {
   const r = S.rf;
   const sel = r.roster.sel;
-  const gen = S.co.shell?.gen ?? 0;
-  const [v, setV] = useState(null);
+  const gen = rfGen();
+  const [v, setV] = useState(() => (lastRoster && lastRoster.company === r.company ? lastRoster.v : null));
   useEffect(() => {
     let gone = false;
+    const n = readBegun('roster');
+    const company = S.rf.company;
     rfCmd('rf_roster', { day: r.day, sel })
       .then((x) => {
         if (gone) return;
         setV(x);
+        lastRoster = { company, v: x };
         // (the title bar's undo and redo on this tab are the roster's)
         const ru = S.rf.rosterUndo;
         if (!ru || ru.n !== (x.undo || 0) || ru.redo !== (x.redo || 0)) setRf({ rosterUndo: { n: x.undo || 0, redo: x.redo || 0 } });
       })
-      .catch((e) => !gone && setV({ error: e.message }));
+      .catch((e) => !gone && setV({ error: e.message }))
+      .finally(() => !gone && readDone('roster', n));
     return () => {
       gone = true;
     };
@@ -300,17 +324,19 @@ function DayTabs({ v }) {
 /** The toolbar: what the roster is (or what the fleet lacks), and the tools. */
 function Tools({ v }) {
   const s = S.rf.roster;
+  // (a tool's command still runs: the others wait for it)
+  const pressed = BUTTONS.some((k) => busyIs('roster-' + k));
   return html`<div class="rr-tools" data-rf="rf-roster-tools">
     <span class=${'what ' + v.tools.tone} title=${v.tools.text}><${Icon} name=${v.tools.icon} size=${16} /><span class="cut">${v.tools.text}</span></span>
-    <${RfButton} label=${v.repeat} raw title="This weekday's roster on the other days too (theirs is replaced)" onClick=${() => rAct('repeat')} />
-    <${RfButton} label=${s.clear ? 'Press again' : 'Clear the day'} title="Take every bus and driver of this weekday out of the roster" style=${s.clear ? 'box-shadow:inset 0 0 0 1.5px var(--rf-err)' : ''} onClick=${() => {
+    <${BusyButton} busy=${busyIs('roster-repeat')} busyLabel=${v.repeat} label=${v.repeat} raw disabled=${pressed} title="This weekday's roster on the other days too (theirs is replaced)" onClick=${() => rAct('repeat')} />
+    <${BusyButton} busy=${busyIs('roster-clear')} busyLabel="Clear the day" label=${s.clear ? 'Press again' : 'Clear the day'} disabled=${pressed} title="Take every bus and driver of this weekday out of the roster" style=${s.clear ? 'box-shadow:inset 0 0 0 1.5px var(--rf-err)' : ''} onClick=${() => {
       if (s.clear) {
         rsSet({ clear: false });
         rAct('clear');
       } else rsSet({ clear: true });
     }} />
-    <${RfButton} label="Fill the roster" solid title="Fix in the roster what the dispatcher would take: free buses, and free drivers by the working-time rules. Only what is planned runs." onClick=${() => rAct('fill')} />
-    ${s.multi?.length > 0 && html`<${RfButton} label=${tr('Unassign selected (%{n})', { n: s.multi.length })} raw data="rf-roster-off-chosen" title="Take the drivers and buses chosen off (Delete)" onClick=${offChosen} />`}
+    <${BusyButton} busy=${busyIs('roster-fill')} busyLabel="Fill the roster" label="Fill the roster" solid disabled=${pressed} title="Fix in the roster what the dispatcher would take: free buses, and free drivers by the working-time rules. Only what is planned runs." onClick=${() => rAct('fill')} />
+    ${s.multi?.length > 0 && html`<${BusyButton} busy=${busyIs('roster-off_many')} busyLabel=${tr('Unassign selected (%{n})', { n: s.multi.length })} label=${tr('Unassign selected (%{n})', { n: s.multi.length })} raw disabled=${pressed} data="rf-roster-off-chosen" title="Take the drivers and buses chosen off (Delete)" onClick=${offChosen} />`}
   </div>`;
 }
 
@@ -360,7 +386,8 @@ function Chart({ v, p, startDrag, carrying }) {
   const again = () => {
     if (!g.raf) g.raf = requestAnimationFrame(paint);
   };
-  useEffect(() => paint());
+  // (drawn once a frame, however often the page draws meanwhile)
+  useEffect(() => again());
   useEffect(() => {
     const ro = new ResizeObserver(() => again());
     ro.observe(box.current);
@@ -375,6 +402,8 @@ function Chart({ v, p, startDrag, carrying }) {
     return () => {
       ro.disconnect();
       forget(g.owner);
+      cancelAnimationFrame(g.raf);
+      g.raf = 0;
       window.__rfRosterHit = null;
     };
   }, []);

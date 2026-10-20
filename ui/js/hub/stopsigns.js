@@ -184,6 +184,31 @@ export function drawStopSign(ctx, style, x, y, d) {
   ctx.restore();
 }
 
+/** The signs drawn once each (style, size, the canvas's scale): a map of hundreds of stops
+ * stamps them instead of drawing every one anew. */
+const sprites = new Map();
+
+/** The sign of `style`, `d` pixels across, at `x`, `y` - as `drawStopSign`, from a picture
+ * drawn once. */
+export function stampStopSign(ctx, style, x, y, d) {
+  const t = ctx.getTransform();
+  const k = Math.hypot(t.a, t.b) || 1;
+  const key = `${style}|${d}|${k}`;
+  let s = sprites.get(key);
+  if (!s) {
+    const size = d + Math.ceil(d * 0.1) + 4;
+    const c = document.createElement('canvas');
+    c.width = c.height = Math.ceil(size * k);
+    const g = c.getContext('2d');
+    g.setTransform(k, 0, 0, k, 0, 0);
+    drawStopSign(g, style, size / 2, size / 2, d);
+    s = { c, size };
+    if (sprites.size > 96) sprites.clear();
+    sprites.set(key, s);
+  }
+  ctx.drawImage(s.c, x - s.size / 2, y - s.size / 2, s.size, s.size);
+}
+
 /** One sign as a picture of its own, `size` CSS pixels square (the welcome's and the settings'
  * choices). */
 export function StopSign({ style, size = 56 }) {

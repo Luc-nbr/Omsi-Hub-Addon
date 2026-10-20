@@ -115,14 +115,84 @@ export function told(list) {
   say(was && Date.now() - was.at < 2000 ? `${was.text} ${text}` : text, false);
 }
 
-/** The day's board asked again (and the company's shell with it). */
+/** The company's generation as RosterFlow counts it (`rf_gen`: a playing clock's quiet minutes
+ * left out, `rosterflow::rf_generation`); the whole generation from a backend without it. What
+ * RosterFlow's tabs read again on. */
+export const rfGen = () => S.co.shell?.rf_gen ?? S.co.shell?.gen ?? 0;
+
+/** The day's board asked again (and the company's shell with it): both in one go once the shell
+ * is back, so that what is read on either is read once. */
 export function bump() {
-  setRf((r) => ({ bump: r.bump + 1 }));
-  coRefresh();
+  return coRefresh(() => setRf((r) => ({ bump: r.bump + 1 })));
 }
+
+// --- what a button waits for ------------------------------------------------------------------------
+// (SAVE writes files and the board comes after it: the button says so at once, and a second press
+// meanwhile does nothing)
+
+/** How many times each view (`board`, `roster`, `tp`) was asked for, and who waits for the next. */
+const asked = {};
+let waits = [];
+
+/** A view asked for (`useBoard`, `useRoster`, `useTp`): its number, for `readDone`. */
+export function readBegun(name) {
+  asked[name] = (asked[name] || 0) + 1;
+  return asked[name];
+}
+
+/** A view's answer (asked as `n`) came: who waited for one asked after they began goes on. */
+export function readDone(name, n) {
+  waits = waits.filter((w) => {
+    if (w.name !== name || n <= w.after) return true;
+    w.ok();
+    return false;
+  });
+}
+
+/** Until view `name` is read again (at most `ms`: a tab left meanwhile asks for nothing). */
+export function nextRead(name, ms = 6000) {
+  return new Promise((ok) => {
+    const w = { name, after: asked[name] || 0, ok };
+    waits.push(w);
+    setTimeout(() => {
+      waits = waits.filter((x) => x !== w);
+      ok();
+    }, ms);
+  });
+}
+
+/** The button `key` is pressed and its command runs (`press`). */
+export const busyIs = (key) => !!S.rf.busy?.includes(key);
+
+/** Press button `key`: busy at once (`busyIs`, drawn as such) until `go()` is done; pressed again
+ * meanwhile, nothing (null). */
+export async function press(key, go) {
+  if (busyIs(key)) return null;
+  setRf((r) => ({ busy: [...(r.busy || []), key] }));
+  try {
+    return await go();
+  } finally {
+    setRf((r) => ({ busy: (r.busy || []).filter((k) => k !== key) }));
+  }
+}
+
+/** The acts of the Vehicles and Drivers tabs' buttons: pressed until the day's board is read
+ * again (one at a time). */
+const BUTTONS = ['save', 'discard', 'optimise', 'accept', 'keep_mine', 'revalidate'];
+
+/** One of the Vehicles and Drivers tabs' buttons is pressed (`rfAct`). */
+export const studioBusy = () => BUTTONS.some(busyIs);
 
 /** An action of the Vehicles and Drivers tabs (`rf_act`) on the day shown. */
 export async function rfAct(act, args = {}) {
+  if (BUTTONS.includes(act)) {
+    if (studioBusy()) return null;
+    return press(act, () => send(act, args, true));
+  }
+  return send(act, args, false);
+}
+
+async function send(act, args, wait) {
   let r;
   try {
     // (the day as the page shows it: an edit of a day somebody else changed meanwhile is refused,
@@ -138,7 +208,10 @@ export async function rfAct(act, args = {}) {
   // (undone or redone: the day's blocks and trips are numbered anew, as after an edit - what is
   // chosen, held or carded by its numbers let go)
   if (r?.say && UNDOES.includes(act)) settle();
+  // (a button: pressed until the board it changed is read - SAVE says Saved when it is)
+  const read = wait ? nextRead('board') : null;
   bump();
+  if (read) await read;
   return r;
 }
 

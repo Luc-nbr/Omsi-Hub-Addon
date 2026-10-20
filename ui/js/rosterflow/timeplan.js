@@ -23,7 +23,7 @@ import { S, set } from '../store.js';
 import { language } from '../i18n.js';
 import { tr } from '../hub/bits.js';
 import { handOver, setCo, cmd as coCmd } from '../company/kit.js';
-import { setRf, setPart, rfCmd, after, bump, say } from './state.js';
+import { setRf, setPart, rfCmd, rfGen, after, bump, say, press, busyIs, readBegun, readDone, nextRead } from './state.js';
 import { Icon } from './ui.js';
 import { CopyPanel, openCopy, chosenTrips } from './tpcopy.js';
 
@@ -81,17 +81,28 @@ function generated(first, last, heads) {
   return n;
 }
 
+/** The Timeplan's last view, of which company: shown at once when the tab is opened again, while
+ * it is asked for anew (the tab is drawn anew on each switch). */
+let lastTp = null;
+
 /** The Timeplan's view (`rf_tp`), asked again when what is shown changed or after an action. */
 function useTp() {
   const r = S.rf;
   const t = r.tp;
-  const [v, setV] = useState(null);
-  const gen = S.co.shell?.gen ?? 0;
+  const [v, setV] = useState(() => (lastTp && lastTp.company === r.company ? lastTp.v : null));
+  const gen = rfGen();
   useEffect(() => {
     let gone = false;
+    const n = readBegun('tp');
+    const company = S.rf.company;
     rfCmd('rf_tp', { day: t.day, side: t.side, pattern: t.pattern, tab: t.tab, points_only: t.pointsOnly })
-      .then((x) => !gone && setV(x))
-      .catch((e) => !gone && setV({ error: e.message }));
+      .then((x) => {
+        if (gone) return;
+        setV(x);
+        lastTp = { company, v: x };
+      })
+      .catch((e) => !gone && setV({ error: e.message }))
+      .finally(() => !gone && readDone('tp', n));
     return () => {
       gone = true;
     };
@@ -102,8 +113,20 @@ function useTp() {
 const tpSet = (patch) => setPart('tp', patch);
 const refreshTp = () => tpSet((t) => ({ rev: (t.rev || 0) + 1 }));
 
+/** The Timeplan's acts that write the company's files (SAVE, Refresh): pressed at once, until the
+ * view is read again. */
+const WRITES = ['save', 'refresh'];
+
 /** An action of the Timeplan (`rf_tp_act`) on what is shown; what it says said. */
 async function tpAct(act, args = {}) {
+  if (WRITES.includes(act)) {
+    if (WRITES.some((k) => busyIs('tp-' + k))) return null;
+    return press('tp-' + act, () => tpSend(act, args));
+  }
+  return tpSend(act, args);
+}
+
+async function tpSend(act, args) {
   const t = S.rf.tp;
   let r;
   // (the Undo offered after trips were taken out goes with the next action)
@@ -115,8 +138,15 @@ async function tpAct(act, args = {}) {
     return null;
   }
   after(r);
-  refreshTp();
-  if (act === 'save' || act === 'refresh') bump();
+  if (!WRITES.includes(act)) {
+    refreshTp();
+    return r;
+  }
+  // (saved or made anew: the company's shell and every tab's view read again - this one with
+  // them, once; the button pressed until it is)
+  const read = nextRead('tp');
+  bump();
+  await read;
   return r;
 }
 
@@ -269,6 +299,9 @@ function ContextBar({ v, onHeight }) {
   const lineAt = Math.max(0, v.lines.findIndex((l) => l.name.toLowerCase() === String(v.line).toLowerCase()));
   const [bar, fit] = useBarFit([v.lines.length, v.line, v.calendar?.length, v.runs, v.from?.label, v.save, v.dirty, v.has_inbound, language()], onHeight);
   const wide = fit < 1;
+  // (SAVE writes the line's files: pressed at once, Saved once the view is read again)
+  const saving = busyIs('tp-save');
+  const saveLabel = saving ? tr('Saving…') : v.save || tr('Saved');
   const pickLine = (k) => {
     const l = v.lines[k];
     if (!l || l.name === v.line) return;
@@ -300,12 +333,13 @@ function ContextBar({ v, onHeight }) {
     ${[[RUNNING, 'schedule', 'Running times'], [TIMETABLE, 'grid_view', 'Timetable']].map(([tab, icon, tip]) => html`<button type="button" class=${'tp-screen' + (t.tab === tab ? ' on' : '')} title=${tr(tip)} onClick=${() => t.tab !== tab && tpSet({ tab, cell: null, text: '' })}><${Icon} name=${icon} size=${20} /></button>`)}
     <i class="tp-sep"></i>
     ${v.runs && html`<span class="tp-from">${v.from?.show && html`<button type="button" class="tp-ib small" title=${tr('A day earlier')} onClick=${() => tpAct('from', { by: -1 })}><${Icon} name="chevron_left" size=${13} /></button><b>${v.from.label}</b><button type="button" class="tp-ib small" title=${tr('A day later')} onClick=${() => tpAct('from', { by: 1 })}><${Icon} name="chevron_right" size=${13} /></button>`}</span>`}
-    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => {
+    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '') + (saving ? ' busy' : '')} data-rf="rf-tp-save" disabled=${saving} onClick=${() => v.dirty && !saving && tpAct('save').then((x) => {
       // (the trips chosen are places in the table: read again, or on the day group of an
       // error, they would be other trips - Delete would take those out)
+      if (!x) return;
       const off = { cell: null, text: '', sel: null, picked: [], anchor: null };
       tpSet(x?.day != null ? { ...off, day: x.day, issuesOpen: !!x.issues_open, adding: null, scroll: 0 } : off);
-    })} title=${wide ? undefined : v.save || tr('Saved')}><${Icon} name="save" size=${18} />${wide && html`<span>${v.save || tr('Saved')}</span>`}</button>
+    })} title=${wide ? undefined : saveLabel}>${saving ? html`<i class="rf-spin"></i>` : html`<${Icon} name="save" size=${18} />`}${wide && html`<span>${saveLabel}</span>`}</button>
   </div>`;
 }
 
@@ -722,7 +756,7 @@ function StatusBar({ v }) {
   else note = [tr('Click a cell to type into it.'), 'dim'];
   return html`<div class="tp-status">
     <span class=${'note ' + note[1]}>${note[1] === 'sky' && html`<${Icon} name="info" size=${16} />`}<span class="cut">${note[0]}</span>${undo && !t.leaving && html`<button type="button" class="tp-undo" data-rf="rf-tp-undo" title=${tr('Undo (Ctrl+Z)')} onClick=${() => tpAct('undo').then(() => tpSet({ undoable: null, ...only(null), cell: null }))}><${Icon} name="undo" size=${15} /><span>${tr('Undo')}</span></button>`}</span>
-    ${v.unsynced && html`<button type="button" class="tp-unsynced" data-rf="rf-tp-refresh" title=${tr('The timetable changed since the scheduling studio made the blocks of this line: make its blocks and duties anew')} onClick=${() => tpAct('refresh')}><${Icon} name="refresh" size=${16} />${tr('UNSYNCED')} – ${tr('Refresh')}</button>`}
+    ${v.unsynced && html`<button type="button" class="tp-unsynced" data-rf="rf-tp-refresh" title=${tr('The timetable changed since the scheduling studio made the blocks of this line: make its blocks and duties anew')} disabled=${busyIs('tp-refresh')} onClick=${() => tpAct('refresh')}>${busyIs('tp-refresh') ? html`<i class="rf-spin"></i>` : html`<${Icon} name="refresh" size=${16} />`}${tr('UNSYNCED')} – ${tr('Refresh')}</button>`}
     <button type="button" class=${'tp-issues ' + tone + (t.issuesOpen ? ' on' : '')} title=${tr('The issues of this day group')} onClick=${() => tpSet({ issuesOpen: !t.issuesOpen })}><${Icon} name=${v.errors > 0 ? 'error' : v.warnings > 0 ? 'warning' : 'check_circle'} size=${16} />${v.issues_label}</button>
   </div>`;
 }

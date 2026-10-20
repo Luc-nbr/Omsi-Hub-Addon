@@ -366,6 +366,9 @@ pub struct Session {
     /// How many of the coming week's agenda entries need the player, for the bell over the pages
     /// (`agenda::needs_count`): at which generation and when it was worked out.
     pub needs_kept: Option<(u64, Instant, usize)>,
+    /// The last whole shell `co_tick` sent: its generation, when, and what of it changes
+    /// without one (`shell_still`).
+    shell_kept: Option<(u64, Instant, Value)>,
     /// What the page says in its corner, as the game-drawn launcher says it in its status line.
     pub notices: Vec<(String, bool)>,
     /// A popup the session raised itself (the clock's "busy").
@@ -742,7 +745,8 @@ pub fn week_work(s: &mut Session) {
     v.asked.extend(missing.iter().cloned());
     let revision = s.timetable;
     crate::spawn(move || {
-        for (map, date) in missing {
+        let n = missing.len();
+        for (k, (map, date)) in missing.into_iter().enumerate() {
             let r = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
             if s.timetable != revision {
@@ -750,7 +754,10 @@ pub fn week_work(s: &mut Session) {
             }
             s.week.days.retain(|d| !(d.0 == map && d.1 == date));
             s.week.days.push((map, date, r));
-            s.generation += 1;
+            // (the page asks again once the whole week is in, not seven times over)
+            if k + 1 == n {
+                s.generation += 1;
+            }
         }
     });
 }
@@ -788,8 +795,14 @@ pub fn plan_of(s: &mut Session, date: &str) -> Option<Result<co::plan::DayPlan, 
 
 /// The lines of a day of the week as read (for the duty launcher's start).
 pub fn lines_of(s: &Session, date: &str) -> Option<Vec<core::LineInfo>> {
+    with_lines_of(s, date, <[core::LineInfo]>::to_vec)
+}
+
+/// The lines of a day of the week as read, lent to `f` (None: not read yet): `lines_of` without
+/// the copy, for who only looks.
+pub fn with_lines_of<T>(s: &Session, date: &str, f: impl FnOnce(&[core::LineInfo]) -> T) -> Option<T> {
     let c = s.company.as_ref()?;
-    s.week.days.iter().find(|x| x.0 == c.map && x.1 == date).and_then(|x| x.2.as_ref().ok()).cloned()
+    s.week.days.iter().find(|x| x.0 == c.map && x.1 == date).and_then(|x| x.2.as_ref().ok()).map(|l| f(l))
 }
 
 /// Tomorrow's plan, for the overview's warnings (`planning::tomorrow`).
@@ -1310,9 +1323,10 @@ pub fn now_label(c: &Company) -> String {
 fn shell(s: &mut Session) -> Value {
     let notices: Vec<Value> = std::mem::take(&mut s.notices).into_iter().map(|(t, e)| json!({ "text": t, "error": e })).collect();
     let popup = s.popup.take();
-    let base = json!({ "gen": s.generation, "notices": notices, "popup": popup, "companies": s.companies.as_ref().map(Vec::len) });
+    // (`rf_gen`: the generation as RosterFlow counts it, a playing clock's quiet minutes left out)
+    let base = json!({ "gen": s.generation, "rf_gen": super::rosterflow::rf_generation(s), "notices": notices, "popup": popup, "companies": s.companies.as_ref().map(Vec::len) });
     let Some(c) = s.company.clone() else {
-        return json!({ "open": false, "gen": base["gen"], "notices": base["notices"], "popup": base["popup"], "companies": base["companies"] });
+        return json!({ "open": false, "gen": base["gen"], "rf_gen": base["rf_gen"], "notices": base["notices"], "popup": base["popup"], "companies": base["companies"] });
     };
     words::set_currency(c.currency);
     let in_game = game_leads(s);
@@ -1396,6 +1410,7 @@ fn shell(s: &mut Session) -> Value {
     json!({
         "open": true,
         "gen": s.generation,
+        "rf_gen": super::rosterflow::rf_generation(s),
         "notices": base["notices"],
         "popup": base["popup"],
         "companies": base["companies"],
@@ -1411,6 +1426,51 @@ fn shell(s: &mut Session) -> Value {
         "today_read": s.map_lines().is_some(),
         "money": words::money_json(),
     })
+}
+
+/// How long a page keeps its shell at most without a whole one (what `shell_still` misses).
+const SHELL_KEPT_SECS: f32 = 2.0;
+
+/// The shell for `co_tick`, or `{ "same": true, "gen": gen }` when the page's is still it.
+///
+/// The contract: the page sends `gen`, the `gen` of the last whole shell it took (none: it has
+/// none). The answer is `same` only when the generation is that one, the last whole shell sent
+/// was of it, the clock stands (not playing, not the real clock's, no game leading, nothing
+/// simulated), nothing waits to be said (notices, a popup: taken by the shell), nothing else it
+/// shows changed (`shell_still`) and it is not older than two seconds. The page then keeps the
+/// shell it has; anything else is a whole shell, as before.
+fn shell_since(s: &mut Session, args: &Value) -> Value {
+    let gen = args.get("gen").and_then(Value::as_u64);
+    let still = shell_still(s, args);
+    if let (Some(g), Some(still), Some((kept, at, was))) = (gen, still.as_ref(), s.shell_kept.as_ref()) {
+        if g == s.generation && *kept == g && was == still && at.elapsed().as_secs_f32() < SHELL_KEPT_SECS {
+            return json!({ "same": true, "gen": g });
+        }
+    }
+    let sh = shell(s);
+    s.shell_kept = still.zip(sh["gen"].as_u64()).map(|(x, g)| (g, Instant::now(), x));
+    sh
+}
+
+/// What the shell shows that may change without the generation, while the company's clock
+/// stands; None: the clock does not stand (or nothing is open, or something waits to be said),
+/// a whole shell every tick.
+fn shell_still(s: &mut Session, args: &Value) -> Option<Value> {
+    let c = s.company.as_ref()?;
+    if s.closing || s.clock.speed > 0.0 || realtime(c) || !s.notices.is_empty() || s.popup.is_some() {
+        return None;
+    }
+    let still = json!({
+        "lang": args.get("lang"), "id": c.id, "asking": c.clock.ask.is_some(),
+        "companies": s.companies.as_ref().map(Vec::len),
+        "reports": s.reports.is_some(), "away": s.clock.away.is_some(), "launch": s.launch.is_some(), "sheet": s.dealer.sheet.is_some(),
+        "together": super::together::enabled(), "badge": super::together::rail_badge(c),
+    });
+    // (a game leading moves the clock; the company lent out for the look, not cloned)
+    let c = s.company.take()?;
+    let leads = game_minute(s, &c).is_some();
+    s.company = Some(c);
+    (!leads).then_some(still)
 }
 
 /// Casual's pages with the Multiplayer page while "Play together" is on (its crumbs and its name).
@@ -1650,7 +1710,7 @@ fn route(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
             if s.company.is_some() && !args.get("still").and_then(Value::as_bool).unwrap_or(false) {
                 tick(s, args.get("modal").and_then(Value::as_bool).unwrap_or(false));
             }
-            Ok(shell(s))
+            Ok(shell_since(s, args))
         }),
         "co_company" => with(|s| Ok(serde_json::to_value(&s.company).unwrap_or(Value::Null))),
         "co_view" => with(|s| view(s, args)),
