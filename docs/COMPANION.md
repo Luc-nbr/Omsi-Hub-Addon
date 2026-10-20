@@ -167,8 +167,10 @@ The app fetches roads in tiles of 1000 m and keeps them; `w` is the road's width
 
 ## The bus's devices, drawn as the game draws them
 
-Every device of the bus the player drives - its IBIS, its ticket printer or ALMEX, any other
-screen with keys or touch fields - is read from the bus's own files by the add-on (its
+The IBIS and the ticket printer or ALMEX of the bus the player drives - no other screen of
+the bus: the passengers' display, the dashboard's or a thermometer would only confuse in the
+app, and a screen with nothing to press is left out too - are read from the bus's own files by
+the add-on (its
 `model.cfg` and the `.o3d` parts and textures beside it, the way Luc's career add-on for OMSI 2
 did, github.com/Luc-nbr/Omsi-career-addon: `core/busmodule.ts`, `core/schermvorm.ts`; the
 add-on's `crates/hub-devices` is a port of it) and sent to the app as a **form**: the pictures of
@@ -177,15 +179,15 @@ touch fields with the trigger each one fires. The app draws the form with the sc
 **stand** of this moment (the strings and numbers it shows) and a tap fires the touch field's
 trigger in the game. Nothing is drawn by hand per bus.
 
-`state.devices` lists the devices of the bus now (empty on foot):
+`state.devices` lists those devices of the bus now (empty on foot):
 
 ```jsonc
 "devices": [
   { "id": "17_almex",                 // stable per bus and device
     "name": "ALMEX",                  // as the bus names it (the parts' names), else the kind
-    "role": "printer",                // "ibis" | "printer" | "other"
+    "role": "printer",                // "ibis" | "printer" ("other": an older add-on; not shown)
     "kind": "touch",                  // "touch" (its screen is the keys) | "screen_keys" |
-                                      // "keys" (keys only) | "screen" (a display only)
+                                      // "keys" (keys only); a display only is not sent
     "form": "a1b2c3d4e5f60718293a",   // the form's id (20 hex), null: no screen could be drawn
     "keys": [ { "trigger": "almex_riegel", "label": "RIEGEL", "digit": null, "row": 2,
                 "loose": true } ]

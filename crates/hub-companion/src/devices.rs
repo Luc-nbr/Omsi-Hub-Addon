@@ -1,5 +1,5 @@
-//! The devices of the bus the player drives - its IBIS, its ticket printer or ALMEX, any other
-//! screen with keys or touch fields - as the app draws them (docs/COMPANION.md, "The bus's
+//! The devices of the bus the player drives - its IBIS and its ticket printer or ALMEX, no other
+//! screen of the bus - as the app draws them (docs/COMPANION.md, "The bus's
 //! devices, drawn as the game draws them"). `hub-devices` reads them from the bus's own files;
 //! this puts them together for the state (`devices`), keeps their forms and pictures by id,
 //! and makes each screen's stand from what the plugin reads in the game ten times a second.
@@ -12,7 +12,7 @@
 
 use hub_devices::fonts::FontBook;
 use hub_devices::form::{self, Built, Input, Models};
-use hub_devices::modules::{self, Key, Module};
+use hub_devices::modules::{self, Key, Module, Role};
 use hub_devices::protocol::{Form, Stand};
 use hub_devices::textures::{self, Finder, Flags};
 use hub_devices::{cfg, layout, scripts};
@@ -31,7 +31,7 @@ pub const SCREEN_WAIT: Duration = Duration::from_secs(2);
 pub const CACHE_DIR: &str = "companion-forms";
 const CACHE_KEPT: usize = 40;
 /// Up when what is built changes, so that an older add-on's forms are not taken.
-const CACHE_FORMAT: &str = "devices-1";
+const CACHE_FORMAT: &str = "devices-2";
 /// Devices of one bus at most, and keys of one device.
 const MAX_DEVICES: usize = 24;
 const MAX_KEYS: usize = 160;
@@ -249,19 +249,23 @@ pub fn device_of(m: &Module, built: Option<&Built>) -> Option<Device> {
             row += 1;
         }
     }
+    // (a screen with nothing to press is no device the driver works: the HH20's door bar and its
+    // note of the driver's numbers)
     let kind = match (built, touch, keys.is_empty()) {
         (Some(_), true, _) => "touch",
         (Some(_), false, false) => "screen_keys",
-        (Some(_), false, true) => "screen",
         (None, _, false) => "keys",
-        (None, _, true) => return None,
+        (_, _, true) => return None,
     };
     Some(Device { id: m.id.clone(), name: m.name.clone(), role: m.role().name().into(), kind: kind.into(), form: built.map(|b| b.form.id.clone()), keys })
 }
 
-/// The bus's devices (at most [`MAX_DEVICES`]).
+/// The bus's IBIS and ticket printers (at most [`MAX_DEVICES`]): the app shows only those, the
+/// other screens of the bus (the passengers' display, the dashboard's, a thermometer) would only
+/// confuse there, and are not even read.
 pub fn modules_of(model_cfg: &Path) -> Vec<Module> {
     let mut m = modules::modules_of(model_cfg);
+    m.retain(|d| d.role() != Role::Other);
     m.truncate(MAX_DEVICES);
     m
 }
@@ -396,6 +400,24 @@ mod tests {
 
     fn screen(items: Value) -> Screen {
         Screen::of(items.as_array().unwrap())
+    }
+
+    #[test]
+    fn only_the_ibis_and_the_ticket_printer_go_to_the_app() {
+        let root = std::env::temp_dir().join(format!("hub-companion-roles-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = root.join("model.cfg");
+        let mut text = String::from("[mesh]\r\nthermometer.o3d\r\n[useTextTexture]\r\n0\r\n");
+        for k in 1..=6 {
+            text += &format!("[mesh]\r\nibis_{k}.o3d\r\n[mouseevent]\r\nIBIS_{k}\r\n");
+        }
+        text += "[texttexture]\r\ntemperatur_aussen\r\nLCD\r\n64\r\n16\r\n0\r\n0\r\n0\r\n0\r\n";
+        std::fs::write(&cfg, text).unwrap();
+        assert_eq!(modules::modules_of(&cfg).len(), 2, "the thermometer is a device of the bus");
+        let mods = modules_of(&cfg);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].role(), Role::Ibis);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

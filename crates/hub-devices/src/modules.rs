@@ -447,7 +447,9 @@ pub fn modules_from(lines: &[String], model_dir: &Path) -> Vec<Module> {
             continue;
         }
         let stem = first_word(&g.keys[0].0, &HashSet::new());
-        if stem.is_empty() || stem == g.stem {
+        // (a group put together here already stays: with fewer than three keys it came back to
+        // this line for ever - the stock MAN SD80)
+        if stem.is_empty() || stem == g.stem || g.stem.starts_with('~') {
             k += 1;
             continue;
         }
@@ -674,5 +676,19 @@ mod tests {
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].keys.len(), 6);
         assert_eq!(m[0].role(), Role::Printer);
+    }
+
+    #[test]
+    fn a_lone_key_goes_to_the_stem_of_its_action_once() {
+        // (one key on a part named otherwise: to `~ibis`, where it still stands for nothing -
+        // and before, it was moved there again and again; the stock MAN SD80 never finished)
+        let cfg = "[mesh]\r\nbox.o3d\r\n[mouseevent]\r\nIBIS_7\r\n[mesh]\r\nbody.o3d\r\n[mesh]\r\nseat.o3d\r\n";
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(modules_from(&lines(cfg), Path::new("/nowhere")));
+        });
+        let m = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("the devices are found, and in time");
+        // (and one key without a screen is no device)
+        assert!(m.is_empty(), "{m:?}");
     }
 }

@@ -595,6 +595,8 @@ struct Plane {
     s1: f64,
     t0: f64,
     t1: f64,
+    /// Lying flat (in the roof, facing down): the bus's up says nothing of its top.
+    flat: bool,
 }
 
 struct Layer {
@@ -856,6 +858,40 @@ fn piece_of(tris: &[Tri], seeds: &Seeds) -> Vec<Tri> {
 /// The plane of a piece: the area-weighted winding normal, "up" = o3d +y projected on the plane
 /// (o3d +z for a flat one), "right" seen from the front, and the rectangle around it.
 fn plane_of(tris: &[Tri]) -> Option<Plane> {
+    plane_turned(tris, 0.0)
+}
+
+/// The angle (radians) by which the picture's own axes lie turned in `v`: u across, v down, as
+/// its maker drew it. `None` when they are mirrored or turned by more than 20 degrees (then the
+/// bus's up stays; on a flat face, which has no up of the bus, by any angle), or less than half a
+/// degree (nothing to turn).
+fn picture_turn(v: &Plane, tris: &[Tri], uvs: &[f32]) -> Option<f64> {
+    let uv = |i: u32| (uvs.get(i as usize * 2).copied().unwrap_or(0.0) as f64, uvs.get(i as usize * 2 + 1).copied().unwrap_or(0.0) as f64);
+    let (mut tu, mut tv) = ([0.0; 3], [0.0; 3]);
+    for d in tris {
+        let ((ua, va), (ub, vb), (uc, vc)) = (uv(d.i[0]), uv(d.i[1]), uv(d.i[2]));
+        let (du1, dv1, du2, dv2) = (ub - ua, vb - va, uc - ua, vc - va);
+        let det = du1 * dv2 - du2 * dv1;
+        if det.abs() < 1e-12 {
+            continue;
+        }
+        // (the directions along which u and v grow, weighted by the triangle's area)
+        tu = add(tu, mul(unit(mul(sub(mul(d.e0, dv2), mul(d.e1, dv1)), 1.0 / det)), d.area));
+        tv = add(tv, mul(unit(mul(sub(mul(d.e1, du1), mul(d.e0, du2)), 1.0 / det)), d.area));
+    }
+    let (su, tu_) = (dot(tu, v.right), dot(tu, v.up));
+    let (sv, tv_) = (dot(tv, v.right), dot(tv, v.up));
+    // (u to the right and v downward, as seen by the driver: not mirrored)
+    if su.hypot(tu_) < 1e-9 || su * tv_ - tu_ * sv >= 0.0 {
+        return None;
+    }
+    let angle = tu_.atan2(su);
+    let most = if v.flat { std::f64::consts::PI } else { 20f64.to_radians() };
+    (angle.abs() >= 0.5f64.to_radians() && angle.abs() <= most).then_some(angle)
+}
+
+/// [`plane_of`] with its axes turned by `angle` (radians, counter-clockwise seen from the front).
+fn plane_turned(tris: &[Tri], angle: f64) -> Option<Plane> {
     if tris.is_empty() {
         return None;
     }
@@ -873,11 +909,14 @@ fn plane_of(tris: &[Tri]) -> Option<Plane> {
     }
     let o = mul(o, 1.0 / area);
     let mut up = sub([0.0, 1.0, 0.0], mul(n, n[1]));
-    if length(up) < 0.3 {
+    let flat = length(up) < 0.3;
+    if flat {
         up = sub([0.0, 0.0, 1.0], mul(n, n[2]));
     }
     let up = unit(up);
     let right = unit(cross(n, up));
+    let (sin, cos) = angle.sin_cos();
+    let (right, up) = (unit(add(mul(right, cos), mul(up, sin))), unit(sub(mul(up, cos), mul(right, sin))));
     let (mut s0, mut s1, mut t0, mut t1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
     for d in tris {
         for p in corners(d) {
@@ -892,7 +931,7 @@ fn plane_of(tris: &[Tri]) -> Option<Plane> {
     if (s1 - s0).is_nan() || s1 - s0 <= 1e-4 || (t1 - t0).is_nan() || t1 - t0 <= 1e-4 {
         return None;
     }
-    Some(Plane { o, n, right, up, s0, s1, t0, t1 })
+    Some(Plane { o, n, right, up, s0, s1, t0, t1, flat })
 }
 
 impl Plane {
@@ -1202,6 +1241,14 @@ fn analyze(models: &Models, model_cfg: &Path, module: &Module, numbers: &HashMap
     if let Some((k, seeds)) = &chosen {
         piece = piece_of(&k.tris, seeds);
         plane = plane_of(&piece);
+        // (turned as its picture is, a little: the MAN SD80's IBIS sits a few degrees askew on
+        // its mount, and is drawn level as on its face; the Setra's matrix panel in the roof
+        // faces down, and only its picture says where its top is)
+        if let (Some(v), Some(model)) = (&plane, models.model(&k.geo.info)) {
+            if let Some(angle) = picture_turn(v, &piece, &model.uvs) {
+                plane = plane_turned(&piece, angle).or(plane);
+            }
+        }
     }
     if plane.is_none() {
         // no background: the plane of the text fields themselves, as with a text LCD
@@ -1774,7 +1821,7 @@ pub fn build(models: &Models, input: &Input) -> Option<Built> {
         }
         let path = path_of(&name);
         if let Some(p) = &path {
-            part.texture = Some(register(p, Flags { alpha, trans, crop: None }));
+            part.texture = Some(register(p, Flags { alpha, trans: trans.clone(), crop: None, night: None }));
         }
         if alpha == 2 {
             part.color = Some(colour);
@@ -1786,22 +1833,26 @@ pub fn build(models: &Models, input: &Input) -> Option<Built> {
             notes.borrow_mut().push(format!("texture missing: {name} ({role} {})", g.mesh.path));
             return None;
         }
-        // [matl_change] <tex> <n> <var>: at value k item k's picture; an item with a
-        // [matl_nightmap] shows that (the ALMEX's red delay box); one without keeps the own
+        // [matl_change] <tex> <n> <var>: at value k item k's picture; an item with only a
+        // [matl_nightmap] is the own picture with that light added (the ALMEX's red delay box on
+        // black, the MAN SD80's IBIS display lit on its whole face); one without keeps the own
         if let Some(c) = ctx.filter(|c| c.change && !c.items.is_empty()) {
             if let Some(var) = &c.variable {
                 let items = c
                     .items
                     .iter()
                     .map(|item| {
-                        let item_name = item.freetex.as_ref().map(|f| f.0.clone()).filter(|d| !d.is_empty()).or_else(|| item.nightmap.clone()).unwrap_or_default();
+                        let own = item.freetex.as_ref().map(|f| f.0.clone()).filter(|d| !d.is_empty());
+                        let item_name = own.clone().or_else(|| item.nightmap.clone()).unwrap_or_default();
                         let item_path = if item_name.is_empty() { None } else { path_of(&item_name) };
                         if !item_name.is_empty() && item_path.is_none() {
                             notes.borrow_mut().push(format!("texture missing: {item_name} (item of {})", g.mesh.path));
                         }
-                        match item_path {
-                            Some(p) => Some(register(&p, Flags::alpha(item.alpha.unwrap_or(alpha)))),
-                            None => part.texture.clone(),
+                        let item_alpha = item.alpha.unwrap_or(alpha);
+                        match (item_path, &path) {
+                            (Some(night), Some(base)) if own.is_none() => Some(register(base, Flags { alpha: item_alpha, trans: trans.clone(), crop: None, night: Some(night) })),
+                            (Some(p), _) => Some(register(&p, Flags::alpha(item_alpha))),
+                            (None, _) => part.texture.clone(),
                         }
                     })
                     .collect();

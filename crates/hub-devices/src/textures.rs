@@ -14,7 +14,8 @@
 //! `Texture`; last the index of the whole vehicle folder. And what the material does to the
 //! picture is done here before sending, for the app knows nothing of `[matl_alpha]`: alpha 0
 //! opaque even when the file has alpha, alpha 1 an alpha test at 128 (after scaling), alpha 2 as
-//! it is; a transmap's alpha replaces the picture's; at most 2048 pixels the longest side,
+//! it is; a transmap's alpha replaces the picture's; a nightmap switched on is added to the
+//! picture's colour, as the game lights it; at most 2048 pixels the longest side,
 //! scaled down by the average so that text in the picture stays readable.
 
 use crate::ctc;
@@ -37,11 +38,15 @@ pub struct Flags {
     /// Cut to x, y, width, height in pixels of the ORIGINAL picture.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<[i64; 4]>,
+    /// A `[matl_nightmap]` lit, added to the picture's colour (an item of a `[matl_change]`
+    /// that switches only the light: the MAN SD80's IBIS display at `elec_busbar_main` 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub night: Option<PathBuf>,
 }
 
 impl Flags {
     pub fn alpha(alpha: u8) -> Flags {
-        Flags { alpha, trans: None, crop: None }
+        Flags { alpha, trans: None, crop: None, night: None }
     }
 
     /// In one fixed form, so that the same intent gives the same id.
@@ -50,7 +55,7 @@ impl Flags {
         // (at alpha 0 the game draws opaque: a transmap does nothing then)
         let trans = self.trans.clone().filter(|_| alpha != 0);
         let crop = self.crop.filter(|c| c[2] > 0 && c[3] > 0);
-        Flags { alpha, trans, crop }
+        Flags { alpha, trans, crop, night: self.night.clone() }
     }
 }
 
@@ -249,7 +254,10 @@ fn stamp(path: &Path) -> String {
 pub fn id_of(path: &Path, flags: &Flags) -> String {
     let f = flags.clean();
     let trans = f.trans.as_ref().map(|t| format!("{}|{}", norm(t), stamp(t))).unwrap_or_default();
-    let key = format!("{}|{}|{}|{trans}|{:?}|v1", norm(path), stamp(path), f.alpha, f.crop);
+    let mut key = format!("{}|{}|{}|{trans}|{:?}|v1", norm(path), stamp(path), f.alpha, f.crop);
+    if let Some(n) = &f.night {
+        key.push_str(&format!("|night {}|{}", norm(n), stamp(n)));
+    }
     hex20(key.as_bytes())
 }
 
@@ -276,7 +284,8 @@ fn decode(path: &Path) -> Option<Pixels> {
 
 /// A picture as a PNG for the app, with the flags applied, or `None` when it cannot be read.
 ///
-/// The order counts: the transmap on the full size; the crop; opaque (alpha 0) BEFORE scaling,
+/// The order counts: the transmap and the nightmap on the full size; the crop; opaque (alpha 0)
+/// BEFORE scaling,
 /// or the average still weighs the colour by an alpha the game does not use; scaling; the alpha
 /// test (alpha 1) AFTER it, as Direct3D tests what it samples.
 pub fn png_of(path: &Path, flags: &Flags, limit: u32) -> Option<Vec<u8>> {
@@ -284,6 +293,9 @@ pub fn png_of(path: &Path, flags: &Flags, limit: u32) -> Option<Vec<u8>> {
     let mut t = decode(path)?;
     if let Some(trans) = &f.trans {
         set_transmap(&mut t, trans);
+    }
+    if let Some(night) = &f.night {
+        add_nightmap(&mut t, night);
     }
     if let Some(c) = f.crop {
         if !(c[0] <= 0 && c[1] <= 0 && c[0] + c[2] >= t.w as i64 && c[1] + c[3] >= t.h as i64) {
@@ -331,6 +343,27 @@ fn set_transmap(t: &mut Pixels, path: &Path) -> bool {
         let row = ((((y as f64 + 0.5) * map.h as f64) / t.h as f64).floor() as u32).min(map.h - 1) * map.w;
         for x in 0..t.w {
             t.rgba[((y * t.w + x) * 4 + 3) as usize] = map.rgba[((row + cols[x as usize]) * 4 + 3) as usize];
+        }
+    }
+    true
+}
+
+/// The nightmap's colour added to the picture's (its alpha stays), sampled to the picture's size
+/// as [`set_transmap`] does: lit, a black nightmap changes nothing and a red one shows red.
+fn add_nightmap(t: &mut Pixels, path: &Path) -> bool {
+    let Some(map) = decode(path) else { return false };
+    if map.w == 0 || map.h == 0 {
+        return false;
+    }
+    let cols: Vec<u32> = (0..t.w).map(|x| ((((x as f64 + 0.5) * map.w as f64) / t.w as f64).floor() as u32).min(map.w - 1)).collect();
+    for y in 0..t.h {
+        let row = ((((y as f64 + 0.5) * map.h as f64) / t.h as f64).floor() as u32).min(map.h - 1) * map.w;
+        for x in 0..t.w {
+            let at = ((y * t.w + x) * 4) as usize;
+            let from = ((row + cols[x as usize]) * 4) as usize;
+            for k in 0..3 {
+                t.rgba[at + k] = t.rgba[at + k].saturating_add(map.rgba[from + k]);
+            }
         }
     }
     true
@@ -483,8 +516,16 @@ mod tests {
         assert_ne!(id_of(&p, &Flags::alpha(0)), id_of(&p, &Flags::alpha(2)));
         assert_eq!(id_of(&p, &Flags::alpha(0)).len(), 20);
         // (a transmap at alpha 0 does nothing, and so does not change the id)
-        let with = Flags { alpha: 0, trans: Some(p.clone()), crop: None };
+        let with = Flags { alpha: 0, trans: Some(p.clone()), crop: None, night: None };
         assert_eq!(id_of(&p, &with), id_of(&p, &Flags::alpha(0)));
+        // a nightmap lit: its colour added, the alpha the picture's; another picture
+        let n = root.join("n.png");
+        let night: Vec<u8> = [[0u8, 0, 0, 255], [250, 0, 0, 255], [0, 0, 0, 0], [0, 100, 0, 255]].concat();
+        std::fs::write(&n, encode_png(4, 1, &night).unwrap()).unwrap();
+        let lit = Flags { alpha: 2, trans: None, crop: None, night: Some(n.clone()) };
+        let px = read(png_of(&p, &lit, LIMIT).unwrap());
+        assert_eq!(px, [10, 20, 30, 0, 255, 20, 30, 100, 10, 20, 30, 200, 10, 120, 30, 255]);
+        assert_ne!(id_of(&p, &lit), id_of(&p, &Flags::alpha(2)));
         let _ = std::fs::remove_dir_all(root);
     }
 }

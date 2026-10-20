@@ -60,13 +60,34 @@ the server beside it was `plugin/harness/examples/realgame.rs`, the app its web 
   (`19_zettel.o3d`) and on the larger timetable sheet in the same clip (`19_schedule.o3d`,
   hidden); the vote now prefers, of as many votes, the surface shown under the same `[visible]`
   as its anchors (`crates/hub-devices/tests/note.rs`).
+- **Only the IBIS and the ticket printer go to the app** (Luc's decision: the bus's other
+  screens - the passengers' display, the dashboard's, a thermometer, the HH20's door bar and its
+  note - only confused). `hub-companion` drops role `other` before anything is built, and any
+  device with nothing to press; the app has no list of other devices any more (`/device` is
+  gone), and of several printers it opens one with a drawn screen first.
+- **The stock MAN SD80** (`Vehicles/MAN_SD200/MAN_SD80.bus`): `hub-devices` never finished its
+  devices - a lone key moved to `~ibis` came back to the same line for ever (fixed,
+  `modules.rs` test `a_lone_key_goes_to_the_stem_of_its_action_once`). Then its Krüger IBIS
+  drew only the lit display on black: the item of its `[matl_change]` on `elec_busbar_main` has
+  only a `[matl_nightmap]`, which was drawn INSTEAD of the face; it is now added to it, as the
+  game lights it (`Flags::night`; the ALMEX's red delay box, black around it, looks the same).
+  And it sat a few degrees askew: a face is now turned to its picture's own axes when they lie
+  within 20 degrees (`tests/turn.rs`). Taps in the app typed `LINIE/KURS: 29` in the game.
+- **The Setra O550** (`Vehicles/TH_Ueberlandbus/O550_Euro3.bus`): the AFR 200 is its display
+  (empty until signed on, as in the cab) with its 25 keys beside it; its change tray is a second
+  printer of keys. The matrix panel in the roof was drawn upside down: a face lying flat has no
+  up of the bus, and now takes its picture's (`tests/turn.rs`). Taps typed `Linie: 2`.
+- **The installation's buses** through `hub-devices` (a sweep, 136 of its 788 `.bus` files): no hang,
+  no panic. But the Citybus 530 (Kajosoft) took 30 to 90 s each in a release build, measured
+  before the filter above (it had nine devices then); worth measuring again, and making faster
+  if it still is: the app waits that long for its first form.
 
 **Not proven - the work for this session, in this order:**
 
 1. ~~**The plugin on the real openOMSI.**~~ Done, above.
-2. **Real buses' forms.** The HH20's ALMEX is done (above; menu 26 needs a duty, not seen yet).
-   Next a stock MAN (the Krüger IBIS) and the Setra's AFR 200 (`TH_Ueberlandbus`, five
-   displays on one body texture). Compare the app's drawing with a screenshot of the cab.
+2. **Real buses' forms.** The HH20's ALMEX, the MAN SD80's IBIS and the Setra O550's AFR 200
+   and matrix panel are done (above). Open: the ALMEX's menu 26 (needs a duty), the AFR 200's
+   display with text (signed on), the Citybus 530's build time, a bus from a mod folder.
    Uncertain in the port: resolving `bus.file()` through the content folders (fonts and shared
    textures of a bus in a mod folder), encrypted `.o3d` files, which touch field wins where
    two overlap, the alpha-test threshold of 128.
@@ -99,7 +120,8 @@ openomsi.exe --root "<OMSI 2>" --map maps/Grundorf/global.cfg --bus Vehicles/HH2
 ```
 
 A cab screenshot from inside a plugin: `omsi.game.screenshot()` (the file lands in openOMSI's
-`Screenshots`). `realgame` keeps its pairings in the temp folder (`hub-realgame-devices.json`)
+`Screenshots`); or one frame without a window, looking about the cab:
+`openomsi.exe --root "<OMSI 2>" --bus <bus> --autostart --offscreen cab.png --look 35,-20`. `realgame` keeps its pairings in the temp folder (`hub-realgame-devices.json`)
 and its forms in `%TEMP%\companion-forms`: delete that after changing `hub-devices`.
 
 Pair the app with the address and code the launcher (or `fakegame`) shows; after one pairing
