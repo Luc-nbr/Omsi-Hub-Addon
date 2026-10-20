@@ -292,3 +292,9 @@
 .le-change .from span { flex: 1; }
 .le-change .from b { width: 186px; text-align: center; font-size: 10.7px; color: var(--hub-text); }
 .le-change .buttons { display: grid; grid-template-columns: 1fr 1fr; }
+/* another map chosen: a word over the map, which is dimmed, until the new one is read */
+.le-map-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--le-map-ground) 70%, transparent); z-index: 3; cursor: progress; }
+.le-map-loading .card { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-radius: 14px; background: var(--hub-panel); color: var(--hub-text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); }
+.le-map-loading .card > span { display: flex; flex-direction: column; gap: 2px; }
+.le-map-loading b { font-size: 11px; font-weight: 600; }
+.le-map-loading small { font-size: 9.5px; color: var(--hub-text-dim); }

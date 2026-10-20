@@ -14,6 +14,32 @@ export const L = keep('lines', { view: null, map: null, mapKey: null, cam: null,
 
 export const redraw = () => set({});
 
+/** Another map chosen (`k` of the list, its name): shown chosen at once, the map under a word that
+ * it is being read until its roads are in (reading a map takes a while). */
+export function pickMap(k, name) {
+  if (L.view && k === L.view.map && !L.switching) return;
+  L.switching = { k, name };
+  redraw();
+  le('pick_map', { k }).then(() => {
+    // (the line editor did not take it: the map as it was)
+    if (L.switching?.k === k && L.view?.map !== k) {
+      L.switching = null;
+      redraw();
+    }
+  });
+}
+
+/** The map chosen being read still: the one chosen (`{ k, name }`), else null - and once it is
+ * read, let go. */
+export function switching() {
+  const s = L.switching;
+  const v = L.view;
+  if (!s) return null;
+  const done = v && v.map === s.k && !v.reading && (!v.map_key || L.map?.key === v.map_key);
+  if (done) L.switching = null;
+  return done ? null : s;
+}
+
 let chain = Promise.resolve();
 
 /** A request of the line editor (`op` and what it takes), its answer taken in. */

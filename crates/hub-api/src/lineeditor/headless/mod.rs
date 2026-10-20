@@ -143,7 +143,9 @@ fn read_map(key: String, global: PathBuf, date: String) -> MapRead {
     let root = omsi_cfg::content_roots().into_iter().find(|r| map_dir.starts_with(r)).or_else(|| map_dir.parent().and_then(|p| p.parent()).map(Path::to_path_buf)).unwrap_or_else(|| map_dir.clone());
     let tiles: Vec<(i32, i32, PathBuf)> = g.tiles.iter().map(|t| (t.x, t.y, omsi_cfg::resolve_path(&map_dir, &t.file))).filter(|t| omsi_cfg::vfs::is_file(&t.2)).collect();
     let t0 = std::time::Instant::now();
-    let crate::lineeditor::navmap::CityMap { roads, net, stops, .. } = crate::lineeditor::navmap::city_map(&root, &tiles, &chrono);
+    let crate::lineeditor::navmap::CityMap { roads, mut net, stops, .. } = crate::lineeditor::navmap::city_map(&root, &tiles, &chrono);
+    // (a junction's lane flagged the wrong way driven the way it joins, as the game drives it)
+    let turned = crate::lineeditor::lineroute::turn_dead_ends(&mut net);
     let (mut min, mut max) = (DVec2::splat(f64::MAX), DVec2::splat(f64::MIN));
     for r in &roads {
         for q in &r.points {
@@ -174,7 +176,7 @@ fn read_map(key: String, global: PathBuf, date: String) -> MapRead {
     };
     let list: Vec<Value> =
         roads.iter().map(|r| json!({ "w": (r.width * 10.0).round() / 10.0, "main": r.main, "p": flat(&r.points) })).filter(|v| v["p"].as_array().is_some_and(|a| a.len() >= 4)).collect();
-    log::info!("line editor (page): {} roads, {} lanes, {} stops of {} read in {:.2} s", list.len(), net.lanes.len(), stops.len(), global.display(), t0.elapsed().as_secs_f32());
+    log::info!("line editor (page): {} roads, {} lanes ({} turned), {} stops of {} read in {:.2} s", list.len(), net.lanes.len(), turned, stops.len(), global.display(), t0.elapsed().as_secs_f32());
     let rel = |q: DVec2| [r1(q.x - origin.x), r1(q.y - origin.y)];
     let page = json!({ "origin": [origin.x, origin.y], "lo": rel(lo), "hi": rel(hi), "roads": list });
     MapRead { key, net: Arc::new(net), stops, left_hand: g.left_hand_traffic, origin, roads: Arc::new(page) }

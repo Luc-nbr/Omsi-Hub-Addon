@@ -409,6 +409,98 @@ impl Router {
     }
 }
 
+/// How near a lane's end must come to the next one's start for a turned lane to join them
+/// (metres; the network's own joins take 1.5), and how far their headings may part (degrees).
+const TURN_JOIN: f64 = 1.5;
+const TURN_HEADING: f32 = 40.0;
+
+/// A lane of a junction object that leads nowhere, where the way the other way round joins a
+/// lane before it and a lane after it as one road, gets that way as a lane of its own. A
+/// junction's `[path]` may be flagged the wrong way: Bad Hügelsdorf's Auf der Halde K3 has its
+/// path 10 - the westbound way straight on - flagged backwards, so it ran east into nothing and
+/// a line from Auf der Halde to Schillerplatz went round the roundabout further south to come
+/// back; the map's own line 306 drives it from path 9 straight on, as the game lets it. Done on
+/// the network as it is read (before the router takes it); how many lanes were turned.
+pub fn turn_dead_ends(net: &mut Network) -> usize {
+    let n = net.lanes.len();
+    let ends_near = |net: &Network, p: DVec3, h: f32, skip: usize| -> Vec<usize> {
+        lanes_near(net, p.truncate(), TURN_JOIN + 1.0)
+            .into_iter()
+            .filter(|&j| j != skip && is_street(&net.lanes[j]))
+            .filter(|&j| {
+                let m = &net.lanes[j];
+                (m.end() - p).truncate().length() <= TURN_JOIN && (m.end().z - p.z).abs() < 3.0 && wrap_deg(m.end_heading() - h).abs() <= TURN_HEADING
+            })
+            .collect()
+    };
+    let starts_at = |net: &Network, p: DVec3, h: f32, skip: usize| -> Vec<usize> {
+        starts_near(net, p.truncate(), TURN_JOIN)
+            .into_iter()
+            .filter(|&j| j != skip && is_street(&net.lanes[j]))
+            .filter(|&j| {
+                let m = &net.lanes[j];
+                (m.start() - p).truncate().length() <= TURN_JOIN && (m.start().z - p.z).abs() < 3.0 && wrap_deg(m.start_heading() - h).abs() <= TURN_HEADING
+            })
+            .collect()
+    };
+    let mut turned: Vec<(Lane, Vec<usize>, Vec<usize>)> = Vec::new();
+    for (i, l) in net.lanes.iter().enumerate() {
+        // (a junction object's lane, keyed, that no street lane follows)
+        if l.source != 2 || !is_street(l) || l.key.is_none() || l.next.iter().any(|&j| net.lanes.get(j).is_some_and(is_street)) {
+            continue;
+        }
+        // (the other way of it there already: a two-way path)
+        if net.by_key.get(&l.key.unwrap()).is_some_and(|v| v.iter().any(|&j| j != i && net.lanes[j].reversed != l.reversed)) {
+            continue;
+        }
+        let into = ends_near(net, l.end(), l.end_heading() + 180.0, i);
+        let onto = starts_at(net, l.start(), l.start_heading() + 180.0, i);
+        if into.is_empty() || onto.is_empty() {
+            continue;
+        }
+        let pts: Vec<DVec3> = l.points.iter().rev().copied().collect();
+        let mut t = omsi_sim::traffic::LaneBuilder::polyline(pts, l.kind, l.width);
+        (t.key, t.source, t.reversed, t.name) = (l.key, l.source, !l.reversed, l.name.clone());
+        (t.speed_limit_kmh, t.density, t.no_cars, t.rule_bus, t.rule_trucks) = (l.speed_limit_kmh, l.density, l.no_cars, l.rule_bus, l.rule_trucks);
+        turned.push((t, into, onto));
+    }
+    for (mut t, into, onto) in turned {
+        let k = net.lanes.len();
+        t.next = onto.clone();
+        for &j in &into {
+            net.lanes[j].next.push(k);
+        }
+        if let Some(key) = t.key {
+            net.by_key.entry(key).or_default().push(k);
+        }
+        net.lanes.push(t);
+        // (the network's other lists, one entry a lane, where they are kept)
+        if net.prev.len() == k {
+            net.prev.push(into.clone());
+            for &j in &onto {
+                net.prev[j].push(k);
+            }
+        }
+        if net.conflicts.len() == k {
+            net.conflicts.push(Vec::new());
+        }
+        if net.crossings.len() == k {
+            net.crossings.push(Vec::new());
+        }
+        if net.walks.len() == k {
+            net.walks.push(Vec::new());
+        }
+        if net.reach.len() == k {
+            let r = onto.iter().map(|&j| net.reach[j]).fold(0.0, f32::max);
+            net.reach.push((r + net.lanes[k].length()).min(omsi_sim::traffic::REACH_MAX));
+        }
+    }
+    if net.lanes.len() > n {
+        net.build_grid();
+    }
+    net.lanes.len() - n
+}
+
 /// Lanes whose geometry lies in a grid cell within `r` of `p`.
 fn lanes_near(net: &Network, p: DVec2, r: f64) -> Vec<usize> {
     let (x0, y0) = Network::grid_cell(DVec3::new(p.x - r, p.y - r, 0.0));
@@ -461,6 +553,33 @@ mod tests {
 
     fn router(net: Network) -> Router {
         Router::new(Arc::new(net), false)
+    }
+
+    #[test]
+    fn a_junction_lane_flagged_the_wrong_way_is_driven_the_way_it_joins() {
+        // westbound along y = 2: a lane from x 300 to 150, a junction's lane between 150 and
+        // 130 flagged the wrong way (east, into nothing; longer than a loose end is bridged), a
+        // lane from 130 to 0
+        let lane = |pts: Vec<DVec3>, id: i64, source: u32| {
+            let mut l = LaneBuilder::polyline(pts, LaneKind::Street, 3.0);
+            l.key = Some(LaneKey { tile: (0, 0), id, path: 0 });
+            l.source = source;
+            l
+        };
+        let line = |x0: f64, x1: f64| (0..=10).map(|i| DVec3::new(x0 + (x1 - x0) * i as f64 / 10.0, 2.0, 0.0)).collect::<Vec<_>>();
+        let lanes = || vec![lane(line(300.0, 150.0), 20, 1), lane(line(130.0, 150.0), 30, 2), lane(line(130.0, 0.0), 21, 1)];
+        let mut flagged = Network { lanes: lanes(), ..Default::default() };
+        flagged.link(1.5);
+        let before = router(flagged);
+        assert!(before.route(&before.anchors(DVec2::new(290.0, 5.0), true), &before.anchors(DVec2::new(10.0, 5.0), true), 5000.0).is_none(), "no way past the junction as the map flags it");
+        let mut net = Network { lanes: lanes(), ..Default::default() };
+        net.link(1.5);
+        assert_eq!(turn_dead_ends(&mut net), 1);
+        let r = router(net);
+        let way = r.route(&r.anchors(DVec2::new(290.0, 5.0), true), &r.anchors(DVec2::new(10.0, 5.0), true), 5000.0).expect("the way straight on");
+        assert!((way.length - 280.0).abs() < 2.0, "{}", way.length);
+        // (saved as the junction's path, driven the other way)
+        assert!(r.steps(&way).iter().any(|s| s.id == 30 && s.reversed));
     }
 
     #[test]

@@ -16,7 +16,7 @@
 import { html, useEffect } from '../../../vendor/preact-htm.js';
 import { S, useStore } from '../../store.js';
 import { Card, Heading, Row, Badge, Drop, Btn, IconBtn, Toggle, LiveField, ColourPicker, Icon, tr, mapLabel, status } from '../kit.js';
-import { L, le } from './state.js';
+import { L, le, pickMap, switching } from './state.js';
 import { RightPanel, DirChoice } from './panels.js';
 import { LineMap } from './map.js';
 import { TableLayer } from './table.js';
@@ -40,7 +40,7 @@ function LeftPanel() {
     <${Heading} title="Your lines" />
     ${v.company
       ? html`<div class="le-company"><${Icon} name="garage" size=${17} /><span>${v.company.text}</span></div>`
-      : html`<${Drop} raw value=${v.map} options=${v.maps.map((m, k) => [k, m])} onChange=${(k) => le('pick_map', { k })} />`}
+      : html`<${Drop} raw value=${switching()?.k ?? v.map} options=${v.maps.map((m, k) => [k, m])} onChange=${(k) => pickMap(k, v.maps[k])} />`}
     <div class="le-lines" style=${`max-height:${v.map_rows.length ? 31 : 28}%`}>
       ${!v.rows.length && html`<p class="le-none">${v.none}</p>`}
       ${v.rows.map((r) => html`<${Row} class="le-line" on=${r.id === v.sel} onClick=${() => le('pick_line', { id: r.id })}>
@@ -219,7 +219,7 @@ export function LinesPage() {
     <div class="le-wide">
       <${LeftPanel} />
       <div class="le-mapbox">
-        <${LineMap} />
+        <${LineMap} follow />
         ${v.table && html`<${TableLayer} />`}
         ${!v.table && html`<${EstimateCard} />`}
       </div>
