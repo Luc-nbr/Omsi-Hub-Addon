@@ -1263,6 +1263,34 @@ function depotAct(a) {
   }
 }
 
+/** The depot as a dashboard (`company_more::depot::dashboard`), from the mock's site. */
+function depotDash() {
+  const has = (k) => SITE.upgrades.includes(k);
+  const load = (need, cap, line, none) => {
+    if (!cap) return { frac: need ? 1 : 0, tone: need ? 'danger' : 'dim', line: none };
+    const f = need / cap;
+    return { frac: Math.min(1, f), tone: f > 1 ? 'danger' : f > 0.85 ? 'warn' : 'ok', line, pct: `${Math.round(f * 100)} %` };
+  };
+  const fleet = EMPTY ? 0 : 22;
+  const washes = SITE.wash * (has('gantry') ? 40 : 10);
+  const added = (a) => (UPGRADES[a] || []).filter(([k]) => has(k)).map(([, icon, label]) => ({ icon, label }));
+  const area = (key, icon, label, lv, max, meter, works = null) => ({ key, icon, label, lv, max, level: `level ${lv} of ${max}`, meter, added: added(key), works });
+  return {
+    fleet_title: 'BUSES TONIGHT', people_title: 'STAFF',
+    fleet: [{ icon: 'local_parking', label: 'On the yard', value: String(EMPTY ? 0 : 19), tone: 'text' }, { icon: 'construction', label: 'In the workshop', value: String(EMPTY ? 0 : 2), tone: 'text' }, { icon: 'warning', label: 'In the street', value: String(EMPTY ? 0 : 1), tone: EMPTY ? 'text' : 'warn' }],
+    people: [{ icon: 'directions_bus', label: 'Drivers', value: EMPTY ? '0' : '14' }, { icon: 'build', label: 'Mechanics', value: EMPTY ? '0' : '3' }, { icon: 'local_car_wash', label: 'Cleaners', value: EMPTY ? '0' : '2' }, { icon: 'groups', label: 'Office', value: EMPTY ? '0' : '3' }],
+    money: [{ label: 'Upkeep a month', value: EMPTY ? '€0' : '€6,240' }, { label: 'Cleanliness', value: '84 %', tone: 'ok' }, { label: 'Building credit left', value: `€${SITE.credit.toLocaleString('en')}` }],
+    areas: [
+      area('parking', 'local_parking', 'Parking spaces', SITE.parking, 8, load(EMPTY ? 0 : 20, SITE.parking * 12, `20 buses for ${SITE.parking * 12} spaces`, 'No spaces: the buses stand in the street')),
+      area('workshop', 'construction', 'Workshop bays', SITE.workshop, 6, SITE.workshop ? load(3, SITE.workshop, `2 of ${SITE.workshop} bays busy, 1 jobs waiting`, '') : { frac: 0, tone: 'dim', line: 'None: a garage outside does the work, dearer' }),
+      area('wash', 'water_drop', 'Washing bay', SITE.wash, 4, load(fleet, washes, `${fleet} buses, washes ${washes} a night`, 'None: the fleet is cleaned by hand'), EMPTY ? null : 'Interior cleaning ready Mon 2 Nov'),
+      area('fuel', 'inventory_2', 'Diesel station', SITE.fuel, 6, load(EMPTY ? 0 : 18, SITE.fuel * 15, `18 diesel buses, fills ${SITE.fuel * 15} a night`, 'None: diesel is bought outside, dearer')),
+      area('charging', 'bolt', 'Charging points', SITE.charging, 10, load(EMPTY ? 0 : 4, SITE.charging * 2, `4 electric buses, charges ${SITE.charging * 2} a night`, 'None: electric buses charge outside, dearer')),
+      area('offices', 'groups', 'Offices and rest rooms', SITE.offices, 3, load(EMPTY ? 0 : 22, [0, 20, 50, 120][SITE.offices], `22 people, room for ${[0, 20, 50, 120][SITE.offices]}`, 'None: the staff have no rooms')),
+    ],
+  };
+}
+
 function depot() {
   const c = co();
   const busAt = (b) => ({ id: b.id, number: b.number, size: b.kind.startsWith('Articulated') ? 'articulated' : 'solo', file: b.file, paint: b.livery, tip: `${b.number} ${b.name}  ·  condition ${Math.round(b.cond * 100)} %` });
@@ -1312,6 +1340,7 @@ function depot() {
       credit: SITE.credit ? { amount: `€${SITE.credit.toLocaleString('en')}`, tip: 'Building credit: what your company was given to build its first depot with, spent before your cash' } : null,
       hint: EMPTY && !SITE.modules.length ? 'Your land is empty: build parking spaces, a workshop, a diesel station and offices to start with.' : null,
     },
+    dashboard: depotDash(),
     workshop: {
       title: 'Workshop', empty: null, cancel_tip: 'Take the job back',
       jobs: [{ id: 1, number: '2571', title: 'Repair  ·  MAN SD202', what: 'Starter motor · until Wed 21 Oct', tone: 'warn', cost: '€640', cancel: false }],

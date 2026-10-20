@@ -16,6 +16,8 @@
 // can be added to its area (the upgrades: a paint booth, a gantry, a bulk tank ...); a new
 // company's building credit stands over the list while some is left, and the last row is the
 // depot's look - its walls', roofs', trims' and doors' colours and what its walls are of.
+// Or the depot as a dashboard (the third view, in place of the yard): the buses where they stand
+// tonight, the staff, and each area with what is asked of it against what it has.
 
 import { html, tr, ui, setUi, useSize, textW, Icon, Btn, Section, Figure, Tag, Meter, Plate, IconBtn, Seg, rgbOf, inkOn, fill } from './kit.js';
 import { useMore, actMore, TextIn, box, fillOf, useListSize } from './more.js';
@@ -47,7 +49,9 @@ export function DepotPage() {
     const W = size.w;
     const H = size.h;
     const pick = (id) => setUi('depot', { selected: st.selected === id ? null : id });
-    const tools = !st.no3d && html`<${Seg} value=${st.view} options=${[['3d', tr('3D')], ['2d', tr('2D')]]} onChange=${(view) => setUi('depot', { view })} style="height:26px;width:92px" />`;
+    const views = st.no3d ? [['2d', tr('Plan')], ['dash', tr('Dashboard')]] : [['3d', tr('3D')], ['2d', tr('2D')], ['dash', tr('Dashboard')]];
+    const tools = html`<${Seg} value=${st.view} options=${views} onChange=${(view) => setUi('depot', { view, placing: null })} style=${`height:26px;width:${st.no3d ? 170 : 200}px`} />`;
+    const dash = st.view === 'dash' && v.dashboard;
     const build = () => html`<${Build} b=${v.build} land=${v.plan.layout?.land} look=${v.plan.look} place=${!st.no3d && !!v.plan.layout} placing=${st.placing} open=${st.open} />`;
     if (!st.no3d && v.plan.layout && H >= 240) {
       // the yard over the whole page; the figures and the bar over its top, the panel at its right
@@ -56,9 +60,11 @@ export function DepotPage() {
       const bar = 56;
       const side = (key) => setUi('depot', { panel: panel === key ? null : key });
       body = html`
-        <div style=${box(0, 0, W, H)}>
+        ${dash
+          ? html`<div style=${box(12, 84, W - 24 - (panel ? pw + 12 : 0), H - 96)}><${Dashboard} d=${v.dashboard} w=${W - 24 - (panel ? pw + 12 : 0)} h=${H - 96} hover=${st.hover} /></div>`
+          : html`<div style=${box(0, 0, W, H)}>
           <${Depot3D} p=${v.plan} rows=${v.build.rows} wsBuses=${v.workshop.buses || []} w=${W} h=${H} right=${panel ? pw + 12 : 0} top=${bar} minute=${minuteNow()} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />
-        </div>
+        </div>`}
         <div class="dp-figs">${v.figures.map((f) => html`<div class="dp-fig" title=${f.under}><span class="co-caps">${f.label}</span><b class=${'t-' + (f.tone || 'text')}>${f.value}</b>${W >= 1100 && html`<small>${f.under}</small>`}</div>`)}</div>
         <div class="dp-bar">
           ${tools}
@@ -80,8 +86,10 @@ export function DepotPage() {
       const ph = Math.max(0, H - fh - 12 - 58);
       body = html`
         ${v.figures.map((f, k) => html`<div style=${box(k * (fw + 12), 0, fw, fh)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
-        <${Section} title=${v.plan.title} tools=${tools} style=${box(0, fh + 12, leftW, Math.max(0, H - fh - 12))}>
-          ${!st.no3d && ph >= 120 && v.plan.layout
+        <${Section} title=${dash ? tr('The depot at a glance') : v.plan.title} tools=${tools} style=${box(0, fh + 12, leftW, Math.max(0, H - fh - 12))}>
+          ${dash
+            ? html`<${Dashboard} d=${v.dashboard} w=${pw} h=${ph} hover=${st.hover} />`
+            : !st.no3d && ph >= 120 && v.plan.layout
             ? html`<${Depot3D} p=${v.plan} rows=${v.build.rows} wsBuses=${v.workshop.buses || []} w=${pw} h=${ph} minute=${minuteNow()} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />`
             : html`<${Plan} p=${v.plan} w=${pw} h=${ph} selected=${st.selected} />`}
         </${Section}>
@@ -251,6 +259,48 @@ function Plan({ p, w, h, selected }) {
   return html`<div class="cm-plan" style=${`width:${w}px;height:${h}px`}>
     <svg width=${w} height=${h} style="position:absolute;left:0;top:0;overflow:visible">${svg}${buses}</svg>
     ${words}
+  </div>`;
+}
+
+// --- the dashboard ---------------------------------------------------------------------------
+
+/** A meter's state as an icon beside its words (never the colour alone). */
+const STATE = { ok: 'check_circle', warn: 'warning', danger: 'error' };
+
+/** The depot as a dashboard (`company_more::depot::dashboard`): the buses tonight and the staff
+ * in small figures, the money, then a card an area - its level, a meter of what is asked of it
+ * against what it has, the building work on it and what was added to it. An area's card under
+ * the pointer lights its row of the Build list, as the yard does. */
+function Dashboard({ d, w, h, hover }) {
+  const tile = (t) => html`<div class="dp-dash-tile" title=${`${t.label}: ${t.value}`}>
+    <span class="t-soft"><${Icon} name=${t.icon} size=${16} /></span><b class=${'t-' + (t.tone || 'text')}>${t.value}</b><small>${t.label}</small>
+  </div>`;
+  const card = (a) => {
+    const m = a.meter;
+    const lit = (on) => () => setUi('depot', { hover: on ? a.key : null });
+    return html`<div class=${'dp-dash-card' + (hover === a.key ? ' lit' : '')} onMouseEnter=${lit(true)} onMouseLeave=${lit(false)}>
+      <div class="head">
+        <span class="t-accent2"><${Icon} name=${a.icon} size=${20} /></span>
+        <b class="grow cut">${a.label}</b>
+        <span class="cm-pips" title=${a.level} style="position:static">${Array.from({ length: a.max }, (_, i) => html`<i class=${i < a.lv ? 'on' : i === a.lv && a.works ? 'works' : ''}></i>`)}</span>
+      </div>
+      <div class="load" title=${m.pct ? `${m.line} (${m.pct})` : m.line}>
+        <${Meter} frac=${m.frac} tone=${m.tone} h=${8} />
+        <span class=${'t-' + (m.tone === 'dim' ? 'faint' : m.tone === 'danger' ? 'danger' : m.tone === 'warn' ? 'warn' : 'soft')}>
+          ${STATE[m.tone] && html`<${Icon} name=${STATE[m.tone]} size=${14} />`}<span class="cut">${m.line}</span>${m.pct && html`<em>${m.pct}</em>`}
+        </span>
+      </div>
+      ${a.works && html`<div class="works t-warn"><${Icon} name="construction" size=${14} /><span class="cut">${a.works}</span></div>`}
+      ${a.added.length > 0 && html`<div class="added">${a.added.map((u) => html`<span class="dp-dash-chip" title=${u.label}><${Icon} name=${u.icon} size=${13} /><span class="cut">${u.label}</span></span>`)}</div>`}
+    </div>`;
+  };
+  return html`<div class="co-scroll dp-dash" style=${`width:${w}px;height:${h}px`}>
+    <div class="dp-dash-top">
+      <div class="dp-dash-group"><div class="co-caps">${d.fleet_title}</div><div class="dp-dash-tiles">${d.fleet.map(tile)}</div></div>
+      <div class="dp-dash-group"><div class="co-caps">${d.people_title}</div><div class="dp-dash-tiles">${d.people.map(tile)}</div></div>
+    </div>
+    <div class="dp-dash-money">${d.money.map((m) => html`<div><span class="co-caps">${m.label}</span><b class=${'t-' + (m.tone || 'text')}>${m.value}</b></div>`)}</div>
+    <div class="dp-dash-areas">${d.areas.map(card)}</div>
   </div>`;
 }
 

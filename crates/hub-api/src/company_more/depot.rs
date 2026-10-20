@@ -2,7 +2,8 @@
 //! above - the offices, the workshop hall with its bays, the washing bay, the diesel station,
 //! the parking's blocks with their chargers, the buses where they stand tonight -, the areas to
 //! build (a bigger depot, level by level, and what can be added to each area), the building
-//! credit a new company has, its look, and the workshop's jobs. The rules are `company::depot`'s.
+//! credit a new company has, its look, the depot as a dashboard (`dashboard`: what each area
+//! has against what is asked of it), and the workshop's jobs. The rules are `company::depot`'s.
 
 use super::super::kit;
 use super::super::words::{day_label, eur, grade, tr, trf};
@@ -10,6 +11,7 @@ use super::super::{act as apply, Session};
 use super::{popup_answer, str_arg, u32_arg};
 use crate::Answer;
 use hub_core::company::depot::{self as dp, Area, Finish, JobKind, Look, Upgrade};
+use hub_core::company::model::{Drive, Role};
 use hub_core::company::rooms::{self, RoomKind};
 use hub_core::company::yard;
 use hub_core::company::{self as co, Company};
@@ -18,7 +20,108 @@ use serde_json::{json, Value};
 pub fn view(s: &mut Session, args: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
     let selected = args.get("selected").and_then(Value::as_u64).map(|x| x as u32);
-    json!({ "figures": figures(&c), "plan": plan(&c), "build": buildings(&c), "workshop": workshop(&c, selected) })
+    json!({ "figures": figures(&c), "plan": plan(&c), "build": buildings(&c), "dashboard": dashboard(&c), "workshop": workshop(&c, selected) })
+}
+
+/// What is asked of an area against what it has, as the dashboard's meter: how full it is
+/// (`frac`), its tone (room to spare, nearly full, short) and its line.
+fn load(need: usize, has: usize, line: String, none: &str) -> Value {
+    if has == 0 {
+        let tone = if need > 0 { "danger" } else { "dim" };
+        return json!({ "frac": if need > 0 { 1.0 } else { 0.0 }, "tone": tone, "line": tr(none) });
+    }
+    let f = need as f64 / has as f64;
+    let tone = if f > 1.0 {
+        "danger"
+    } else if f > 0.85 {
+        "warn"
+    } else {
+        "ok"
+    };
+    json!({ "frac": f.min(1.0), "tone": tone, "line": line, "pct": format!("{:.0} %", f * 100.0) })
+}
+
+/// The depot as a dashboard: the fleet where it stands tonight and the staff, then each area
+/// with its level, what is asked of it against what it has (`load`), the work on it and what
+/// was added to it.
+fn dashboard(c: &Company) -> Value {
+    let s = &c.site;
+    let today = &c.date;
+    let held: Vec<&co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(today)).collect();
+    let in_ws = held.iter().filter(|v| v.in_workshop(today)).count();
+    let out = dp::outside(c);
+    let parked = held.len() - in_ws;
+    let drive = |d: Drive| held.iter().filter(|v| v.kind.drive == d).count();
+    let employed = c.staff.iter().filter(|e| e.employed_on(today)).count();
+    let waiting = s.jobs.iter().filter(|j| j.started.is_none()).count();
+    let busy = dp::bays_used(c, today);
+    let n = |x: usize| x.to_string();
+    let fleet = json!([
+        { "icon": "local_parking", "label": tr("On the yard"), "value": n(parked - out.min(parked)), "tone": "text" },
+        { "icon": "construction", "label": tr("In the workshop"), "value": n(in_ws), "tone": "text" },
+        { "icon": "warning", "label": tr("In the street"), "value": n(out), "tone": if out > 0 { "warn" } else { "text" } },
+    ]);
+    let st = staff(c);
+    let people = json!([
+        { "icon": "directions_bus", "label": tr("Drivers"), "value": st["drivers"].to_string() },
+        { "icon": "build", "label": tr("Mechanics"), "value": st["mechanics"].to_string() },
+        { "icon": "local_car_wash", "label": tr("Cleaners"), "value": st["cleaners"].to_string() },
+        { "icon": "groups", "label": tr("Office"), "value": st["office"].to_string() },
+    ]);
+    let areas: Vec<Value> = Area::ALL
+        .iter()
+        .map(|a| {
+            let meter = match a {
+                Area::Parking => load(parked, dp::places(c), trf("%{need} buses for %{has} spaces", &[("need", &n(parked)), ("has", &n(dp::places(c)))]), "No spaces: the buses stand in the street"),
+                Area::Workshop if s.bays() == 0 => json!({ "frac": 0.0, "tone": "dim", "line": tr("None: a garage outside does the work, dearer") }),
+                Area::Workshop => {
+                    load(busy + waiting, s.bays(), trf("%{busy} of %{has} bays busy, %{waiting} jobs waiting", &[("busy", &n(busy)), ("has", &n(s.bays())), ("waiting", &n(waiting))]), "")
+                }
+                Area::Wash => load(held.len(), s.washes(), trf("%{need} buses, washes %{has} a night", &[("need", &n(held.len())), ("has", &n(s.washes()))]), "None: the fleet is cleaned by hand"),
+                Area::Fuel => load(
+                    drive(Drive::Diesel),
+                    s.diesel_served(),
+                    trf("%{need} diesel buses, fills %{has} a night", &[("need", &n(drive(Drive::Diesel))), ("has", &n(s.diesel_served()))]),
+                    "None: diesel is bought outside, dearer",
+                ),
+                Area::Charging => load(
+                    drive(Drive::Electric),
+                    s.electric_served(),
+                    trf("%{need} electric buses, charges %{has} a night", &[("need", &n(drive(Drive::Electric))), ("has", &n(s.electric_served()))]),
+                    "None: electric buses charge outside, dearer",
+                ),
+                Area::Offices => load(employed, s.staff_room(), trf("%{need} people, room for %{has}", &[("need", &n(employed)), ("has", &n(s.staff_room()))]), "None: the staff have no rooms"),
+            };
+            let added: Vec<Value> = Upgrade::ALL.iter().filter(|u| u.area() == *a && s.has(**u)).map(|u| json!({ "icon": u.icon(), "label": tr(u.label()) })).collect();
+            let works = s.works_on(*a).map(|w| {
+                let what = w.upgrade.map(|u| tr(u.label())).unwrap_or_else(|| trf("level %{n}", &[("n", &w.level.to_string())]));
+                trf("%{what} ready %{date}", &[("what", &what), ("date", &day_label(&w.until))])
+            });
+            json!({
+                "key": a.key(), "icon": a.icon(), "label": tr(a.label()), "lv": s.level(*a), "max": a.max(),
+                "level": trf("level %{n} of %{max}", &[("n", &s.level(*a).to_string()), ("max", &a.max().to_string())]),
+                "meter": meter, "added": added, "works": works,
+            })
+        })
+        .collect();
+    let money = json!([
+        { "label": tr("Upkeep a month"), "value": eur(dp::upkeep_month(c)) },
+        { "label": tr("Cleanliness"), "value": format!("{:.0} %", s.clean), "tone": grade(s.clean) },
+        { "label": tr("Building credit left"), "value": eur(s.credit.max(0)) },
+    ]);
+    json!({ "fleet": fleet, "people": people, "areas": areas, "money": money, "fleet_title": tr("Buses tonight"), "people_title": tr("Staff") })
+}
+
+/// The staff employed today by what they do (the dashboard's figures).
+fn staff(c: &Company) -> Value {
+    let today = &c.date;
+    let n = |r: &[Role]| c.staff.iter().filter(|e| e.employed_on(today) && r.contains(&e.role)).count();
+    json!({
+        "drivers": n(&[Role::Driver]),
+        "mechanics": n(&[Role::Mechanic]),
+        "cleaners": n(&[Role::Cleaner]),
+        "office": n(&[Role::Service, Role::Inspector, Role::Researcher]),
+    })
 }
 
 fn figure(label: &str, value: String, under: String, tone: &str) -> Value {
