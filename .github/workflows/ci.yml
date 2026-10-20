@@ -131,3 +131,19 @@ jobs:
         run: |
           OMSIHUB_DATA_DIR="$RUNNER_TEMP/omsihub-data" OMSIHUB_SELFTEST_FIXTURES="$PWD/fixtures" \
             timeout 120 xvfb-run -a target/release/omsi-hub
+
+      # (the installers kept with the run for a week: a test build to download from the run's
+      # page, Actions → CI → the run, also when the selftest failed)
+      - name: Keep the installers with the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Omsi-Hub test build (${{ runner.os }})
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+          if-no-files-found: ignore
+          retention-days: 7
