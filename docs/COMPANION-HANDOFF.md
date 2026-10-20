@@ -35,15 +35,37 @@ navigator, the duty, IBIS keys and tickets reaching the bus, and a device form o
 bus drawn on iPhone and iPad size, where a tap on its MENU field pressed `IBIS_menu` in the game
 and the menu page showed.
 
+Proven on Luc's computer (20 October 2026; openOMSI 0.3.37 in `E:\Open-Omsi Official`, OMSI 2
+from Steam, Grundorf, `Vehicles/HH20_EBus2021/HHEBus2021_main.bus` started with `--autostart`;
+the server beside it was `plugin/harness/examples/realgame.rs`, the app its web build):
+
+- **The plugin in the real game** (point 1 below, done). Every function the companion uses is
+  there (`game.api()` 1) except `duty.type_ibis`. `bus.file()` gives
+  `Vehicles/HH20_EBus2021/HHEBus2021_main.bus`; `bus.triggers()` 364 names - **in lower case**
+  (`almex_clicku6`), while the model files say `almex_clickU6`; `press`, `release` and `trigger`
+  take either. A NaN set into a variable comes back as NaN from `var` and `get_vars` (the
+  plugin sends none for it). `vars("str")` 71 names, `vars()` 1736. `world.date()` a table,
+  `world.time()` seconds. `map.lane()` names the spline file on Grundorf (`invis_street.sli`),
+  which the server already drops. `every(0.1)` fired 640 times in 63.9 s of game and 63.8 s of
+  real time: ten a second.
+- **`omsi.trigger` presses and lets go in one frame**: the ALMEX's keys set a variable that its
+  script reads in its frame (`almex_clickU6`), so a trigger did nothing; `press`, then `release`
+  later, works. The plugin now taps that way (held 0.15 s of game time) and compares trigger
+  names without case; before, every tap of a real bus was `unknown_key`.
+- **The HH20's ALMEX** (point 2, its first bus): the app's drawing compared with screenshots of
+  the cab at menus 0, 2, 6 and 24 - the same pages, texts, top line (`LEE`, `LEER`, `--:--`,
+  the clock) and keys; the dark column at the left is in the page pictures themselves. Taps in
+  the app moved the real ALMEX (menu 6 to 24 and back). The C2 dashboard display (`LADEVORGANG`)
+  matches too. The driver's note (`ZETTEL`) was black: its text lies on its own paper
+  (`19_zettel.o3d`) and on the larger timetable sheet in the same clip (`19_schedule.o3d`,
+  hidden); the vote now prefers, of as many votes, the surface shown under the same `[visible]`
+  as its anchors (`crates/hub-devices/tests/note.rs`).
+
 **Not proven - the work for this session, in this order:**
 
-1. **The plugin on the real openOMSI.** Mocked only: `omsi.bus.file`, `omsi.bus.triggers`,
-   `omsi.trigger`, `omsi.press` / `omsi.release` (API 5), `bus.get_vars` / `get_strings` (does
-   a NaN pass?), `omsi.vars("str")`, `map.lane().name`, `world.date`, `world.time`, and whether
-   `omsi.every(0.1)` really fires ten times a second. Check `hello.json` and the game log.
-2. **Real buses' forms.** Start with the bus that worked in the career add-on: the HH20's ALMEX
-   (`vehicles/hh20_ebus2021`, `model_21_main.cfg`, menu 0 and menu 26, `17_almex_s_0.jpg` with
-   uv v -0,88..-0,12). Then a stock MAN (the Krüger IBIS) and the Setra's AFR 200 (five
+1. ~~**The plugin on the real openOMSI.**~~ Done, above.
+2. **Real buses' forms.** The HH20's ALMEX is done (above; menu 26 needs a duty, not seen yet).
+   Next a stock MAN (the Krüger IBIS) and the Setra's AFR 200 (`TH_Ueberlandbus`, five
    displays on one body texture). Compare the app's drawing with a screenshot of the cab.
    Uncertain in the port: resolving `bus.file()` through the content folders (fonts and shared
    textures of a bus in a mod folder), encrypted `.o3d` files, which touch field wins where
@@ -69,7 +91,16 @@ cd ../Omsi-hub-companion-app && npm install && npm run web
 
 # without the game: the plugin on the harness with the server and a synthetic bus
 cargo run -p hub-plugin-harness --example fakegame   # prints the pairing code
+
+# with the real game but without the launcher: this plugin put into openOMSI and the server
+cargo run -p hub-plugin-harness --example realgame -- "E:/Open-Omsi Official" "C:/Program Files (x86)/Steam/steamapps/common/OMSI 2"
+# then the game itself, five minutes, no menu (the window opens on the desktop)
+openomsi.exe --root "<OMSI 2>" --map maps/Grundorf/global.cfg --bus Vehicles/HH20_EBus2021/HHEBus2021_main.bus --no-menu --autostart --exit-after 300
 ```
+
+A cab screenshot from inside a plugin: `omsi.game.screenshot()` (the file lands in openOMSI's
+`Screenshots`). `realgame` keeps its pairings in the temp folder (`hub-realgame-devices.json`)
+and its forms in `%TEMP%\companion-forms`: delete that after changing `hub-devices`.
 
 Pair the app with the address and code the launcher (or `fakegame`) shows; after one pairing
 the code changes. Built forms are cached in the data folder under `companion-forms/` (keyed by

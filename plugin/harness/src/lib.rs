@@ -260,17 +260,27 @@ end
 function omsi.every(seconds, fn)
   table.insert(timers, { every = seconds, left = seconds, fn = fn })
 end
+function omsi.after(seconds, fn)
+  table.insert(timers, { left = seconds, fn = fn })
+end
 function omsi._fire(event, ...)
   for _, fn in ipairs(handlers[event] or {}) do fn(...) end
 end
 function omsi._tick(dt)
+  local due = {}
   for _, t in ipairs(timers) do
     t.left = t.left - dt
     if t.left <= 1e-9 then
-      t.left = t.left + t.every
-      t.fn()
+      t.left = t.left + (t.every or 0)
+      due[#due + 1] = t
     end
   end
+  local keep = {}
+  for _, t in ipairs(timers) do
+    if t.every then keep[#keep + 1] = t end
+  end
+  timers = keep
+  for _, t in ipairs(due) do t.fn() end
 end
 "#;
 
@@ -570,7 +580,8 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     let bus = lua.create_table()?;
     f!(bus, "file", |_l, s, _a: ()| Ok(s.borrow().bus_file.clone()));
     f!(bus, "passengers", |_l, s, _a: ()| Ok(s.borrow().passengers));
-    f!(bus, "triggers", |l, s, _a: ()| to_lua(l, &json!(s.borrow().triggers)));
+    // (in lower case, as openOMSI 0.3.37 lists them; its trigger functions know no case)
+    f!(bus, "triggers", |l, s, _a: ()| to_lua(l, &json!(s.borrow().triggers.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>())));
     f!(bus, "tickets", |l, s, _a: ()| {
         let list: Vec<Value> = s.borrow().tickets.iter().map(|(n, p)| json!({ "name": n, "price": p, "day_ticket": false })).collect();
         to_lua(l, &Value::Array(list))

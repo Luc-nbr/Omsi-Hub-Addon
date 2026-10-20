@@ -16,7 +16,9 @@
 -- own files): Omsi-Hub says in the file which number and string variables their screens show
 -- (`want`), and this module reads them ten times a second and sends them (`scr`, in pages);
 -- a tap on such a screen presses its trigger (`press`), but only one of the triggers Omsi-Hub
--- listed for the bus's devices (`press`) that this bus really has.
+-- listed for the bus's devices (`press`) that this bus really has. The game names a bus's
+-- triggers in lower case (`omsi.bus.triggers`), the model files as their authors wrote them:
+-- they are compared without case.
 
 local json = require("hubjson")
 
@@ -58,6 +60,10 @@ local want = nil
 local press_allowed, press_for = {}, nil
 -- (a screen's variables at most, and a string's length)
 local MAX_NUMS, MAX_STRS, MAX_TEXT = 512, 256, 256
+-- how long a tap holds its key down (seconds of game time): `omsi.trigger` presses and lets go
+-- in one frame, and a script that reads its key's variable in its frame (the HH20's ALMEX:
+-- `almex_clickU6` set by the key, read and cleared by the menu) never sees that press
+M.TAP = 0.15
 
 local function fn(name)
   local t = omsi
@@ -130,7 +136,7 @@ local function find_keys()
       local kind = matches(name, CHANGE) and "change" or matches(name, PRINTER) and "printer" or matches(name, IBIS) and "ibis" or nil
       if kind and #keys[kind] < 120 then
         keys[kind][#keys[kind] + 1] = name
-        allowed[name] = true
+        allowed[name:lower()] = true
       end
     end
   end
@@ -328,23 +334,34 @@ local function set_press(list)
   if fn("bus.triggers") then
     has = {}
     for _, t in ipairs(omsi.bus.triggers() or {}) do
-      if type(t) == "string" then has[t] = true end
+      if type(t) == "string" then has[t:lower()] = true end
     end
   end
   for i, t in ipairs(type(list) == "table" and list or {}) do
     if i > 400 then break end
-    if type(t) == "string" and (has == nil or has[t]) then press_allowed[t] = true end
+    if type(t) == "string" and (has == nil or has[t:lower()]) then press_allowed[t:lower()] = true end
   end
 end
 
 -- --- the commands -------------------------------------------------------------------------------
 
-local function press(key)
-  if not allowed[key] then return false, "unknown_key" end
+-- a key pressed and let go a moment later (openOMSI's triggers know no case)
+local function tap(key)
+  if fn("press") and fn("release") and fn("after") then
+    omsi.press(key)
+    omsi.after(M.TAP, function() omsi.release(key) end)
+    return true
+  end
   if fn("trigger") then
     omsi.trigger(key)
     return true
   end
+  return false
+end
+
+local function press(key)
+  if not allowed[key:lower()] then return false, "unknown_key" end
+  if tap(key) then return true end
   return false, "not_supported"
 end
 
@@ -355,15 +372,19 @@ local function carry_out(c)
   elseif what == "press" then
     -- a tap or key of a device: pressed and let go, or held (down) and let go (not down)
     local key = tostring(c.key or "")
-    if not press_allowed[key] then return false, "unknown_key" end
-    local name = c.down == true and "press" or c.down == false and "release" or "trigger"
+    if not press_allowed[key:lower()] then return false, "unknown_key" end
+    if c.down == nil then
+      if tap(key) then return true end
+      return false, "not_supported"
+    end
+    local name = c.down == true and "press" or "release"
     if not fn(name) then return false, "not_supported" end
     omsi[name](key)
     return true
   elseif what == "ticket" then
     local i = math.tointeger(tonumber(c.i)) or 0
     local key = "ticketprinter_button_ticket_" .. i
-    if allowed[key] then return press(key) end
+    if allowed[key:lower()] then return press(key) end
     if fn("bus.action") and omsi.bus.action("ticket_give") then return true end
     return false, "no_printer"
   elseif what == "ibis_line" then

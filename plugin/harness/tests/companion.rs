@@ -55,6 +55,16 @@ fn acks(h: &Harness) -> Vec<(u64, bool, String)> {
     sent(h, "ack").iter().map(|a| (a["seq"].as_u64().unwrap(), a["ok"].as_bool().unwrap(), a["error"].as_str().unwrap_or("").to_string())).collect()
 }
 
+/// The keys held down, in order.
+fn downs(h: &Harness) -> Vec<String> {
+    h.state.borrow().held.iter().filter(|k| k.1).map(|k| k.0.clone()).collect()
+}
+
+/// The keys let go, in order.
+fn ups(h: &Harness) -> Vec<String> {
+    h.state.borrow().held.iter().filter(|k| !k.1).map(|k| k.0.clone()).collect()
+}
+
 #[test]
 fn without_omsi_hubs_companion_nothing_is_sent() {
     let dir = installed("off");
@@ -108,7 +118,10 @@ fn the_game_goes_to_the_companion_and_only_the_devices_keys_are_pressed() {
     );
     h.frame().unwrap();
     h.frame().unwrap();
-    assert_eq!(h.state.borrow().pressed, ["IBIS_7", "ticketprinter_button_ticket_1"]);
+    // (each a tap: held down and let go a moment later, as a hand presses it)
+    assert_eq!(downs(&h), ["IBIS_7", "ticketprinter_button_ticket_1"]);
+    assert_eq!(ups(&h), ["IBIS_7", "ticketprinter_button_ticket_1"]);
+    assert!(h.state.borrow().pressed.is_empty(), "never pressed and let go in one frame");
     assert_eq!(h.state.borrow().bus_actions, ["ticket_give"], "a ticket without its own key: the ticket key");
     assert_eq!(h.state.borrow().lines_typed, ["29"]);
     let a = acks(&h);
@@ -124,12 +137,12 @@ fn commands_in_the_file_when_the_game_starts_are_old_and_a_new_session_starts_ag
     queue(&dir, 5, json!([{ "seq": 1, "do": "key", "key": "IBIS_7" }]));
     let mut h = Harness::load(&dir, game()).unwrap();
     h.frame().unwrap();
-    assert!(h.state.borrow().pressed.is_empty(), "written before the game started: not done");
+    assert!(h.state.borrow().held.is_empty(), "written before the game started: not done");
     // Omsi-Hub started again: its own numbers from 1
     queue(&dir, 6, json!([{ "seq": 1, "do": "key", "key": "IBIS_1" }]));
     h.frame().unwrap();
     h.frame().unwrap();
-    assert_eq!(h.state.borrow().pressed, ["IBIS_1"]);
+    assert_eq!(downs(&h), ["IBIS_1"]);
 }
 
 #[test]
@@ -243,10 +256,13 @@ fn the_devices_screens_are_read_ten_times_a_second_and_only_their_triggers_press
         { "seq": 5, "do": "press", "key": "IBIS_ghost" },
     ]));
     h.frame().unwrap();
+    h.frame().unwrap();
     let a = acks(&h);
     assert_eq!(a.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), [(1, true), (2, true), (3, true), (4, false), (5, false)]);
     assert_eq!(a[3].2, "unknown_key");
     let st = h.state.borrow();
-    assert_eq!(st.pressed, ["IBIS_menu"]);
-    assert_eq!(st.held, [("IBIS_7".to_string(), true), ("IBIS_7".to_string(), false)]);
+    assert!(st.pressed.is_empty(), "a tap is held a moment, never pressed and let go in one frame");
+    // (the game names its triggers in lower case, the model files as written: the same keys)
+    let held = |n: &str, d: bool| (n.to_string(), d);
+    assert_eq!(st.held, [held("IBIS_menu", true), held("IBIS_7", true), held("IBIS_7", false), held("IBIS_menu", false)]);
 }

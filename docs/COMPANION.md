@@ -175,7 +175,7 @@ add-on's `crates/hub-devices` is a port of it) and sent to the app as a **form**
 the screen's pages laid flat as triangles, the text fields with the bus's own fonts, and the
 touch fields with the trigger each one fires. The app draws the form with the screen's
 **stand** of this moment (the strings and numbers it shows) and a tap fires the touch field's
-trigger in the game (`omsi.trigger`). Nothing is drawn by hand per bus.
+trigger in the game. Nothing is drawn by hand per bus.
 
 `state.devices` lists the devices of the bus now (empty on foot):
 
@@ -265,7 +265,9 @@ The stand, ten times a second while a device is on screen:
                                         // (missing when the form has no freetex part)
 ```
 
-Taps go through `POST /api/do`: `{do: "press", trigger}` presses and lets go (`omsi.trigger`);
+Taps go through `POST /api/do`: `{do: "press", trigger}` presses and lets go 0.15 s of game
+time later (`omsi.press`, then `omsi.release`: a script that reads its key's variable in its
+frame, as the HH20's ALMEX does, never sees `omsi.trigger`'s press of one frame);
 `{do: "press", trigger, down: true}` holds it and `{..., down: false}` lets it go
 (`omsi.press` / `omsi.release`, for keys a script times). Only the triggers of the current
 bus's devices' taps and keys are pressed; anything else is `unknown_key`.
@@ -282,7 +284,7 @@ bus's devices' taps and keys are pressed; anything else is `unknown_key`.
 | `drive_free` | | Drive without a duty (the plugin gives the duty up, the bus stays) |
 | `take_duty` | `line`, `tour`, `trip?` | Takes a duty of the map's timetable (`omsi.duty.start`) |
 | `type_ibis` | | Types the duty into the IBIS (`omsi.duty.type_ibis`) |
-| `ibis_key` | `key` | Presses one of `ibis.keys` (`omsi.trigger`) |
+| `ibis_key` | `key` | Presses one of `ibis.keys` (held 0.15 s, as a tap) |
 | `ibis_line` | `line` | Types a line into the IBIS (`omsi.bus.set_line`) |
 | `printer_key` | `key` | Presses one of `printer.keys` or `printer.change_keys` |
 | `ticket` | `i` | Sells ticket `i` of `printer.tickets` (its key, else the ticket key `ticket_give`) |
@@ -292,7 +294,9 @@ bus's devices' taps and keys are pressed; anything else is `unknown_key`.
 | `pause_end` | | Ends the break early |
 | `press` | `trigger`, `down?` | Presses a tap or key of one of `devices` (above) |
 
-Only the keys the state lists can be pressed: the plugin refuses any other trigger.
+Only the keys the state lists can be pressed: the plugin refuses any other trigger. The game
+names a bus's triggers in lower case (`omsi.bus.triggers`, openOMSI 0.3.37) and presses them
+without regard to case; the plugin compares them without case too.
 
 The errors a command can answer: `game_not_running` (the plugin was not heard for 5 s),
 `no_plugin`, `timeout` (the game did not ack it within 4 s), `unknown_key`, `too_many` (ten

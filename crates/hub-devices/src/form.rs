@@ -579,6 +579,11 @@ struct Anchor {
     middle: P3,
 }
 
+/// Whether two parts are shown under the same `[visible]` conditions.
+fn same_visible(a: &[(String, i64)], b: &[(String, i64)]) -> bool {
+    a.len() == b.len() && a.iter().all(|(n, v)| b.iter().any(|(m, w)| m.eq_ignore_ascii_case(n) && v == w))
+}
+
 /// The plane of the screen.
 #[derive(Debug, Clone, Copy)]
 struct Plane {
@@ -1092,7 +1097,10 @@ fn analyze(models: &Models, model_cfg: &Path, module: &Module, numbers: &HashMap
     // display's texture, on another plane). A click field (every mesh with a [mouseevent]) is
     // never another anchor's background, unless nothing is left then.
     let click_geos: HashSet<usize> = all.iter().filter(|g| !g.mesh.clicks.is_empty()).map(|g| g.k).collect();
-    let mut votes: Vec<(Rc<Cand>, usize, Seeds)> = Vec::new();
+    // (per surface: the anchors that chose it, and of those the ones shown under the same
+    // [visible] as it - the HH20's note of the driver's numbers lies on its own paper and on
+    // the larger timetable sheet held in the same clip, and only its paper shows with it)
+    let mut votes: Vec<(Rc<Cand>, usize, Seeds, usize)> = Vec::new();
     let mut vote_at: HashMap<(usize, usize), usize> = HashMap::new();
     let rounds: [Vec<&Anchor>; 2] = [anchors.iter().filter(|a| a.text).collect(), anchors.iter().filter(|a| !a.text).collect()];
     for round in &rounds {
@@ -1146,10 +1154,13 @@ fn analyze(models: &Models, model_cfg: &Path, module: &Module, numbers: &HashMap
                     }
                     let key = (k.geo.k, k.mat);
                     let at = *vote_at.entry(key).or_insert_with(|| {
-                        votes.push((k.clone(), 0, Seeds::default()));
+                        votes.push((k.clone(), 0, Seeds::default(), 0));
                         votes.len() - 1
                     });
                     votes[at].1 += 1;
+                    if !a.geo.mesh.visible.is_empty() && same_visible(&a.geo.mesh.visible, &k.geo.mesh.visible) {
+                        votes[at].3 += 1;
+                    }
                     // (per triangle how many anchors lie on it: so `piece_of` chooses its plane)
                     for z in seed {
                         votes[at].2.add(z, 1);
@@ -1158,16 +1169,17 @@ fn analyze(models: &Models, model_cfg: &Path, module: &Module, numbers: &HashMap
             }
         }
     }
+    // the most votes; of as many, the surface shown with more of its anchors, then the first
     let mut chosen: Option<(Rc<Cand>, Seeds)> = None;
-    let mut best_count = 0;
-    for (k, count, seeds) in &votes {
+    let mut best = (0, 0);
+    for (k, count, seeds, kin) in &votes {
         let better = match &chosen {
             None => true,
-            Some((c, _)) => *count > best_count || (*count == best_count && (k.geo.mesh.cfg_index < c.geo.mesh.cfg_index || (k.geo.k == c.geo.k && k.mat < c.mat))),
+            Some((c, _)) => (*count, *kin) > best || ((*count, *kin) == best && (k.geo.mesh.cfg_index < c.geo.mesh.cfg_index || (k.geo.k == c.geo.k && k.mat < c.mat))),
         };
         if better {
             chosen = Some((k.clone(), seeds.clone()));
-            best_count = *count;
+            best = (*count, *kin);
         }
     }
 
