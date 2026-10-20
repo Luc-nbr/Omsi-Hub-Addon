@@ -380,3 +380,48 @@ pub fn fleet_export(map: &str, global: &Path, date: &str, trips: &[String], tole
         "colors": [css(casing), css(road), css(main), css(red)],
     })
 }
+
+/// The route of `trip` as one line through the lanes it drives, in map metres (the first lane
+/// of each piece, end to end, as [`fleet_export`] has it): the companion's next turn
+/// (`crate::companion`).
+pub fn route_line(map: &str, global: &Path, date: &str, trip: &str) -> Vec<[f64; 2]> {
+    let look = Look { map: map.to_string(), global: global.to_path_buf(), date: date.to_string(), trip: String::new(), entry: -1 };
+    let roads = roads_of(&look);
+    let Ok(path) = trip_path(map, date, trip) else { return Vec::new() };
+    let mut pts: Vec<[f64; 2]> = Vec::new();
+    for piece in &path.route {
+        let Some(lane) = roads.routes_of(piece).first().and_then(|i| roads.net.lanes.get(*i)) else { continue };
+        for q in &lane.points {
+            if pts.last().is_none_or(|x| (x[0] - q.x).hypot(x[1] - q.y) > 0.05) {
+                pts.push([q.x, q.y]);
+            }
+        }
+    }
+    pts
+}
+
+/// The map's roads with a point within `r` metres of `at` (map metres), thinned to half a metre:
+/// their width and their line, for the companion's map.
+pub fn roads_near(map: &str, global: &Path, date: &str, at: [f64; 2], r: f64) -> Vec<(f64, Vec<[f64; 2]>)> {
+    let look = Look { map: map.to_string(), global: global.to_path_buf(), date: date.to_string(), trip: String::new(), entry: -1 };
+    let roads = roads_of(&look);
+    let o = roads.origin;
+    roads
+        .roads
+        .iter()
+        .filter(|road| road.points.iter().any(|q| (q.x - at[0]).abs() <= r && (q.y - at[1]).abs() <= r))
+        .take(4000)
+        .map(|road| {
+            let v: Vec<Vec3> = road.points.iter().map(|q| Vec3::new((q.x - o.x) as f32, (q.y - o.y) as f32, 0.0)).collect();
+            (road.width as f64, simplify(&v, 0.5).iter().map(|q| [q.x as f64 + o.x, q.y as f64 + o.y]).collect())
+        })
+        .collect()
+}
+
+/// The map metres of a place given by its tile (the grid's x and y) and the metres in it.
+pub fn world_of(map: &str, global: &Path, date: &str, tile: [i64; 2], local: [f64; 2]) -> [f64; 2] {
+    // (the map read first: that sets the grid its tiles are measured in)
+    let _ = roads_of(&Look { map: map.to_string(), global: global.to_path_buf(), date: date.to_string(), trip: String::new(), entry: -1 });
+    let size = omsi_map::tile_size();
+    [tile[0] as f64 * size + local[0], tile[1] as f64 * size + local[1]]
+}

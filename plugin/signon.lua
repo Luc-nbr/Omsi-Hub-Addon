@@ -91,6 +91,25 @@ function M.click(element, accepted)
   return false
 end
 
+-- signing on from the phone (companion.lua): the number and the code at once; whether the
+-- driver is past them (signed on, or no sign-on asked)
+function M.try(number, code)
+  if M.stage ~= "signon" or not pass then return true end
+  typed = { number = tostring(number or ""), code = tostring(code or "") }
+  M.click("signon", function() end)
+  return M.stage ~= "signon"
+end
+
+-- the last number and code were not the driver's
+function M.wrong()
+  return wrong
+end
+
+-- the driver drives without the duty (the phone's "Drive without duty"): at work, no order
+function M.skip()
+  M.stage, wrong = "work", false
+end
+
 -- the driver is at work (signed on, or no sign-on asked)
 function M.at_work()
   return M.stage == "work"

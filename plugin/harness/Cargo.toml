@@ -13,3 +13,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 hub-game.workspace = true
+hub-companion.workspace = true
+hub-devices.workspace = true

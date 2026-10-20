@@ -471,6 +471,29 @@ function M.hide()
   open, quick = false, false
 end
 
+-- an answer from the phone (companion.lua), as the panel's buttons give it: `kind` "read",
+-- "accept", "decline", "reply" (a canned reply, `key`) or "quick" (to control, `key`); whether
+-- there was something to answer
+function M.answer(kind, id, key)
+  if kind == "quick" then
+    if not key or key == "" then return false end
+    return M.click(PANEL, "msg_q_" .. tostring(key))
+  end
+  id = math.tointeger(tonumber(id))
+  local m = id and find(id)
+  if not m then return false end
+  if kind == "read" then
+    reply("read", id)
+    answered[id] = "Read"
+    panel()
+    return true
+  end
+  if (kind == "accept" or kind == "decline") and not waiting(m) then return false end
+  if kind == "reply" then return M.click(PANEL, "msg_reply_" .. id .. "_" .. tostring(key or "")) end
+  if kind ~= "accept" and kind ~= "decline" then return false end
+  return M.click(PANEL, "msg_" .. kind .. "_" .. id)
+end
+
 -- F9: the inbox shown or put away; whether it was this module's
 function M.key(key, down)
   if key == "F9" and down and inbox then

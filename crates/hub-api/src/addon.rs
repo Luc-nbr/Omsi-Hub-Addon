@@ -299,6 +299,9 @@ pub fn give(plugin_dir: &Path, d: &Duty, data: &Path) -> Result<Assignment, Stri
     let company = take_company(d);
     let a = assignment_for(d, company.as_ref(), &Settings::load(), now());
     bridge::write_assignment(plugin_dir, &a).map_err(|e| format!("the plugin's assignment: {e}"))?;
+    // (the phone's duty card)
+    #[cfg(feature = "native")]
+    crate::companion::assigned(&a);
     let mut k = load(data);
     k.assigned = Some(Assigned {
         issued: a.issued,

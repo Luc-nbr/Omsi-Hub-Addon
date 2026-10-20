@@ -72,7 +72,9 @@ never changes the files of openOMSI or OMSI 2.
     <td width="50%" valign="top">
       <h3>In the cab</h3>
       The navigator (<kbd>Shift</kbd>+<kbd>N</kbd>) shows the route, the stops ahead and whether you
-      are on time. Sign on and use the bus's screens on a phone or tablet in your own network.
+      are on time. With the <b>Omsi-Hub Companion</b> app on a phone or tablet in your own network
+      you sign on, follow the route turn by turn, answer the control room and work the bus's IBIS
+      and ticket printer (Settings › General › Phone &amp; tablet).
     </td>
     <td width="50%" valign="top">
       <h3>Better together, optional</h3>
