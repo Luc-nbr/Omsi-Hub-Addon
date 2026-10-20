@@ -43,7 +43,11 @@ const fn number(min: f64, max: f64, step: f64, default: Option<f64>) -> Kind {
 }
 
 /// The groups, in the page's order.
-pub const GROUPS: [&str; 7] = ["Graphics", "Mirrors", "Screen and navigator", "Language", "Sound and radio", "Driving and controls", "Passengers and traffic"];
+pub const GROUPS: [&str; 10] = ["Graphics", "Mirrors", "Screen and navigator", "Language", "Sound and radio", "Driving and controls", "Passengers and traffic", "Wheel and pedals", "Gamepad", "Force feedback"];
+
+/// The groups the Settings page shows with the game controllers (the tab "Controllers"), not
+/// among openOMSI's other settings.
+pub const CONTROLLER_GROUPS: [&str; 3] = ["Wheel and pedals", "Gamepad", "Force feedback"];
 
 const fn text(hint: &'static str) -> Kind {
     Kind::Text { hint }
@@ -108,16 +112,11 @@ pub const FIELDS: &[Field] = &[
     field("Sound and radio", "radio_dropouts", "Radio: signal dropouts", number(0.0, 1.0, 0.05, Some(0.0))),
     // driving
     field("Driving and controls", "drive_keys", "Driving keys", Kind::Choice(&[("simple", "Simple"), ("wasd", "W A S D"), ("arrows", "Arrow keys"), ("omsi", "As in OMSI 2")])),
-    field("Driving and controls", "wheel_range", "Steering wheel's turn (degrees)", number(180.0, 1080.0, 10.0, Some(900.0))),
-    field("Driving and controls", "wheel_lock", "Wheel turn for the bus's full lock (degrees; 0: the whole wheel)", number(0.0, 1080.0, 10.0, None)),
     field("Driving and controls", "steering_linear", "Linear steering", Kind::Switch),
     field("Driving and controls", "old_steering", "Old steering (the wheel stays where you leave it)", Kind::Switch),
-    field("Driving and controls", "ff_invert", "Force feedback the other way", Kind::Switch),
     field("Driving and controls", "mouse_sens", "Mouse sensitivity (1: as in OMSI 2)", number(0.1, 3.0, 0.05, Some(1.0))),
     field("Driving and controls", "mouse_smooth", "Smooth mouse steering", Kind::Switch),
     field("Driving and controls", "mouse_hold", "Hold the cursor while the mouse steers", Kind::Switch),
-    field("Driving and controls", "right_stick_look", "Look round with the right stick", Kind::Switch),
-    field("Driving and controls", "ctrl_off", "Controllers switched off", text("their names, separated by |")),
     field("Driving and controls", "fov", "Field of view (degrees; 0: the bus's cameras)", number(0.0, 120.0, 1.0, Some(0.0))),
     field("Driving and controls", "head_idle", "Head sway", number(0.0, 1.0, 0.05, Some(0.0))),
     field("Driving and controls", "head_idle_pace", "Pace of the head sway", number(0.5, 2.0, 0.05, Some(1.0))),
@@ -128,6 +127,29 @@ pub const FIELDS: &[Field] = &[
     field("Passengers and traffic", "exact_fare", "Passengers pay the exact fare", Kind::Switch),
     field("Passengers and traffic", "pax_bad_driving", "Passengers mind bad driving", Kind::Switch),
     field("Passengers and traffic", "ai_wait_timed_stops_only", "Timetable buses wait only at timed stops", Kind::Switch),
+    // the game controllers (the Settings page's tab "Controllers", beside the devices: their
+    // ranges and defaults as openOMSI's launcher gives them)
+    field("Wheel and pedals", "wheel_range", "Steering wheel's turn (degrees)", number(180.0, 1800.0, 30.0, Some(900.0))),
+    field("Wheel and pedals", "wheel_lock", "Wheel turn for the bus's full lock (degrees; 0: the whole wheel)", number(0.0, 1800.0, 30.0, Some(0.0))),
+    field("Wheel and pedals", "ctrl_deadzone", "Dead zone of the wheel and the pedals", number(0.0, 0.3, 0.01, Some(0.0))),
+    field("Wheel and pedals", "pedal_throttle", "Throttle pedal strength (1: as the pedal reads)", number(0.5, 2.0, 0.05, Some(1.0))),
+    field("Wheel and pedals", "pedal_brake", "Brake pedal strength (1: as the pedal reads)", number(0.5, 2.0, 0.05, Some(1.0))),
+    field("Wheel and pedals", "momentary_gears", "H-pattern shifter: back to neutral when the gear is let go", Kind::Switch),
+    field("Wheel and pedals", "ctrl_background", "Keep driving while openOMSI is in the background", Kind::Switch),
+    // (the devices switched off: the page's "Use this device" of each)
+    field("Wheel and pedals", "ctrl_off", "Controllers switched off", text("their names, separated by |")),
+    field("Gamepad", "pad_type", "Gamepad type", Kind::Choice(&[("auto", "Automatic"), ("xbox", "Xbox"), ("ps4", "PlayStation 4"), ("ps5", "PlayStation 5")])),
+    field("Gamepad", "pad_buttons", "Default gamepad buttons (indicators, doors, views, gears, menu, pause)", Kind::Switch),
+    field("Gamepad", "pad_steer_speed", "Stick steering speed (seconds to the full lock)", number(0.8, 5.0, 0.1, Some(2.0))),
+    field("Gamepad", "pad_steer_smooth", "Stick steering smoothing (ms; 0: off)", number(0.0, 300.0, 10.0, Some(120.0))),
+    field("Gamepad", "pad_deadzone", "Stick dead zone", number(0.0, 0.4, 0.01, Some(0.08))),
+    field("Gamepad", "pad_steer_linear", "Stick steers like a wheel (a wheel seen as a gamepad)", Kind::Switch),
+    field("Gamepad", "right_stick_look", "Look round with the right stick", Kind::Switch),
+    field("Force feedback", "ff_enabled", "Force feedback and vibration", Kind::Switch),
+    field("Force feedback", "ff_invert", "Force feedback the other way", Kind::Switch),
+    field("Force feedback", "ff_road_vib", "Road texture vibration (1: normal; 0: off)", number(0.0, 4.0, 0.05, Some(1.0))),
+    field("Force feedback", "ff_engine_vib", "Engine vibration (1: normal; 0: off)", number(0.0, 4.0, 0.05, Some(1.0))),
+    field("Force feedback", "ff_fade", "Vibration fade-out (seconds; 0: off)", number(0.0, 1.5, 0.02, Some(0.28))),
 ];
 
 /// The setting called `key`.
@@ -185,7 +207,7 @@ pub fn checked(field: &Field, value: &str) -> Result<String, Refusal> {
         Kind::Choice(options) => options.iter().find(|(o, _)| *o == v).map(|(o, _)| o.to_string()).ok_or_else(bad),
         // (one line, as a `key=value` file holds it)
         Kind::Text { .. } => {
-            if v.chars().count() > 200 || v.chars().any(char::is_control) {
+            if v.chars().count() > 1000 || v.chars().any(char::is_control) {
                 return Err(bad());
             }
             Ok(v.to_string())
@@ -303,6 +325,9 @@ mod tests {
         assert_eq!(checked(f("ui_scale"), "1.2300"), Ok("1.25".into()), "on its steps");
         assert_eq!(checked(f("ui_opacity"), "0.85"), Ok("0.85".into()));
         assert_eq!(checked(f("wheel_range"), "900"), Ok("900".into()));
+        assert_eq!(checked(f("wheel_range"), "1800"), Ok("1800".into()), "openOMSI's own range");
+        assert_eq!(checked(f("ff_fade"), "0.275"), Ok("0.28".into()), "on its steps");
+        assert_eq!(checked(f("pad_type"), "ps5"), Ok("ps5".into()));
         assert!(checked(f("ui_scale"), "5").is_err() && checked(f("fov"), "-1").is_err() && checked(f("fov"), "NaN").is_err());
         assert_eq!(checked(f("render_scale"), " 0.75 "), Ok("0.75".into()), "a line of text");
         assert!(checked(f("ctrl_off"), "a\nb").is_err());
@@ -311,6 +336,7 @@ mod tests {
 
     #[test]
     fn every_setting_is_in_a_group_and_its_choices_are_its_own() {
+        assert!(CONTROLLER_GROUPS.iter().all(|g| GROUPS.contains(g)));
         for f in FIELDS {
             assert!(GROUPS.contains(&f.group), "{}", f.key);
             assert_eq!(FIELDS.iter().filter(|x| x.key == f.key).count(), 1, "{} twice", f.key);

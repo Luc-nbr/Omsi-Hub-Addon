@@ -7,5 +7,7 @@ rust-version.workspace = true
 description = "Omsi-Hub and the player's openOMSI: its folder found and its version read, the command line built from the official flags, the game started and watched, the plugin installed, and the bridge files between the plugin and Omsi-Hub"
 
 [dependencies]
+# (the game controllers' files: OMSI's codepages and folders in any case, `controllers`)
+hub-omsi.workspace = true
 serde.workspace = true
 serde_json.workspace = true

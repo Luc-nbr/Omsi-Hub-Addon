@@ -1985,6 +1985,7 @@ dependencies = [
 name = "hub-game"
 version = "0.1.0"
 dependencies = [
+ "hub-omsi",
  "serde",
  "serde_json",
 ]

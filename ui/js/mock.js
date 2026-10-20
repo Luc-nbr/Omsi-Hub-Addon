@@ -124,13 +124,26 @@ const GAME_FIELDS = [
   ['Graphics', [['msaa', 'Anti-aliasing (MSAA)', 'choice', [['1', 'Off'], ['2', '2×'], ['4', '4×'], ['8', '8×']]], ['fullscreen', 'Full screen', 'switch'], ['shadows', 'Shadows', 'switch'], ['view_distance', 'View distance (metres)', 'number', [100, 10000, 50, null]], ['render_scale', 'Render scale', 'text', 'auto, or a fraction such as 0.75']]],
   ['Screen and navigator', [['ui_scale', "Size of the game's menus", 'number', [0.5, 2, 0.05, 1]], ['navigator', 'Navigator', 'switch']]],
   ['Language', [['language', "The game's language", 'choice', [['ENG', 'English'], ['DEU', 'Deutsch'], ['FRA', 'Français']]]]],
-  ['Driving and controls', [['drive_keys', 'Driving keys', 'choice', [['simple', 'Simple'], ['wasd', 'W A S D'], ['arrows', 'Arrow keys'], ['omsi', 'As in OMSI 2']]], ['wheel_range', "Steering wheel's turn (degrees)", 'number', [180, 1080, 10, 900]]]],
+  ['Driving and controls', [['drive_keys', 'Driving keys', 'choice', [['simple', 'Simple'], ['wasd', 'W A S D'], ['arrows', 'Arrow keys'], ['omsi', 'As in OMSI 2']]]]],
   ['Passengers and traffic', [['boarding', 'Boarding', 'choice', [['auto', 'Automatic'], ['pay', 'Passengers pay at the driver'], ['walk', 'Passengers walk in']]]]],
+  // (the game controllers' groups: the tab "Controllers")
+  ['Wheel and pedals', [['wheel_range', "Steering wheel's turn (degrees)", 'number', [180, 1800, 30, 900]], ['ctrl_deadzone', 'Dead zone of the wheel and the pedals', 'number', [0, 0.3, 0.01, 0]], ['pedal_brake', 'Brake pedal strength (1: as the pedal reads)', 'number', [0.5, 2, 0.05, 1]], ['ctrl_off', 'Controllers switched off', 'text', 'their names, separated by |']]],
+  ['Gamepad', [['pad_type', 'Gamepad type', 'choice', [['auto', 'Automatic'], ['xbox', 'Xbox'], ['ps4', 'PlayStation 4'], ['ps5', 'PlayStation 5']]], ['pad_deadzone', 'Stick dead zone', 'number', [0, 0.4, 0.01, 0.08]]]],
+  ['Force feedback', [['ff_enabled', 'Force feedback and vibration', 'switch'], ['ff_invert', 'Force feedback the other way', 'switch']]],
 ];
+const CONTROLLER_GROUPS = ['Wheel and pedals', 'Gamepad', 'Force feedback'];
+// (`addon_controllers`: a wheel of OMSI 2's file and its shifter)
+const axes = (...set) => Array.from({ length: 8 }, (_, k) => set.find(([s]) => s === k)?.slice(1) || [-1, 0]);
+let PADS = [
+  { name: 'Logitech G25 Racing Wheel USB', second: '1', axes: axes([0, 0, 0], [1, 1, 5], [5, 2, 9], [7, 3, 3]), buttons: [['automatic_D', '0'], ['automatic_N', '0'], ['automatic_R', '0'], ['', '0'], ['horn', '1']], ff_scale: [1.01, 1], ff_invert: null, latching: [], more: [] },
+  { name: 'T500 RS Gear Shift', second: '0', axes: axes(), buttons: [['blinker_warn_toggle', '0']], ff_scale: [1, 1], ff_invert: null, latching: [0], more: [[0, 'kw_fernlicht_toggle']] },
+];
+const controllers = () => ({ path: '~/.openomsi/Inputs/gamectrler.cfg', from: 'openomsi', save_to: '~/.openomsi/Inputs/gamectrler.cfg', error: null, devices: PADS, actions: ['sim_pause', 'horn', 'kw_fernlicht_toggle', 'IBIS_vor', 'cp_microphone'], names: { ibis_vor: 'IBIS: next stop' }, running: false });
 const gameSettings = () => ({
   path: '~/.openomsi/settings.cfg', exists: true, running: false,
   groups: GAME_FIELDS.map(([title, fields]) => ({
     title,
+    controllers: CONTROLLER_GROUPS.includes(title),
     fields: fields.map(([key, label, kind, x]) => ({ key, label, kind, value: GAME_CFG[key] ?? null, ...(kind === 'choice' ? { options: x } : kind === 'number' ? { min: x[0], max: x[1], step: x[2], default: x[3] } : kind === 'text' ? { hint: x } : {}) })),
   })),
 });
@@ -186,6 +199,8 @@ const answers = {
   addon_poll: () => ({ reports: 0, trips: 0, orders: 0, live: 0, drivers: [], companies: [] }),
   // (openOMSI's settings.cfg, a few of each group, kept in this page only)
   addon_game_settings: () => gameSettings(),
+  addon_controllers: () => controllers(),
+  addon_controllers_save: (a) => ((PADS = a.devices), { written: ['~/.openomsi/Inputs/gamectrler.cfg'], path: '~/.openomsi/Inputs/gamectrler.cfg' }),
   addon_game_setting: (a) => ((a.value == null || a.value === '' ? delete GAME_CFG[a.key] : (GAME_CFG[a.key] = String(a.value))), gameSettings()),
 
   // the drive

@@ -12,6 +12,8 @@
 //!   and off (ported);
 //! * [`bridge`] - the files between Omsi-Hub and the plugin: the assignment, the handshake, the
 //!   reports, with a fallback through the game's log (ported);
+//! * [`controllers`] - the player's wheel, pedals, joysticks and button boxes
+//!   (`Inputs/gamectrler.cfg`), and the key actions their buttons can press;
 //! * [`find`] - folders to offer in the first-run setup (Steam's OMSI 2, unpacked releases);
 //! * [`gamesettings`] - openOMSI's own settings (`~/.openomsi/settings.cfg`), changed from
 //!   Omsi-Hub's Settings page;
@@ -21,6 +23,7 @@
 
 pub mod bridge;
 pub mod compat;
+pub mod controllers;
 pub mod detect;
 pub mod find;
 pub mod gamesettings;

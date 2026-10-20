@@ -1,7 +1,8 @@
 // The Settings page's tabs and rows (`pages/settings.js` draws them): the look - light or dark,
 // the accent, the launcher's size, the animations, the company's layout - and the language;
 // openOMSI and OMSI 2 (the folders, the version, the plugin: `addon.js`); openOMSI's own settings
-// (`gamesettings.js`, its `settings.cfg`); the updates; and the
+// (`gamesettings.js`, its `settings.cfg`); the game controllers - the wheel, the pedals, the
+// button boxes (`controllers.js`, `Inputs/gamectrler.cfg`); the updates; and the
 // bus models' categories and regions the company goes by. Every change is saved at once
 // (`saveSettings`).
 //
@@ -16,6 +17,7 @@ import { UpdateRow } from '../update.js';
 import { showPrivacy } from '../privacy.js';
 import { AddonPanel } from './addon.js';
 import { GameSettingsPanel } from './gamesettings.js';
+import { ControllersPanel } from './controllers.js';
 
 const pct = (v) => `${Math.round(v * 100)} %`;
 
@@ -51,6 +53,8 @@ export const SETTINGS_TABS = [
   },
   { id: 'addon', label: 'openOMSI and OMSI 2', cols: [{ title: 'Your openOMSI and OMSI 2', rows: [{ type: 'custom', id: 'hub-addon', view: () => html`<${AddonPanel} />` }] }] },
   { id: 'game', label: "openOMSI's settings", cols: [{ title: "openOMSI's settings", rows: [{ type: 'custom', id: 'hub-game-settings', view: () => html`<${GameSettingsPanel} />` }] }] },
+  // (the wheel, the pedals, joysticks and button boxes, and openOMSI's settings round them)
+  { id: 'controllers', label: 'Controllers', cols: [{ title: 'Game controllers', rows: [{ type: 'custom', id: 'hub-controllers', view: () => html`<${ControllersPanel} />` }] }] },
   { id: 'updates', label: 'Updates', cols: [{ title: 'Updates', rows: [{ type: 'custom', id: 'hub-update', view: () => html`<${UpdateRow} />` }] }] },
   // (the bus models' categories and regions, for every company: what the dealer, the market and
   // the shop of the bus company go by, `company/vehicles.js`)

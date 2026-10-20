@@ -8,6 +8,7 @@
 //! | `hub_` | [`hub`] | the app: boot, texts, first-run setup, migration, drives |
 //! | `hub_update` | [`update`] | the app's own updates (this repository's releases) |
 //! | `addon_` | [`addon`] | the plugin in the player's openOMSI, the bridge |
+//! | `addon_controllers` | [`controllers`] | the player's wheel, pedals and button boxes |
 //! | `co_` | [`company`] | the bus company |
 //! | `rf_` | [`rosterflow`] | RosterFlow |
 //! | `tg_` | [`together`] | playing together |
@@ -29,6 +30,7 @@ pub mod cloud;
 pub mod cloud_content;
 pub mod company;
 pub mod content;
+pub mod controllers;
 pub mod depot;
 pub mod drive;
 #[cfg(feature = "native")]
@@ -134,6 +136,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         #[cfg(feature = "native")]
         c if c.starts_with("hub_profile") => drivers::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         c if c.starts_with("hub_") => hub::call(c, args, p),
+        c if c.starts_with("addon_controllers") => controllers::call(c, args),
         c if c.starts_with("addon_") => addon::call(c, args, p),
         c if c.starts_with("co_") => company::call(c, args, p),
         c if c.starts_with("rf_") => rosterflow::call(c, args, p),

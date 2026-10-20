@@ -15,7 +15,8 @@
 //! * `addon_reports` - the plugin's reports since the last time, booked first ([`book`]);
 //! * `addon_poll` - the bridge looked at once ([`crate::drive`]'s loop does it every 2 s);
 //! * `addon_game_settings` - openOMSI's own settings Omsi-Hub changes
-//!   (`hub_game::gamesettings`), by group, with their values in `~/.openomsi/settings.cfg`;
+//!   (`hub_game::gamesettings`), by group (`controllers`: one of the game controllers'), with
+//!   their values in `~/.openomsi/settings.cfg`;
 //!   `addon_game_setting {key, value}` - one of them set (`value` null or "": openOMSI's
 //!   default again), never while the game runs.
 //!
@@ -674,7 +675,8 @@ pub fn game_settings(home: &Path, running: bool) -> Value {
                     v
                 })
                 .collect();
-            json!({ "title": g, "fields": fields })
+            // (`controllers`: shown on the tab "Controllers", beside the devices)
+            json!({ "title": g, "controllers": gs::CONTROLLER_GROUPS.contains(g), "fields": fields })
         })
         .collect();
     json!({ "path": path.to_string_lossy(), "exists": path.is_file(), "running": running, "groups": groups })
@@ -698,6 +700,8 @@ mod tests {
         let v = game_settings(&home, true);
         assert_eq!((field(&v, "msaa")["value"].as_str(), v["exists"].as_bool(), v["running"].as_bool()), (Some("8"), Some(true), Some(true)));
         assert_eq!(v["groups"][0]["title"], "Graphics");
+        let group = |t: &str| v["groups"].as_array().unwrap().iter().find(|g| g["title"] == t).unwrap().clone();
+        assert_eq!((group("Graphics")["controllers"].as_bool(), group("Force feedback")["controllers"].as_bool()), (Some(false), Some(true)));
     }
 
     fn temp(tag: &str) -> PathBuf {
