@@ -150,15 +150,15 @@ fn main() {
     assert_eq!((first.slot, first.version), (1, 1));
     assert!(matches!(ana.upload_save(Some(1), "Stadtbus Nord", "", 0, b"stale"), Err(SaveError::Conflict(ref now)) if now.version == 1));
     ana.upload_save(Some(1), "Stadtbus Nord", "Ana's PC", 1, b"company save v2").unwrap();
-    ana.upload_save(None, "Regio", "", 0, b"second company").unwrap();
-    assert_eq!(ana.upload_save(None, "Third", "", 0, b"x"), Err(SaveError::Failed(Error::Code("limit"))));
+    assert_eq!(ana.upload_save(None, "Regio", "", 0, b"second company"), Err(SaveError::Failed(Error::Code("limit"))));
+    assert_eq!(ana.upload_save(Some(2), "Regio", "", 0, b"second company"), Err(SaveError::Failed(Error::Code("read_only"))));
     let (fetch, data) = ana.download_save(1, None).unwrap();
     assert_eq!((fetch.version, data.as_slice()), (2, &b"company save v2"[..]));
     assert_eq!(ana.download_save(1, Some(1)).unwrap().1, v1);
     let list = ana.saves_list().unwrap();
     assert_eq!((list.free(), list.slot(1).unwrap().versions.clone(), list.slot(1).unwrap().device.as_str()), (None, vec![1, 2], "Ana's PC"));
     assert!(bo.saves_list().unwrap().slots.iter().all(|s| s.empty), "nobody sees another player's saves");
-    step("cloud saves: compressed, two slots, versions, a conflict, the limit, downloads checked, private");
+    step("cloud saves: compressed, one slot, versions, a conflict, the limit, downloads checked, private");
 
     // --- the access token renewed, a refresh token used twice refused ----------------------------------
     let old = ana_store.load().unwrap();

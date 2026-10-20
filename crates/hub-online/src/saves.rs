@@ -1,12 +1,13 @@
-//! The cloud saves (docs/ONLINE.md, "Cloud saves"): up to two companies a player keeps
-//! online, as files in Supabase Storage's private bucket `saves`, under `users/<user id>/slot1|slot2/`,
-//! which only their owner may read or write (online/supabase/schema.sql). Local saves are not
-//! limited; only the cloud has two slots.
+//! The cloud saves (docs/ONLINE.md, "Cloud saves"): one company a player keeps online, as files
+//! in Supabase Storage's private bucket `saves`, under `users/<user id>/slot1/`, which only their
+//! owner may read or write (online/supabase/schema.sql). Local saves are not limited; only the
+//! cloud has its one slot. An account had two slots before: a save left in `slot2` is still
+//! listed, downloaded and deleted, read only (`Slot::read_only`), never written again.
 //!
 //! * a slot holds `v<version>.omsave`, the save compressed with zstd here (`compress`), its last
 //!   `KEEP` versions, and `meta.json`, what the slot holds now (its name, the computer it came from
 //!   and each kept version's size, sha256 and time);
-//! * an upload is begun (`saves_upload_begin`: the slot chosen, `limit` with both taken, and its
+//! * an upload is begun (`saves_upload_begin`: the slot chosen, `limit` with it taken, and its
 //!   `base_version` held against `meta.json`, another one a conflict with the slot as it is now),
 //!   the file sent (`Transfer::put`, `x-upsert`), then committed (`saves_upload_commit`: `meta.json`
 //!   written after the file, so a half-finished upload never replaces a good save, and the versions
@@ -29,8 +30,10 @@ use sha2::{Digest, Sha256};
 
 /// The bucket.
 const BUCKET: &str = "saves";
-/// The cloud slots an account has.
-pub const MAX_SLOTS: u8 = 2;
+/// The cloud slots an account has (written to).
+pub const MAX_SLOTS: u8 = 1;
+/// The slots an account had before (read and deleted, the ones past `MAX_SLOTS` never written).
+pub const SLOTS_BEFORE: u8 = 2;
 /// The most a save may be, compressed (the bucket's own limit).
 pub const MAX_BYTES: u64 = 25 * 1024 * 1024;
 /// The most a save may unpack to.
@@ -59,6 +62,8 @@ pub struct Slot {
     pub device: String,
     /// The versions kept (the last 3), the oldest first.
     pub versions: Vec<u64>,
+    /// A slot of before, past `MAX_SLOTS`: its save can be downloaded or deleted, not updated.
+    pub read_only: bool,
 }
 
 /// What `saves_list` answers.
@@ -66,7 +71,7 @@ pub struct Slot {
 pub struct Cloud {
     pub max_slots: u8,
     pub max_bytes: u64,
-    /// Every slot, empty ones too, by number.
+    /// Every slot, empty ones too, by number; a slot of before only while it holds a save.
     pub slots: Vec<Slot>,
 }
 
@@ -119,6 +124,7 @@ impl Meta {
             updated_at: (now.at > 0).then(|| now.at.to_string()),
             device: name_of(&self.device),
             versions: self.versions.iter().map(|k| k.version).collect(),
+            read_only: self.slot > MAX_SLOTS,
         }
     }
 }
@@ -224,12 +230,22 @@ fn name_of(name: &str) -> String {
     name.chars().filter(|c| !c.is_control()).collect::<String>().trim().chars().take(NAME_MAX).collect::<String>().trim().to_string()
 }
 
+/// A slot that can be read (one of before too).
 fn slot_number(n: u8) -> Result<u8, Error> {
-    (1..=MAX_SLOTS).contains(&n).then_some(n).ok_or(Error::Code("bad_input"))
+    (1..=SLOTS_BEFORE).contains(&n).then_some(n).ok_or(Error::Code("bad_input"))
+}
+
+/// A slot that can be written: a slot of before is `read_only`.
+fn writable(n: u8) -> Result<u8, Error> {
+    let n = slot_number(n)?;
+    if n > MAX_SLOTS {
+        return Err(Error::Code("read_only"));
+    }
+    Ok(n)
 }
 
 fn empty(n: u8) -> Slot {
-    Slot { slot: n, empty: true, ..Default::default() }
+    Slot { slot: n, empty: true, read_only: n > MAX_SLOTS, ..Default::default() }
 }
 
 /// The transfers of a save's file, without the client (a big save moves without holding it).
@@ -365,6 +381,9 @@ impl Client {
         if !content_name(name) {
             return Err(Error::Code("bad_input"));
         }
+        if !read {
+            writable(slot)?;
+        }
         let path = format!("{}/{name}", self.folder(slot)?);
         let token = self.access_token()?;
         if !self.may_send() {
@@ -378,6 +397,7 @@ impl Client {
         if names.iter().any(|n| !content_name(n)) {
             return Err(Error::Code("bad_input"));
         }
+        writable(slot)?;
         let folder = self.folder(slot)?;
         self.remove(&names.iter().map(|n| format!("{folder}/{n}")).collect::<Vec<_>>())
     }
@@ -387,18 +407,22 @@ impl Client {
         Transfer { http: self.http.clone(), key: self.ep.key.clone() }
     }
 
-    /// The slots, empty ones too.
+    /// The slots, empty ones too; a slot of before only while it holds a save.
     pub fn saves_list(&mut self) -> Result<Cloud, Error> {
         let mut slots = Vec::new();
-        for n in 1..=MAX_SLOTS {
-            slots.push(self.meta(n)?.map_or_else(|| empty(n), |m| m.slot()));
+        for n in 1..=SLOTS_BEFORE {
+            match self.meta(n)? {
+                Some(m) => slots.push(m.slot()),
+                None if n <= MAX_SLOTS => slots.push(empty(n)),
+                None => {}
+            }
         }
         Ok(Cloud { max_slots: MAX_SLOTS, max_bytes: MAX_BYTES, slots })
     }
 
-    /// An upload begun: `slot` None takes the first free one (both taken: `limit`);
-    /// `base_version` is the version last synced (0: none), another than the slot's is a
-    /// conflict.
+    /// An upload begun: `slot` None takes the first free one (taken: `limit`; a slot of before is
+    /// never written: `read_only`); `base_version` is the version last synced (0: none), another
+    /// than the slot's is a conflict.
     pub fn saves_upload_begin(&mut self, slot: Option<u8>, name: &str, packed: &Packed, base_version: u64, device: &str) -> Result<Begun, SaveError> {
         let (name, device) = (name_of(name), name_of(device));
         if name.is_empty() {
@@ -408,7 +432,7 @@ impl Client {
             return Err(Error::Code("too_large").into());
         }
         let (slot, now) = match slot {
-            Some(n) => (slot_number(n)?, self.meta(n)?),
+            Some(n) => (writable(n)?, self.meta(n)?),
             None => {
                 let mut free = None;
                 for n in 1..=MAX_SLOTS {
@@ -435,6 +459,7 @@ impl Client {
     /// committed one since: a conflict), the versions past the kept ones deleted. The slot as it is
     /// now. Committed already (an answer lost), it is the same again.
     pub fn saves_upload_commit(&mut self, begun: &Begun) -> Result<Slot, SaveError> {
+        writable(begun.slot)?;
         let now = self.meta(begun.slot)?;
         if let Some(m) = &now {
             if m.versions.last().is_some_and(|k| k.version == begun.version && k.sha256 == begun.sha256) {
@@ -487,10 +512,11 @@ impl Client {
         self.remove(&files)
     }
 
-    /// Every cloud save of the player deleted (before the account is); how many files went.
+    /// Every cloud save of the player deleted (before the account is), a slot of before's too;
+    /// how many files went.
     pub fn saves_delete_all(&mut self) -> Result<u64, Error> {
         let mut n = 0;
-        for slot in 1..=MAX_SLOTS {
+        for slot in 1..=SLOTS_BEFORE {
             n += self.saves_delete(slot)?;
         }
         Ok(n)

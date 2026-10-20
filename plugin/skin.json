@@ -1,0 +1,86 @@
+{
+  "title": "Omsi-Hub",
+  "colours": {
+    "accent": "#2A75F7",
+    "accent_2": "#7BA9FA",
+    "accent_hover": "#4888F8",
+    "accent_ink": "#FFFFFF",
+    "danger": "#D93A30",
+    "danger_2": "#E5534B",
+    "ok": "#34B26E",
+    "warn": "#E8AA46",
+    "text": "#E8EBF2",
+    "text_soft": "#C4CAD6",
+    "text_dim": "#959DB0",
+    "text_faint": "#60687A",
+    "rail": "#08112A",
+    "panel": "#0E1733",
+    "field": "#16203F",
+    "hover": "#1D2849",
+    "selected": "#243055",
+    "edge": "#FFFFFF14",
+    "bg": "#0A142E",
+    "sidebar": "#0D1936",
+    "surface": "#121C3B",
+    "surface_2": "#1A2546",
+    "surface_3": "#223052",
+    "ink": "#E8EBF2",
+    "ink_2": "#C4CAD6",
+    "ink_muted": "#959DB0"
+  },
+  "loading": {
+    "logo": "skin/wordmark.svg",
+    "background": "#0A142E",
+    "map_name": "#959DB0",
+    "text": "#E8EBF2",
+    "bar": ["#2A75F7", "#4888F8"],
+    "track": "#1B2747",
+    "tips": [
+      { "en": "Sign on for your duty on the navigator before you leave the depot", "nl": "Meld je op de navigator aan voor je dienst voordat je het depot uit rijdt", "de": "Melde dich am Navigator zum Dienst an, bevor du den Betriebshof verlässt" },
+      { "en": "F9 opens the messages from the control room", "nl": "F9 opent de berichten van de centrale", "de": "F9 öffnet die Nachrichten der Leitstelle" },
+      { "en": "F10 gives the mouse to the Omsi-Hub panels", "nl": "F10 geeft de muis aan de panelen van Omsi-Hub", "de": "F10 gibt die Maus an die Omsi-Hub-Fenster" },
+      { "en": "An instruction from the control room waits for your answer", "nl": "Een opdracht van de centrale wacht op je antwoord", "de": "Eine Anweisung der Leitstelle wartet auf deine Antwort" },
+      { "en": "Every stop on time counts towards your punctuality on Omsi-Hub", "nl": "Elke halte op tijd telt mee voor je stiptheid op Omsi-Hub", "de": "Jede pünktliche Haltestelle zählt für deine Pünktlichkeit auf Omsi-Hub" },
+      { "en": "Your trips and their cards are kept in the Omsi-Hub app", "nl": "Je ritten en hun kaarten bewaart de Omsi-Hub app", "de": "Deine Fahrten und ihre Karten behält die Omsi-Hub-App" },
+      { "en": "A smooth ride keeps your passengers - and your score - happy", "nl": "Rustig rijden houdt je reizigers - en je score - tevreden", "de": "Ruhiges Fahren hält deine Fahrgäste - und deine Wertung - zufrieden" }
+    ]
+  },
+  "menu": {
+    "mark": "skin/mark.svg",
+    "entries": [
+      { "id": "duty", "label": { "en": "My duty", "nl": "Mijn dienst", "de": "Mein Dienst" }, "icon": "badge", "after": "resume" },
+      { "id": "messages", "label": { "en": "Messages", "nl": "Berichten", "de": "Nachrichten" }, "icon": "forum", "after": "skin:duty" }
+    ]
+  },
+  "map_dark": {
+    "land": "#0E1A33",
+    "grass": "#102238",
+    "forest": "#0F2436",
+    "field": "#13213A",
+    "paved_land": "#141E36",
+    "sand": "#1A2238",
+    "water": "#0B2A4F",
+    "road": "#3A4766",
+    "road_edge": "#1A2440",
+    "foot": "#26314D",
+    "area": "#1E2843",
+    "roof": "#202B47",
+    "roof_edge": "#18213A",
+    "wall_lit": "#1D2742",
+    "wall_dark": "#141C33",
+    "tree": "#15304A",
+    "tree_edge": "#11283F",
+    "route": "#2A75F7",
+    "route_edge": "#1B4FB0",
+    "driven": "#3A4A6E",
+    "card": "#0D1936F0",
+    "card_text": "#E8EBF2",
+    "card_dim": "#959DB0",
+    "label": "#C4CAD6",
+    "label_halo": "#0A142ED9"
+  },
+  "map_light": {
+    "route": "#2A75F7",
+    "route_edge": "#1B4FB0"
+  }
+}

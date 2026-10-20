@@ -1,0 +1,2024 @@
+From eba39b884504fb0eb6a41610deb1920958b6b91e Mon Sep 17 00:00:00 2001
+From: Omsi-Hub <lucruigrok@gmail.com>
+Date: Mon, 19 Oct 2026 19:24:25 +0000
+Subject: [PATCH] Skins: a plugin's look for the loading screen, the pause menu
+ and the navigator
+
+A folder plugin can bring plugins/<name>/skin.json, chosen with skin=<name> in settings.cfg or
+--skin <name>. It gives the theme's colours (omsi_ui::theme's colours are read through
+functions now, so a skin can change them), the loading screen's logo, colours and tips, the
+pause menu's name, mark and up to six lines of the plugin's own (a click is the new
+menu_entry event), and the navigator's and city map's colours over the light and dark
+palettes. Read once before the window opens; one that cannot be read is logged and the game
+keeps its own look. Documented in docs/PLUGINS.md "Skins".
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WaHFnKQnB1G3cjLxZp4wv4
+---
+ crates/omsi-app/src/app_impl/menus.rs |   8 +
+ crates/omsi-app/src/cli.rs            |   4 +
+ crates/omsi-app/src/devtools/panel.rs |  24 +-
+ crates/omsi-app/src/lib.rs            |   5 +
+ crates/omsi-app/src/photo/panel.rs    |  56 ++---
+ crates/omsi-app/src/settings.rs       |   6 +-
+ crates/omsi-app/src/shell/mod.rs      |   4 +
+ crates/omsi-app/src/shell/pause.rs    | 134 +++++-----
+ crates/omsi-app/src/skin.rs           | 343 ++++++++++++++++++++++++++
+ crates/omsi-app/src/ui.rs             |  67 +++--
+ crates/omsi-mapdraw/src/style.rs      | 101 +++++++-
+ crates/omsi-plugin/src/api/events.rs  |   1 +
+ crates/omsi-ui/src/icons.rs           |   7 +
+ crates/omsi-ui/src/kit.rs             | 118 ++++-----
+ crates/omsi-ui/src/theme.rs           |  84 +++++++
+ docs/PLUGINS.md                       |  54 ++++
+ docs/plugin-api.json                  |   8 +
+ 17 files changed, 839 insertions(+), 185 deletions(-)
+ create mode 100644 crates/omsi-app/src/skin.rs
+
+diff --git a/crates/omsi-app/src/app_impl/menus.rs b/crates/omsi-app/src/app_impl/menus.rs
+index afdcb9a..9bca0c4 100644
+--- a/crates/omsi-app/src/app_impl/menus.rs
++++ b/crates/omsi-app/src/app_impl/menus.rs
+@@ -164,6 +164,12 @@ impl App {
+         let Some(id) = self.game_menu_items().get(k).map(|m| m.0) else { return };
+         match id {
+             "resume" => self.close_game_menu(),
++            // a skin's line: the menu closes and the plugins hear which (`menu_entry`)
++            id if id.starts_with("skin:") => {
++                self.close_game_menu();
++                let entry = id.trim_start_matches("skin:").to_string();
++                crate::plugins::queue_event_ex(&mut self.integrations.plugin_events_ex, "menu_entry", vec![omsi_plugin::api::Value::Str(entry)]);
++            }
+             "options" => self.open_list(crate::game_lists::ListKind::Options(0)),
+             "controls" => self.open_list(crate::game_lists::ListKind::Controls),
+             "camera" => {
+@@ -425,6 +431,8 @@ impl crate::App {
+             let before_quit = v.iter().position(|x| x.0 == "quit").unwrap_or(v.len()).max(at);
+             v.insert(before_quit, ("admin", "Administration..."));
+         }
++        // a skin's own lines (`skin.json`'s `menu.entries`)
++        crate::skin::menu_lines(&mut v);
+         v
+     }
+ 
+diff --git a/crates/omsi-app/src/cli.rs b/crates/omsi-app/src/cli.rs
+index 8877c1d..f82c270 100644
+--- a/crates/omsi-app/src/cli.rs
++++ b/crates/omsi-app/src/cli.rs
+@@ -58,6 +58,10 @@ pub(crate) struct Args {
+     /// from the game menu, or a placed one taken over at its driver's door (G).
+     #[arg(long)]
+     pub(crate) on_foot: bool,
++    /// The skin of the game's own screens for this run: a folder plugin's name whose
++    /// `skin.json` gives them their look (in place of the settings' `skin`).
++    #[arg(long)]
++    pub(crate) skin: Option<String>,
+     /// Control preset: `simple` (W/S/A/D and Up/Down drive, Left/Right switch the interior
+     /// camera as in OMSI; the default), `wasd`,
+     /// `arrows` (leaves W, S and D to the jobs `Inputs/keyboard.cfg` gives them - wipers,
+diff --git a/crates/omsi-app/src/devtools/panel.rs b/crates/omsi-app/src/devtools/panel.rs
+index ab831ae..788bad4 100644
+--- a/crates/omsi-app/src/devtools/panel.rs
++++ b/crates/omsi-app/src/devtools/panel.rs
+@@ -23,12 +23,12 @@ pub(crate) fn draw(ui: &mut Ui, d: &mut DevTools, mut p: Option<&mut Player>, si
+     let r = Rect::new((size.x - WIDTH - 12.0).max(0.0), 12.0, WIDTH.min(size.x), (size.y - 24.0).max(200.0));
+     ui.panel(r);
+     let inner = r.inset(14.0);
+-    ui.text(&omsi_ui::tr("Developer tools"), Vec2::new(inner.x, inner.y + 15.0), 16.0, Weight::Bold, TEXT, Align::Left);
++    ui.text(&omsi_ui::tr("Developer tools"), Vec2::new(inner.x, inner.y + 15.0), 16.0, Weight::Bold, text(), Align::Left);
+     if ui.icon_button("dt-close", Vec2::new(inner.right() - 10.0, inner.y + 9.0), 12.0, "close", "Close (Ctrl+Shift+D)") {
+         out.push(Request::Close);
+     }
+     let bus = p.as_ref().map(|p| p.vehicle.ty.def.path.file_name().unwrap_or_default().to_string_lossy().to_string()).unwrap_or_else(|| omsi_ui::tr("no bus of one's own").into_owned());
+-    ui.text_in(&bus, Rect::new(inner.x, inner.y + 24.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
++    ui.text_in(&bus, Rect::new(inner.x, inner.y + 24.0, inner.w, 18.0), 12.0, Weight::Regular, text_dim(), Align::Left);
+     let tabs = TABS.map(|tab| omsi_ui::tr(tab).into_owned());
+     let tab_labels = tabs.iter().map(|tab| tab.as_str()).collect::<Vec<_>>();
+     ui.segmented("dt-tabs", Rect::new(inner.x, inner.y + 48.0, inner.w, 30.0), &mut d.tab, &tab_labels);
+@@ -77,7 +77,7 @@ fn variables(ui: &mut Ui, d: &mut DevTools, mut p: Option<&mut Player>, r: Rect)
+     let (watch, selected) = (&d.watch, d.selected);
+     ui.scroll_area("dt-watch", Rect::new(r.x, y, r.w, watch_h), &mut |ui, area| {
+         if watch.is_empty() {
+-            ui.text_in(&omsi_ui::tr("Nothing watched: pick variables from the list below"), Rect::new(area.x, area.y, area.w, LINE), 12.0, Weight::Regular, TEXT_FAINT, Align::Left);
++            ui.text_in(&omsi_ui::tr("Nothing watched: pick variables from the list below"), Rect::new(area.x, area.y, area.w, LINE), 12.0, Weight::Regular, text_faint(), Align::Left);
+             return LINE;
+         }
+         for (k, w) in watch.iter().enumerate() {
+@@ -89,9 +89,9 @@ fn variables(ui: &mut Ui, d: &mut DevTools, mut p: Option<&mut Player>, r: Rect)
+                 choose = Some(k);
+             }
+             let name = if w.string { format!("${}", w.name) } else { w.name.clone() };
+-            ui.text_in(&name, Rect::new(row.x + 8.0, row.y, row.w * 0.55, row.h), 12.5, Weight::Medium, TEXT, Align::Left);
++            ui.text_in(&name, Rect::new(row.x + 8.0, row.y, row.w * 0.55, row.h), 12.5, Weight::Medium, text(), Align::Left);
+             let held = if w.hold.is_some() { format!("  [{}]", omsi_ui::tr("held")) } else { String::new() };
+-            ui.text_in(&format!("{}{held}", value_of(pv, &w.name, w.string)), Rect::new(row.x + row.w * 0.55, row.y, row.w * 0.45 - 34.0, row.h), 12.5, Weight::Regular, if w.hold.is_some() { ACCENT } else { TEXT_SOFT }, Align::Right);
++            ui.text_in(&format!("{}{held}", value_of(pv, &w.name, w.string)), Rect::new(row.x + row.w * 0.55, row.y, row.w * 0.45 - 34.0, row.h), 12.5, Weight::Regular, if w.hold.is_some() { accent() } else { text_soft() }, Align::Right);
+             if ui.icon_button(&format!("dt-wx{k}"), Vec2::new(row.right() - 12.0, row.center().y), 10.0, "close", "Stop watching") {
+                 remove = Some(k);
+             }
+@@ -152,8 +152,8 @@ fn variables(ui: &mut Ui, d: &mut DevTools, mut p: Option<&mut Player>, r: Rect)
+             if ui.row(&format!("dt-a{k}"), row, false) {
+                 add = Some(n.to_string());
+             }
+-            ui.text_in(n, Rect::new(row.x + 8.0, row.y, row.w * 0.6, row.h), 12.5, Weight::Regular, TEXT_SOFT, Align::Left);
+-            ui.text_in(&value_of(Some(pl), n, strings), Rect::new(row.x + row.w * 0.6, row.y, row.w * 0.4 - 8.0, row.h), 12.5, Weight::Regular, TEXT_DIM, Align::Right);
++            ui.text_in(n, Rect::new(row.x + 8.0, row.y, row.w * 0.6, row.h), 12.5, Weight::Regular, text_soft(), Align::Left);
++            ui.text_in(&value_of(Some(pl), n, strings), Rect::new(row.x + row.w * 0.6, row.y, row.w * 0.4 - 8.0, row.h), 12.5, Weight::Regular, text_dim(), Align::Right);
+         }
+         found.len() as f32 * LINE
+     });
+@@ -230,7 +230,7 @@ fn mirrors(ui: &mut Ui, d: &mut DevTools, p: Option<&mut Player>, r: Rect, out:
+     let n = p.vehicle.ty.def.cameras_reflexion.len();
+     let mut y = r.y;
+     if n == 0 {
+-        ui.text_in(&omsi_ui::tr("This bus has no mirrors"), Rect::new(r.x, y, r.w, LINE), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
++        ui.text_in(&omsi_ui::tr("This bus has no mirrors"), Rect::new(r.x, y, r.w, LINE), 13.0, Weight::Regular, text_dim(), Align::Left);
+         return;
+     }
+     d.mirror = d.mirror.min(n - 1);
+@@ -244,7 +244,7 @@ fn mirrors(ui: &mut Ui, d: &mut DevTools, p: Option<&mut Player>, r: Rect, out:
+         let yaw = omsi_ui::tr("yaw");
+         let pitch = omsi_ui::tr("pitch");
+         let fov = omsi_ui::tr("fov");
+-        ui.text_in(&format!("{k}   {:.2}, {:.2}, {:.2}   {yaw} {:.0}  {pitch} {:.0}  {fov} {:.0}", c.pos[0], c.pos[1], c.pos[2], c.yaw, c.pitch, c.fov), row.pad(8.0, 0.0), 12.0, Weight::Regular, TEXT_SOFT, Align::Left);
++        ui.text_in(&format!("{k}   {:.2}, {:.2}, {:.2}   {yaw} {:.0}  {pitch} {:.0}  {fov} {:.0}", c.pos[0], c.pos[1], c.pos[2], c.yaw, c.pitch, c.fov), row.pad(8.0, 0.0), 12.0, Weight::Regular, text_soft(), Align::Left);
+         y += LINE;
+     }
+     y += 8.0;
+@@ -283,7 +283,7 @@ fn mirrors(ui: &mut Ui, d: &mut DevTools, p: Option<&mut Player>, r: Rect, out:
+     y += 42.0;
+     if let Some(block) = mirror_block(p, i) {
+         for line in block.lines() {
+-            ui.text_in(line, Rect::new(r.x + 4.0, y, r.w, 18.0), 12.0, Weight::Regular, TEXT_SOFT, Align::Left);
++            ui.text_in(line, Rect::new(r.x + 4.0, y, r.w, 18.0), 12.0, Weight::Regular, text_soft(), Align::Left);
+             y += 17.0;
+         }
+     }
+@@ -315,7 +315,7 @@ fn files(ui: &mut Ui, d: &mut DevTools, r: Rect, out: &mut Vec<Request>) {
+         if y + h > r.bottom() {
+             break;
+         }
+-        ui.paragraph(m, Vec2::new(r.x, y), r.w, 12.0, Weight::Regular, TEXT_SOFT);
++        ui.paragraph(m, Vec2::new(r.x, y), r.w, 12.0, Weight::Regular, text_soft());
+         y += h + 6.0;
+     }
+     if y + 26.0 < r.bottom() {
+@@ -334,7 +334,7 @@ fn files(ui: &mut Ui, d: &mut DevTools, r: Rect, out: &mut Vec<Request>) {
+                 Kind::Constfiles => "Constant files",
+                 Kind::Scripts => "Scripts",
+             };
+-            ui.text_in(&format!("{name}  ({})", omsi_ui::tr(kind)), Rect::new(r.x, y, r.w, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
++            ui.text_in(&format!("{name}  ({})", omsi_ui::tr(kind)), Rect::new(r.x, y, r.w, 16.0), 11.5, Weight::Regular, text_dim(), Align::Left);
+             y += 16.0;
+         }
+     }
+diff --git a/crates/omsi-app/src/lib.rs b/crates/omsi-app/src/lib.rs
+index fb554d6..c900a1d 100644
+--- a/crates/omsi-app/src/lib.rs
++++ b/crates/omsi-app/src/lib.rs
+@@ -93,6 +93,7 @@ mod schedule_paper {
+ mod real_time;
+ mod settings;
+ mod shell;
++mod skin;
+ mod photo;
+ mod depot_bus;
+ mod devtools;
+@@ -419,6 +420,10 @@ pub(crate) fn prepare(mut args: Args, bare: bool) -> Result<Option<(Args, Option
+         omsi_cfg::vfs::mount_dir_zips(&c.join("Archives"));
+     }
+     omsi_cfg::add_content_root(args.root.clone());
++    // the skin of the game's own screens, before the first of them (a server has none)
++    if server_cfg.is_none() {
++        skin::load(args.skin.as_deref());
++    }
+     if args.list_maps {
+         for m in server::installed_maps() {
+             println!("{m}");
+diff --git a/crates/omsi-app/src/photo/panel.rs b/crates/omsi-app/src/photo/panel.rs
+index c5798d2..7f3c437 100644
+--- a/crates/omsi-app/src/photo/panel.rs
++++ b/crates/omsi-app/src/photo/panel.rs
+@@ -97,7 +97,7 @@ fn stepped_in(ui: &mut Ui, name: &str, r: Rect, at: &mut usize, lo: usize, hi: u
+ /// A setting the camera chose by itself, shown as a camera's display shows it.
+ fn auto_row(ui: &mut Ui, r: Rect, label: &str, value: &str) {
+     ui.label(Rect::new(r.x, r.y, r.w * 0.5, r.h), label);
+-    ui.text_in(value, Rect::new(r.x + r.w * 0.5, r.y, r.w * 0.5, r.h), 13.0, Weight::Bold, ACCENT, Align::Right);
++    ui.text_in(value, Rect::new(r.x + r.w * 0.5, r.y, r.w * 0.5, r.h), 13.0, Weight::Bold, accent(), Align::Right);
+ }
+ 
+ /// The rows of the open page, from `y` down; returns where they end.
+@@ -185,7 +185,7 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+             ui.label(Rect::new(x, y, w * 0.30, ROW - 2.0), "Mode");
+             ui.segmented("ph-xmode", Rect::new(x + w * 0.30, y, w * 0.70, ROW - 2.0), &mut e.mode, &exposure::MODES);
+             y += ROW + 4.0;
+-            note(ui, &mut y, ["Program: the camera sets the aperture and the time.", "Aperture priority: you set the aperture, the camera the time.", "Shutter priority: you set the time, the camera the aperture.", "Manual: you set everything; the meter shows how far off it is."][e.mode.min(3)], TEXT_DIM);
++            note(ui, &mut y, ["Program: the camera sets the aperture and the time.", "Aperture priority: you set the aperture, the camera the time.", "Shutter priority: you set the time, the camera the aperture.", "Manual: you set everything; the meter shows how far off it is."][e.mode.min(3)], text_dim());
+             if e.mode == 1 || e.mode == 3 {
+                 stepped_in(ui, "ph-xap", row(&mut y), &mut e.aperture, lens_lo, lens_hi, "Aperture", &|k| format!("f/{}", exposure::APERTURES[k]));
+             } else {
+@@ -211,13 +211,13 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+                 let r = row(&mut y);
+                 meter_scale(ui, r, m.offset);
+                 if m.offset.abs() > 0.5 && e.mode != 3 {
+-                    note(ui, &mut y, "The lens or the shutter ran out of range: the photo comes out off the meter.", WARN);
++                    note(ui, &mut y, "The lens or the shutter ran out of range: the photo comes out off the meter.", warn());
+                 }
+             }
+             section(ui, &mut y, "Shutter");
+             motion_row(ui, row(&mut y), s);
+             if s.motion && !info.bus_moving {
+-                note(ui, &mut y, "The bus stands still: nothing to blur.", WARN);
++                note(ui, &mut y, "The bus stands still: nothing to blur.", warn());
+             }
+             let labels: Vec<&str> = BRACKETS.iter().map(|b| b.1).collect();
+             select_row(ui, "ph-bracket", row(&mut y), "Exposure bracketing", &mut s.bracket, &labels);
+@@ -257,7 +257,7 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+             if ui.button("ph-hyper", row(&mut y), &omsi_ui::tr("Focus at the hyperfocal distance"), Some("landscape"), ButtonKind::Normal) {
+                 acts.push(Request::Hyperfocal);
+             }
+-            note(ui, &mut y, "Click on the picture to focus on what is there.", TEXT_DIM);
++            note(ui, &mut y, "Click on the picture to focus on what is there.", text_dim());
+             section(ui, &mut y, "Bokeh");
+             let labels: Vec<&str> = BLADES.iter().map(|b| b.1).collect();
+             select_row(ui, "ph-blades", row(&mut y), "Aperture blades", &mut s.blades, &labels);
+@@ -267,7 +267,7 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+             ui.slider("ph-swing", row(&mut y), &mut s.tilt[1], -8.0, 8.0, 0.05, "Swing", &|v| format!("{v:+.2}°"));
+             ui.slider("ph-shiftv", row(&mut y), &mut s.shift[1], -12.0, 12.0, 0.5, "Shift up / down", &|v| format!("{v:+.1} mm"));
+             ui.slider("ph-shifth", row(&mut y), &mut s.shift[0], -12.0, 12.0, 0.5, "Shift right / left", &|v| format!("{v:+.1} mm"));
+-            note(ui, &mut y, "Tilt leans the plane of focus (a miniature look, or the whole street sharp); shift keeps the verticals upright.", TEXT_DIM);
++            note(ui, &mut y, "Tilt leans the plane of focus (a miniature look, or the whole street sharp); shift keeps the verticals upright.", text_dim());
+             section(ui, &mut y, "Quality");
+             let labels: Vec<&str> = QUALITY.iter().map(|q| q.1).collect();
+             select_row(ui, "ph-quality", row(&mut y), "Samples", &mut s.quality, &labels);
+@@ -322,7 +322,7 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+             section(ui, &mut y, "Time of day");
+             let r = row(&mut y);
+             ui.label(Rect::new(r.x, r.y, r.w * 0.38, r.h), "Clock");
+-            ui.text_in(&info.time, Rect::new(r.x + r.w * 0.38, r.y, r.w * 0.62, r.h), 15.0, Weight::Bold, ACCENT, Align::Center);
++            ui.text_in(&info.time, Rect::new(r.x + r.w * 0.38, r.y, r.w * 0.62, r.h), 15.0, Weight::Bold, accent(), Align::Center);
+             let r = row(&mut y);
+             let bw = (r.w - 18.0) / 4.0;
+             for (k, (text, secs)) in [("-1 h", -3600.0), ("-15 min", -900.0), ("+15 min", 900.0), ("+1 h", 3600.0)].into_iter().enumerate() {
+@@ -334,7 +334,7 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+             let labels: Vec<&str> = SIZES.iter().map(|z| z.1).collect();
+             select_row(ui, "ph-size", row(&mut y), "Photo size", &mut s.size, &labels);
+             ui.toggle("ph-png16", row(&mut y), &mut s.png16, "16 bits a channel (for editing)");
+-            note(ui, &mut y, "Photos are saved as PNG into the Screenshots folder of the game, with the camera's settings (aperture, time, ISO, focal length) in their metadata.", TEXT_DIM);
++            note(ui, &mut y, "Photos are saved as PNG into the Screenshots folder of the game, with the camera's settings (aperture, time, ISO, focal length) in their metadata.", text_dim());
+             y += 18.0;
+         }
+     }
+@@ -345,15 +345,15 @@ fn pro_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w: f32
+ fn meter_scale(ui: &mut Ui, r: Rect, offset: f32) {
+     ui.label(Rect::new(r.x, r.y, r.w * 0.22, r.h), "Meter");
+     let s = Rect::new(r.x + r.w * 0.24, r.y + r.h * 0.5 - 1.0, r.w * 0.62, 2.0);
+-    ui.p().rect(s, TEXT_DIM.alpha(0.5));
++    ui.p().rect(s, text_dim().alpha(0.5));
+     for k in -3..=3 {
+         let tx = s.x + s.w * (k as f32 + 3.0) / 6.0;
+         let hgt = if k == 0 { 12.0 } else { 7.0 };
+-        ui.p().rect(Rect::new(tx - 0.5, s.y - hgt * 0.5, 1.0, hgt), TEXT_DIM);
++        ui.p().rect(Rect::new(tx - 0.5, s.y - hgt * 0.5, 1.0, hgt), text_dim());
+     }
+     let v = offset.clamp(-3.2, 3.2);
+     let nx = s.x + s.w * (v + 3.0) / 6.0;
+-    let c = if offset.abs() < 0.35 { OK } else if offset.abs() < 1.5 { WARN } else { DANGER };
++    let c = if offset.abs() < 0.35 { ok() } else if offset.abs() < 1.5 { warn() } else { danger() };
+     ui.p().rounded(Rect::new(nx - 3.0, s.y - 8.0, 6.0, 16.0), 3.0, c);
+     ui.text_in(&format!("{offset:+.1}"), Rect::new(r.x + r.w * 0.88, r.y, r.w * 0.12, r.h), 12.0, Weight::Medium, c, Align::Right);
+ }
+@@ -415,7 +415,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+                 let d = ph.focus_distance();
+                 let s = &mut ph.settings;
+                 let _ = s;
+-                ui.text_in(&format!("{d:.1} m"), Rect::new(r.x + r.w * 0.5, r.y, r.w * 0.5, r.h), 12.5, Weight::Medium, TEXT, Align::Right);
++                ui.text_in(&format!("{d:.1} m"), Rect::new(r.x + r.w * 0.5, r.y, r.w * 0.5, r.h), 12.5, Weight::Medium, text(), Align::Right);
+             } else {
+                 // 0.3 .. 300 m on a log scale
+                 let mut t = (s.focus / 0.3).ln() / 1000f32.ln();
+@@ -427,7 +427,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+                 }
+             }
+             let r = Rect::new(x, y, w, 34.0);
+-            ui.paragraph(&omsi_ui::tr("Click on the picture to focus on what is there."), Vec2::new(r.x, r.y), r.w, 11.5, Weight::Regular, TEXT_DIM);
++            ui.paragraph(&omsi_ui::tr("Click on the picture to focus on what is there."), Vec2::new(r.x, r.y), r.w, 11.5, Weight::Regular, text_dim());
+             y += 24.0;
+             let s = &mut ph.settings;
+             stepped(ui, "ph-fstop", row(&mut y), &mut s.fstop, FSTOPS.len(), "Aperture", &|k| format!("f/{}", FSTOPS[k]));
+@@ -442,7 +442,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+             stepped(ui, "ph-shutter", row(&mut y), &mut s.shutter, SHUTTERS.len(), "Shutter speed", &|k| SHUTTERS[k].1.to_string());
+             if s.motion && !info.bus_moving {
+                 let r = row(&mut y);
+-                ui.text_in("The bus stands still: nothing to blur.", r, 12.0, Weight::Regular, WARN, Align::Left);
++                ui.text_in("The bus stands still: nothing to blur.", r, 12.0, Weight::Regular, warn(), Align::Left);
+             }
+             section(ui, &mut y, "Quality");
+             let labels: Vec<&str> = QUALITY.iter().map(|q| q.1).collect();
+@@ -482,7 +482,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+             section(ui, &mut y, "Time of day");
+             let r = row(&mut y);
+             ui.label(Rect::new(r.x, r.y, r.w * 0.38, r.h), "Clock");
+-            ui.text_in(&info.time, Rect::new(r.x + r.w * 0.38, r.y, r.w * 0.62, r.h), 15.0, Weight::Bold, ACCENT, Align::Center);
++            ui.text_in(&info.time, Rect::new(r.x + r.w * 0.38, r.y, r.w * 0.62, r.h), 15.0, Weight::Bold, accent(), Align::Center);
+             let r = row(&mut y);
+             let bw = (r.w - 18.0) / 4.0;
+             for (k, (text, secs)) in [("-1 h", -3600.0), ("-15 min", -900.0), ("+15 min", 900.0), ("+1 h", 3600.0)].into_iter().enumerate() {
+@@ -494,7 +494,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+             let labels: Vec<&str> = SIZES.iter().map(|z| z.1).collect();
+             select_row(ui, "ph-size", row(&mut y), "Photo size", &mut s.size, &labels);
+             let r = Rect::new(x, y, w, 40.0);
+-            ui.paragraph("Photos are saved as PNG into the Screenshots folder of the game.", Vec2::new(r.x, r.y), r.w, 12.0, Weight::Regular, TEXT_DIM);
++            ui.paragraph("Photos are saved as PNG into the Screenshots folder of the game.", Vec2::new(r.x, r.y), r.w, 12.0, Weight::Regular, text_dim());
+             y += 44.0;
+         }
+     }
+@@ -506,7 +506,7 @@ fn simple_page(ui: &mut Ui, ph: &mut Photo, info: &Info, x: f32, mut y: f32, w:
+ fn level(ui: &mut Ui, f: Rect, roll: f32, pitch: f32) {
+     let m = f.center();
+     let ok = roll.abs() < 0.3;
+-    let c = if ok { OK } else { Color::WHITE.alpha(0.8) };
++    let c = if ok { omsi_ui::theme::ok() } else { Color::WHITE.alpha(0.8) };
+     let (s, co) = (-roll.to_radians()).sin_cos();
+     for k in -40i32..=40 {
+         if k.abs() < 6 {
+@@ -522,7 +522,7 @@ fn level(ui: &mut Ui, f: Rect, roll: f32, pitch: f32) {
+ 
+ /// Where a click focused: the corners of a small square.
+ fn focus_mark(ui: &mut Ui, at: Vec2, a: f32) {
+-    let c = OK.alpha(a);
++    let c = ok().alpha(a);
+     let (r, l) = (22.0, 8.0);
+     for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+         let (cx, cy) = (at.x + sx * r, at.y + sy * r);
+@@ -547,7 +547,7 @@ fn histogram(ui: &mut Ui, r: Rect, h: &[[u32; 64]; 4]) {
+     // (burnt out or black: a mark at the edge)
+     let tot: u32 = h[3].iter().sum::<u32>().max(1);
+     if h[3][63] as f32 / tot as f32 > 0.01 {
+-        ui.p().rect(Rect::new(inner.right() - 3.0, inner.y, 3.0, inner.h), DANGER);
++        ui.p().rect(Rect::new(inner.right() - 3.0, inner.y, 3.0, inner.h), danger());
+     }
+     if h[3][0] as f32 / tot as f32 > 0.01 {
+         ui.p().rect(Rect::new(inner.x, inner.y, 3.0, inner.h), Color::rgba(77, 128, 255, 1.0));
+@@ -626,15 +626,15 @@ pub(crate) fn draw(sh: &mut Shell, ph: &mut Photo, info: &Info) {
+         }
+         let a = left.clamp(0.0, 1.0);
+         // (flat, as the launcher's toasts: lighter under the mouse, no edge)
+-        let bg = if hover { SURFACE_3.alpha(a) } else { SURFACE_2.alpha(a) };
++        let bg = if hover { surface_3().alpha(a) } else { surface_2().alpha(a) };
+         ui.p().rounded(r, 8.0, bg);
+         let failed = text.starts_with(omsi_ui::tr("Not saved:").as_ref());
+-        let (icon, tint) = if ph.saved.is_some() { ("check_circle", OK) } else if failed { ("error", DANGER) } else { ("info", TEXT_DIM) };
++        let (icon, tint) = if ph.saved.is_some() { ("check_circle", ok()) } else if failed { ("error", danger()) } else { ("info", text_dim()) };
+         ui.icon(icon, Vec2::new(r.x + 20.0, r.y + 20.0), 18.0, tint.alpha(a));
+-        ui.text_in(&text, Rect::new(r.x + 36.0, r.y, r.w - 44.0, 40.0), 13.0, Weight::Medium, TEXT.alpha(a), Align::Left);
++        ui.text_in(&text, Rect::new(r.x + 36.0, r.y, r.w - 44.0, 40.0), 13.0, Weight::Medium, omsi_ui::theme::text().alpha(a), Align::Left);
+         if let (Some(place), Some(path)) = (place, path) {
+-            ui.text_in(&place, Rect::new(r.x + 36.0, r.y + 30.0, r.w - 72.0, 18.0), 11.5, Weight::Regular, TEXT_DIM.alpha(a), Align::Left);
+-            ui.icon("folder_open", Vec2::new(r.right() - 22.0, r.y + 39.0), 16.0, if hover { ACCENT.alpha(a) } else { TEXT_DIM.alpha(a) });
++            ui.text_in(&place, Rect::new(r.x + 36.0, r.y + 30.0, r.w - 72.0, 18.0), 11.5, Weight::Regular, text_dim().alpha(a), Align::Left);
++            ui.icon("folder_open", Vec2::new(r.right() - 22.0, r.y + 39.0), 16.0, if hover { accent().alpha(a) } else { text_dim().alpha(a) });
+             if clicked {
+                 acts.push(Request::Reveal(path));
+             }
+@@ -653,8 +653,8 @@ pub(crate) fn draw(sh: &mut Shell, ph: &mut Photo, info: &Info) {
+     let r = Rect::new(20.0, 20.0, PANEL_W.min(size.x - 40.0), size.y - 40.0);
+     ui.panel(r);
+     let inner = Rect::new(r.x + 18.0, r.y + 16.0, r.w - 36.0, r.h - 32.0);
+-    ui.icon("photo_camera", Vec2::new(inner.x + 12.0, inner.y + 14.0), 20.0, ACCENT);
+-    ui.text("Photo mode", Vec2::new(inner.x + 32.0, inner.y + 21.0), 18.0, Weight::Bold, TEXT, Align::Left);
++    ui.icon("photo_camera", Vec2::new(inner.x + 12.0, inner.y + 14.0), 20.0, accent());
++    ui.text("Photo mode", Vec2::new(inner.x + 32.0, inner.y + 21.0), 18.0, Weight::Bold, text(), Align::Left);
+     let mm = ph.settings.focal(ph.pro);
+     let fnum = ph.fstop();
+     let exif = if ph.pro {
+@@ -666,7 +666,7 @@ pub(crate) fn draw(sh: &mut Shell, ph: &mut Photo, info: &Info) {
+     } else {
+         format!("{mm:.0} mm  |  {:.0}°", ph.settings.fov)
+     };
+-    ui.text_in(&exif, Rect::new(inner.x, inner.y + 32.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
++    ui.text_in(&exif, Rect::new(inner.x, inner.y + 32.0, inner.w, 18.0), 12.0, Weight::Regular, text_dim(), Align::Left);
+     let mut tab = ph.tab.min(tabs(ph.pro).len() - 1);
+     if ui.segmented("ph-tabs", Rect::new(inner.x, inner.y + 58.0, inner.w, 34.0), &mut tab, tabs(ph.pro)) {
+         ph.tab = tab;
+@@ -681,7 +681,7 @@ pub(crate) fn draw(sh: &mut Shell, ph: &mut Photo, info: &Info) {
+     });
+     // the keys, over the buttons (going down was nowhere to be found)
+     let keys = Rect::new(inner.x, inner.bottom() - 44.0 - 46.0 - 40.0, inner.w, 34.0);
+-    ui.paragraph(&omsi_ui::tr("W A S D: move, Space: up, Ctrl: down, Shift: faster, drag or arrows: look"), Vec2::new(keys.x, keys.y), keys.w, 11.5, Weight::Regular, TEXT_DIM);
++    ui.paragraph(&omsi_ui::tr("W A S D: move, Space: up, Ctrl: down, Shift: faster, drag or arrows: look"), Vec2::new(keys.x, keys.y), keys.w, 11.5, Weight::Regular, text_dim());
+     let b = Rect::new(inner.x, inner.bottom() - 44.0 - 46.0, inner.w, 44.0);
+     if ui.button("ph-take", b, &if busy { format!("{}  {n} / {target}", omsi_ui::tr("Taking...")) } else { omsi_ui::tr("Take photo").into_owned() }, Some("photo_camera"), ButtonKind::Primary) && !busy {
+         acts.push(Request::Take);
+diff --git a/crates/omsi-app/src/settings.rs b/crates/omsi-app/src/settings.rs
+index c0ce396..1358b14 100644
+--- a/crates/omsi-app/src/settings.rs
++++ b/crates/omsi-app/src/settings.rs
+@@ -136,6 +136,9 @@ pub struct Settings {
+     pub language: String,
+     /// What passengers say: `all`, `tickets` (only what they ask for) or `off`.
+     pub pax_voices: String,
++    /// The skin of the game's own screens: a folder plugin's name whose `skin.json` gives
++    /// them their look (see `skin`, docs/PLUGINS.md "Skins"); empty, the game's own.
++    pub skin: String,
+     /// The units of the game's own texts: `metric`, `uk` or `us` (see `units`).
+     pub units: String,
+     /// OMSI 2's route arrows over the road (as well as or instead of the navigator).
+@@ -468,7 +471,7 @@ impl Settings {
+     }
+     /// The defaults of a computer.
+     fn desktop() -> Self {
+-        Self { msaa: 4, anisotropy: 8, ssao: true, shadows: true, shadow_size: 2048, shadow_blobs: true, navigator: true, ui_opacity: 0.85, notes: true, ui_scale: 1.0, ui_scale_window: true, navigator_corner: "bottom-left".into(), boarding: "auto".into(), passenger_animation: "original".into(), units: "metric".into(), photo_mode: "simple".into(), character_models: "original".into(), standing_chance: 0.05, ambient: true, vol_ambient: 0.8, radio_fx: Default::default(), detail_textures: true, exact_fare: true, pax_bad_driving: true, enhanced: false, graphics: "vanilla_plus".into(), triple: Default::default(), triple_span: true, triple_hud_center: true, vr: false, vr_scale: 0.65, vr_head_smoothing_ms: 0.0, vr_mirror_rate: 16.0, vr_desktop_mirror: true, fullscreen: false, vsync: true, volume: 0.6, drive_keys: "simple".into(), touch_door_mode: "standard".into(), touch_pedal_length: 1.0, touch_pedal_deadzone: 0.15, post_aa: "fxaa".into(), render_scale: 0.0, language: "ENG".into(), pax_voices: "all".into(), nav_arrows: false, nav_ai: true, nav_surface: true, nav_light: false, nav_3d: true, nav_widget: true, nav_size: 1.0, get_up: false, trip_summary: true, full_tank: true, sim_thread: false, texture_compression: true, gpu_texture_compression: true, video_memory: 0, auto_clutch: true, momentary_gears: false, auto_shift: false, min_obj_size: 0.013, max_obj_dist: -1.0, max_fps: 0, chat: true, chat_size: 1.0, tooltips: true, name_tags: true, show_fps: false, perf_overlay: "off".into(), clouds: true, cloud_quality: "high".into(), rain_quality: "high".into(), puddles: "high".into(), windy_trees: true, pax_density: 1.0, vol_ai: 1.0, vol_scenery: 1.0, mirror_size: 256, mirror_hud: 0, mirror_hud_every_frame: false, mirror_refresh: "full".into(), mirror_quality: "standard".into(), doppler: true, driver: true, maintenance: 0, ai_unsched_factor: 1.0, ai_max_scheduled: 0, ai_max_parked: 0, ai_max_humans: 200, ai_wait_timed_stops_only: false, collision_vehicles: true, collision_objects: true, collision_pedestrians: true, head_movement: true, driverview_smooth: true, hands_in_cab: false, alt_view: true, precision_zoom: false, time_speed: 1.0, time_sync: false, metar_sync: false, metar_station: String::new(), machine_translation: false, shadow_casters: "all".into(), ctrl_deadzone: 0.0, right_stick_look: true, ctrl_background: false, pad_steer_smooth: 120.0, pad_steer_linear: false, pad_steer_speed: 2.0, pad_deadzone: 0.08, pad_type: "auto".into(), pad_buttons: true, arrows_switch_cams: true, ctrl_off: String::new(), steering_linear: false, old_steering: false, red_steer_spd: false, reflections: 1.0, led_glow: 6, led_mips: 1.3, night_brightness: 0.0, mouse_sens: 1.0, mouse_pedal_strength: 1.0, graphics_api: "auto".into(), ff_invert: false, ff_enabled: true, ff_road_vib: 1.0, ff_engine_vib: 1.0, ff_fade: 0.28, brake_hold: true, mouse_steering: false, mouse_right_off: false, mouse_smooth: true, mouse_hold: true, mouse_pedals: true, key_pedal_speed: 1.0, look_sens: 1.0, look_smoothing_ms: 0.0, blinker_cancel: true, wheel_range: 900.0, wheel_lock: 0.0, fov: 0.0, camera_collision: true, steer_look: false, steer_look_angle: 30.0, steer_look_response: 0.25, head_idle: 0.0, head_idle_pace: 1.0, pedal_throttle: 1.0, pedal_brake: 1.0, seat: [0.0; 3], seat_pitch_deg: 0.0, head_tracking: false, head_tracking_port: 4242, head_tracking_invert: String::new(), head_tracking_yaw_sens: 100.0, head_tracking_pitch_sens: 100.0, head_tracking_roll_sens: 100.0, head_tracking_x_sens: 100.0, head_tracking_y_sens: 100.0, head_tracking_z_sens: 100.0, head_tracking_invert_yaw: false, head_tracking_invert_pitch: false, head_tracking_invert_roll: false, head_tracking_invert_x: false, head_tracking_invert_y: false, head_tracking_invert_z: false, discord_status: true, discord_app_id: String::new(), voice_chat: true, info_bar: false }
++        Self { msaa: 4, anisotropy: 8, ssao: true, shadows: true, shadow_size: 2048, shadow_blobs: true, navigator: true, ui_opacity: 0.85, notes: true, ui_scale: 1.0, ui_scale_window: true, navigator_corner: "bottom-left".into(), boarding: "auto".into(), passenger_animation: "original".into(), units: "metric".into(), photo_mode: "simple".into(), character_models: "original".into(), standing_chance: 0.05, ambient: true, vol_ambient: 0.8, radio_fx: Default::default(), detail_textures: true, exact_fare: true, pax_bad_driving: true, enhanced: false, graphics: "vanilla_plus".into(), triple: Default::default(), triple_span: true, triple_hud_center: true, vr: false, vr_scale: 0.65, vr_head_smoothing_ms: 0.0, vr_mirror_rate: 16.0, vr_desktop_mirror: true, fullscreen: false, vsync: true, volume: 0.6, drive_keys: "simple".into(), touch_door_mode: "standard".into(), touch_pedal_length: 1.0, touch_pedal_deadzone: 0.15, post_aa: "fxaa".into(), render_scale: 0.0, language: "ENG".into(), pax_voices: "all".into(), skin: String::new(), nav_arrows: false, nav_ai: true, nav_surface: true, nav_light: false, nav_3d: true, nav_widget: true, nav_size: 1.0, get_up: false, trip_summary: true, full_tank: true, sim_thread: false, texture_compression: true, gpu_texture_compression: true, video_memory: 0, auto_clutch: true, momentary_gears: false, auto_shift: false, min_obj_size: 0.013, max_obj_dist: -1.0, max_fps: 0, chat: true, chat_size: 1.0, tooltips: true, name_tags: true, show_fps: false, perf_overlay: "off".into(), clouds: true, cloud_quality: "high".into(), rain_quality: "high".into(), puddles: "high".into(), windy_trees: true, pax_density: 1.0, vol_ai: 1.0, vol_scenery: 1.0, mirror_size: 256, mirror_hud: 0, mirror_hud_every_frame: false, mirror_refresh: "full".into(), mirror_quality: "standard".into(), doppler: true, driver: true, maintenance: 0, ai_unsched_factor: 1.0, ai_max_scheduled: 0, ai_max_parked: 0, ai_max_humans: 200, ai_wait_timed_stops_only: false, collision_vehicles: true, collision_objects: true, collision_pedestrians: true, head_movement: true, driverview_smooth: true, hands_in_cab: false, alt_view: true, precision_zoom: false, time_speed: 1.0, time_sync: false, metar_sync: false, metar_station: String::new(), machine_translation: false, shadow_casters: "all".into(), ctrl_deadzone: 0.0, right_stick_look: true, ctrl_background: false, pad_steer_smooth: 120.0, pad_steer_linear: false, pad_steer_speed: 2.0, pad_deadzone: 0.08, pad_type: "auto".into(), pad_buttons: true, arrows_switch_cams: true, ctrl_off: String::new(), steering_linear: false, old_steering: false, red_steer_spd: false, reflections: 1.0, led_glow: 6, led_mips: 1.3, night_brightness: 0.0, mouse_sens: 1.0, mouse_pedal_strength: 1.0, graphics_api: "auto".into(), ff_invert: false, ff_enabled: true, ff_road_vib: 1.0, ff_engine_vib: 1.0, ff_fade: 0.28, brake_hold: true, mouse_steering: false, mouse_right_off: false, mouse_smooth: true, mouse_hold: true, mouse_pedals: true, key_pedal_speed: 1.0, look_sens: 1.0, look_smoothing_ms: 0.0, blinker_cancel: true, wheel_range: 900.0, wheel_lock: 0.0, fov: 0.0, camera_collision: true, steer_look: false, steer_look_angle: 30.0, steer_look_response: 0.25, head_idle: 0.0, head_idle_pace: 1.0, pedal_throttle: 1.0, pedal_brake: 1.0, seat: [0.0; 3], seat_pitch_deg: 0.0, head_tracking: false, head_tracking_port: 4242, head_tracking_invert: String::new(), head_tracking_yaw_sens: 100.0, head_tracking_pitch_sens: 100.0, head_tracking_roll_sens: 100.0, head_tracking_x_sens: 100.0, head_tracking_y_sens: 100.0, head_tracking_z_sens: 100.0, head_tracking_invert_yaw: false, head_tracking_invert_pitch: false, head_tracking_invert_roll: false, head_tracking_invert_x: false, head_tracking_invert_y: false, head_tracking_invert_z: false, discord_status: true, discord_app_id: String::new(), voice_chat: true, info_bar: false }
+     }
+ }
+ 
+@@ -639,6 +642,7 @@ impl Settings {
+                 }
+                 "language" | "lang" => s.language = crate::describe::language_code(v),
+                 "units" => s.units = crate::units::Units::from_setting(v).setting().into(),
++                "skin" => s.skin = v.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')).take(64).collect(),
+                 "pax_voices" => s.pax_voices = match v.to_ascii_lowercase().as_str() { "tickets" => "tickets".into(), "off" | "0" | "none" => "off".into(), _ => "all".into() },
+                 "nav_arrows" => s.nav_arrows = b(v),
+                 "nav_ai" => s.nav_ai = b(v), "nav_surface" => s.nav_surface = b(v), "nav_light" => s.nav_light = b(v), "nav_3d" => s.nav_3d = b(v), "nav_widget" => s.nav_widget = b(v), "nav_size" => s.nav_size = v.parse::<f32>().ok().filter(|x| x.is_finite()).map(|x| x.clamp(0.6, 2.0)).unwrap_or(1.0),
+diff --git a/crates/omsi-app/src/shell/mod.rs b/crates/omsi-app/src/shell/mod.rs
+index b3bddd8..10a9cab 100644
+--- a/crates/omsi-app/src/shell/mod.rs
++++ b/crates/omsi-app/src/shell/mod.rs
+@@ -218,7 +218,11 @@ const LOGO: &str = include_str!("../../../../launcher/ui/logo.svg");
+ // size, since a much larger one squeezed without mipmaps came out blurred and jagged)
+ const LOGO_PX: u32 = 64;
+ 
++/// The logo's pixels: a skin's mark (`skin.json`'s `menu.mark`), else the launcher's.
+ fn logo_pixels() -> Option<Vec<u8>> {
++    if let Some(mark) = crate::skin::current().and_then(|s| s.mark.clone()) {
++        return mark.pixels(LOGO_PX, LOGO_PX);
++    }
+     omsi_ui::icons::rasterize_rgba(LOGO, LOGO_PX, LOGO_PX)
+ }
+ 
+diff --git a/crates/omsi-app/src/shell/pause.rs b/crates/omsi-app/src/shell/pause.rs
+index 79d809e..6547da8 100644
+--- a/crates/omsi-app/src/shell/pause.rs
++++ b/crates/omsi-app/src/shell/pause.rs
+@@ -18,10 +18,15 @@ use omsi_ui::kit::{id_of, ButtonKind, Ui};
+ use crate::ui::{DropdownView, MenuKind, Preview};
+ 
+ /// The page's background behind a list or settings window: the launcher's, solid.
+-const PAGE: Color = BG;
++fn page_bg() -> Color {
++    bg()
++}
+ /// ... and on the home page, where nothing but the sidebar is drawn: the paused game stays
+ /// in view, dimmed.
+-const HOME_VEIL: Color = Color([BG.0[0], BG.0[1], BG.0[2], 0.72]);
++fn home_veil() -> Color {
++    let b = bg();
++    Color([b.0[0], b.0[1], b.0[2], 0.72])
++}
+ /// A list's row.
+ const LIST_ROW: f32 = 40.0;
+ 
+@@ -86,7 +91,8 @@ pub(crate) fn rail_icon(id: &str) -> &'static str {
+         "copycode" => "content_copy",
+         "admin" => "key",
+         "quit" => "logout",
+-        _ => "chevron_right",
++        // (a skin's own line: its icon)
++        _ => crate::skin::icon_of(id).unwrap_or("chevron_right"),
+     }
+ }
+ 
+@@ -107,11 +113,11 @@ pub(crate) fn draw(sh: &mut Shell, v: &PauseView) {
+     sh.ui.solid(page);
+     match v.list.as_ref() {
+         Some(list) => {
+-            sh.ui.p().rect(page, PAGE);
++            sh.ui.p().rect(page, page_bg());
+             list_page(sh, v, list, page);
+         }
+         // (the home page: the game, dimmed - the sidebar holds every action)
+-        None => sh.ui.p().rect(page, HOME_VEIL),
++        None => sh.ui.p().rect(page, home_veil()),
+     }
+     rail(sh, v);
+ }
+@@ -127,14 +133,16 @@ fn rail(sh: &mut Shell, v: &PauseView) {
+     let logo = sh.logo_tex;
+     let ui = &mut sh.ui;
+     ui.solid(r);
+-    ui.p().rect(r, SIDEBAR);
++    ui.p().rect(r, sidebar());
+     // the brand
+     if let Some(tex) = logo {
+         ui.image(Rect::new(18.0, 16.0, 32.0, 32.0), tex, 7.0);
+     }
+-    ui.text("openOMSI", Vec2::new(58.0, 31.0), 17.0, Weight::Bold, INK, Align::Left);
++    // (a skin's name in place of the game's)
++    let title = crate::skin::current().and_then(|s| s.title.clone()).unwrap_or_else(|| "openOMSI".into());
++    ui.text(&title, Vec2::new(58.0, 31.0), 17.0, Weight::Bold, ink(), Align::Left);
+     let state = omsi_ui::tr(if v.paused { "Paused" } else { "Menu" }).into_owned();
+-    ui.text(&format!("{}  -  {state}", crate::startup::VERSION), Vec2::new(58.0, 46.0), 11.5, Weight::Medium, INK_MUTED, Align::Left);
++    ui.text(&format!("{}  -  {state}", crate::startup::VERSION), Vec2::new(58.0, 46.0), 11.5, Weight::Medium, ink_muted(), Align::Left);
+     // the items
+     let lines: Vec<(usize, &str, &str)> = v.rail.iter().enumerate().map(|(k, l)| (k, l.0, l.1)).collect();
+     let top = 70.0;
+@@ -164,18 +172,18 @@ fn rail(sh: &mut Shell, v: &PauseView) {
+             let danger = id == "quit";
+             let t = ui.anim(id_of(&format!("pause-hl-{id}")), if h || kbd { 1.0 } else { 0.0 }, 0.06);
+             if open {
+-                ui.p().rounded(row, 6.0, SURFACE_3);
++                ui.p().rounded(row, 6.0, surface_3());
+             } else if t > 0.01 {
+-                ui.p().rounded(row, 6.0, if danger { DANGER_2.alpha(0.14 * t) } else { SURFACE_2.alpha(t) });
++                ui.p().rounded(row, 6.0, if danger { danger_2().alpha(0.14 * t) } else { surface_2().alpha(t) });
+             }
+             let c = if danger {
+-                DANGER_2.mix(Color::rgba(255, 176, 166, 1.0), t)
++                danger_2().mix(Color::rgba(255, 176, 166, 1.0), t)
+             } else if open {
+-                INK
++                ink()
+             } else {
+-                INK_2.mix(INK, t)
++                ink_2().mix(ink(), t)
+             };
+-            let icon_c = if open || (kbd && !danger) { ACCENT } else { c };
++            let icon_c = if open || (kbd && !danger) { accent() } else { c };
+             let translated = omsi_ui::tr(label);
+             let (text, _) = plain(&translated);
+             let (_, more) = plain(label);
+@@ -184,7 +192,7 @@ fn rail(sh: &mut Shell, v: &PauseView) {
+             if more {
+                 ui.icon("chevron_right", Vec2::new(row.right() - 14.0, row.center().y), 16.0, c.alpha(0.5 + 0.5 * t));
+             } else if id == "resume" && v.keys {
+-                ui.text_in("Esc", Rect::new(row.right() - 44.0, row.y, 34.0, row.h), 11.5, Weight::Medium, INK_MUTED, Align::Right);
++                ui.text_in("Esc", Rect::new(row.right() - 44.0, row.y, 34.0, row.h), 11.5, Weight::Medium, ink_muted(), Align::Right);
+             }
+             y += 40.0;
+         }
+@@ -196,13 +204,13 @@ fn rail(sh: &mut Shell, v: &PauseView) {
+     // the driver, at the bottom: the launcher's driver chip
+     let ui = &mut sh.ui;
+     let chip = Rect::new(12.0, size.y - 12.0 - 56.0, RAIL_W - 24.0, 56.0);
+-    ui.p().rounded(chip, 8.0, SURFACE);
++    ui.p().rounded(chip, 8.0, surface());
+     let av = Vec2::new(chip.x + 10.0 + 17.0, chip.center().y);
+-    ui.p().circle(av, 17.0, SURFACE_3);
++    ui.p().circle(av, 17.0, surface_3());
+     let initial = v.summary.driver.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
+-    ui.text_in(&initial, Rect::new(av.x - 17.0, av.y - 17.0, 34.0, 34.0), 14.0, Weight::Bold, INK_2, Align::Center);
+-    ui.text_in(&v.summary.driver, Rect::new(chip.x + 54.0, chip.y + 9.0, chip.w - 64.0, 20.0), 13.5, Weight::Bold, INK, Align::Left);
+-    ui.text_in(&v.summary.bus, Rect::new(chip.x + 54.0, chip.y + 28.0, chip.w - 64.0, 18.0), 12.0, Weight::Regular, INK_MUTED, Align::Left);
++    ui.text_in(&initial, Rect::new(av.x - 17.0, av.y - 17.0, 34.0, 34.0), 14.0, Weight::Bold, ink_2(), Align::Center);
++    ui.text_in(&v.summary.driver, Rect::new(chip.x + 54.0, chip.y + 9.0, chip.w - 64.0, 20.0), 13.5, Weight::Bold, ink(), Align::Left);
++    ui.text_in(&v.summary.bus, Rect::new(chip.x + 54.0, chip.y + 28.0, chip.w - 64.0, 18.0), 12.0, Weight::Regular, ink_muted(), Align::Left);
+     if let Some(k) = picked {
+         sh.actions.push(if v.list.is_some() { Action::Rail(k) } else { Action::Choose(k) });
+     }
+@@ -221,9 +229,9 @@ fn tabs(ui: &mut Ui, at: Vec2, titles: &[String], chosen: usize, max_w: f32) ->
+         let r = Rect::new(x, at.y, w, 38.0);
+         let (h, _, clicked) = ui.interact(id_of(&format!("pause-tab-{i}")), r);
+         let on = i == chosen;
+-        ui.text_in(t, r, 14.0, Weight::Medium, if on || h { INK } else { INK_MUTED }, Align::Center);
++        ui.text_in(t, r, 14.0, Weight::Medium, if on || h { ink() } else { ink_muted() }, Align::Center);
+         if on {
+-            ui.p().rect(Rect::new(r.x, r.bottom() - 2.0, r.w, 2.0), ACCENT);
++            ui.p().rect(Rect::new(r.x, r.bottom() - 2.0, r.w, 2.0), accent());
+         }
+         if clicked && !on {
+             out = Some(i);
+@@ -250,10 +258,10 @@ fn list_page(sh: &mut Shell, v: &PauseView, list: &ListView, page: Rect) {
+         });
+     }
+     let tx = area.x + 46.0;
+-    sh.ui.text(&title, Vec2::new(tx, area.y + 26.0), 26.0, Weight::Bold, INK, Align::Left);
++    sh.ui.text(&title, Vec2::new(tx, area.y + 26.0), 26.0, Weight::Bold, ink(), Align::Left);
+     let sub = if sub.is_empty() { list_hint(list.kind) } else { sub };
+     if !sub.is_empty() {
+-        sh.ui.text_in(&sub, Rect::new(tx, area.y + 36.0, area.w - 46.0, 20.0), 13.0, Weight::Regular, INK_MUTED, Align::Left);
++        sh.ui.text_in(&sub, Rect::new(tx, area.y + 36.0, area.w - 46.0, 20.0), 13.0, Weight::Regular, ink_muted(), Align::Left);
+     }
+     let mut body = Rect::new(area.x, area.y + 70.0, area.w, (area.h - 70.0).max(40.0));
+     // the pages of a settings window: the launcher's tabs
+@@ -377,7 +385,7 @@ fn settings_rows(sh: &mut Shell, v: &PauseView, list: &ListView, body: Rect, anc
+                 if id == crate::game_lists::HEADING {
+                     // (a group's title as the launcher's card title)
+                     let t = parse_row(label).name;
+-                    ui.text_in(t, Rect::new(inner.x, y + 4.0, inner.w, 28.0), 15.0, Weight::Bold, INK, Align::Left);
++                    ui.text_in(t, Rect::new(inner.x, y + 4.0, inner.w, 28.0), 15.0, Weight::Bold, ink(), Align::Left);
+                     y += rh;
+                     continue;
+                 }
+@@ -418,10 +426,10 @@ fn settings_row(ui: &mut Ui, k: usize, label: &str, r: Rect, kbd: bool, dd_open:
+     let t = ui.anim(id ^ 0x51, if hov || kbd { 1.0 } else { 0.0 }, 0.06);
+     if t > 0.01 {
+         // (half a step lighter than the panel: the fields in the row stay apart from it)
+-        ui.p().rounded(r, 6.0, SURFACE.mix(SURFACE_2, 0.5).alpha(t));
++        ui.p().rounded(r, 6.0, surface().mix(surface_2(), 0.5).alpha(t));
+     }
+     if kbd {
+-        ui.p().rounded(Rect::new(r.x, r.y + 8.0, 2.0, r.h - 16.0), 1.0, ACCENT);
++        ui.p().rounded(Rect::new(r.x, r.y + 8.0, 2.0, r.h - 16.0), 1.0, accent());
+     }
+     let lx = r.x + 8.0;
+     let ctl_w = (r.w * 0.5).min(300.0);
+@@ -430,12 +438,12 @@ fn settings_row(ui: &mut Ui, k: usize, label: &str, r: Rect, kbd: bool, dd_open:
+         "s" | "i" => r.w - 80.0,
+         _ => ctl.x - lx - 12.0,
+     };
+-    let ink = TEXT_SOFT.mix(TEXT, t);
++    let ink = text_soft().mix(text(), t);
+     if row.desc.is_empty() {
+         ui.text_in(row.name, Rect::new(lx, r.y, name_w, r.h), 13.0, Weight::Regular, ink, Align::Left);
+     } else {
+         ui.text_in(row.name, Rect::new(lx, r.y + 6.0, name_w, 20.0), 13.0, Weight::Medium, ink, Align::Left);
+-        ui.text_in(row.desc, Rect::new(lx, r.y + 25.0, name_w, 17.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
++        ui.text_in(row.desc, Rect::new(lx, r.y + 25.0, name_w, 17.0), 11.5, Weight::Regular, text_dim(), Align::Left);
+         // (cut short by a narrow column: the whole of it under the mouse)
+         if ui.width(row.desc, 11.5, Weight::Regular) > name_w {
+             ui.tooltip(Rect::new(lx, r.y, name_w, r.h), row.desc);
+@@ -459,17 +467,17 @@ fn settings_row(ui: &mut Ui, k: usize, label: &str, r: Rect, kbd: bool, dd_open:
+         }
+         // a stepper: the value between the two arrows of a field
+         "c" => {
+-            ui.p().rounded(ctl, 6.0, SURFACE_2);
+-            ui.text_in(row.value, ctl.pad(36.0, 0.0), 13.0, Weight::Regular, INK, Align::Center);
++            ui.p().rounded(ctl, 6.0, surface_2());
++            ui.text_in(row.value, ctl.pad(36.0, 0.0), 13.0, Weight::Regular, omsi_ui::theme::ink(), Align::Center);
+             let left = Rect::new(ctl.x, ctl.y, 34.0, ctl.h);
+             let right = Rect::new(ctl.right() - 34.0, ctl.y, 34.0, ctl.h);
+             let mut out = None;
+             for (half, icon, fx) in [(left, "chevron_left", 0.0), (right, "chevron_right", 1.0)] {
+                 let (h, _, clicked) = ui.interact(id_of(&format!("pause-st-{k}-{icon}")), half);
+                 if h {
+-                    ui.p().rounded(half.inset(3.0), 5.0, SURFACE_3);
++                    ui.p().rounded(half.inset(3.0), 5.0, surface_3());
+                 }
+-                ui.icon(icon, half.center(), 18.0, if h { ACCENT } else { TEXT_DIM });
++                ui.icon(icon, half.center(), 18.0, if h { accent() } else { text_dim() });
+                 if clicked {
+                     out = Some(Action::Control(k, fx));
+                 }
+@@ -481,16 +489,16 @@ fn settings_row(ui: &mut Ui, k: usize, label: &str, r: Rect, kbd: bool, dd_open:
+             let (h, _, clicked) = ui.interact(id, r);
+             let a = ui.anim(id ^ 0x77, if h || dd_open { 1.0 } else { 0.0 }, 0.08);
+             // (open: a step lighter, as under the mouse; no ring round it)
+-            ui.p().rounded(ctl, 6.0, SURFACE_2.mix(SURFACE_3, a));
++            ui.p().rounded(ctl, 6.0, surface_2().mix(surface_3(), a));
+             // (without a value it opens a list of its own: a way on, not a drop-down)
+             let text = if row.value.is_empty() { omsi_ui::tr("Change").into_owned() } else { row.value.to_string() };
+-            ui.text_in(&text, Rect::new(ctl.x + 12.0, ctl.y, ctl.w - 40.0, ctl.h), 13.0, Weight::Regular, if row.value.is_empty() { TEXT_SOFT.mix(TEXT, a) } else { TEXT }, Align::Left);
++            ui.text_in(&text, Rect::new(ctl.x + 12.0, ctl.y, ctl.w - 40.0, ctl.h), 13.0, Weight::Regular, if row.value.is_empty() { text_soft().mix(omsi_ui::theme::text(), a) } else { omsi_ui::theme::text() }, Align::Left);
+             let icon = match (row.value.is_empty(), dd_open) {
+                 (true, _) => "chevron_right",
+                 (false, true) => "expand_less",
+                 (false, false) => "expand_more",
+             };
+-            ui.icon(icon, Vec2::new(ctl.right() - 18.0, ctl.center().y), 18.0, if row.value.is_empty() { TEXT_DIM.mix(ACCENT, a) } else { TEXT_DIM });
++            ui.icon(icon, Vec2::new(ctl.right() - 18.0, ctl.center().y), 18.0, if row.value.is_empty() { text_dim().mix(accent(), a) } else { text_dim() });
+             if dd_open {
+                 *dd_anchor = Some(ctl);
+             }
+@@ -498,14 +506,14 @@ fn settings_row(ui: &mut Ui, k: usize, label: &str, r: Rect, kbd: bool, dd_open:
+         }
+         // information only
+         "i" => {
+-            ui.text_in(row.value, Rect::new(r.x + r.w * 0.4, r.y, r.w * 0.6 - 8.0, r.h), 13.0, Weight::Medium, TEXT, Align::Right);
++            ui.text_in(row.value, Rect::new(r.x + r.w * 0.4, r.y, r.w * 0.6 - 8.0, r.h), 13.0, Weight::Medium, text(), Align::Right);
+             None
+         }
+         // a value being typed
+         "E" => {
+-            ui.p().rounded(ctl, 6.0, SURFACE_3);
++            ui.p().rounded(ctl, 6.0, surface_3());
+             let caret = if (ui.time * 2.0) as i64 % 2 == 0 { "|" } else { "" };
+-            ui.text_in(&format!("{}{caret}", row.value), Rect::new(ctl.x + 12.0, ctl.y, ctl.w - 24.0, ctl.h), 13.0, Weight::Medium, TEXT, Align::Left);
++            ui.text_in(&format!("{}{caret}", row.value), Rect::new(ctl.x + 12.0, ctl.y, ctl.w - 24.0, ctl.h), 13.0, Weight::Medium, text(), Align::Left);
+             None
+         }
+         // a button with its text as the value
+@@ -535,7 +543,7 @@ fn dropdown(sh: &mut Shell, d: &DropdownView, a: Rect, kbd: bool) {
+     // (over the scroll area's clip: a layer of its own over the whole window)
+     ui.push_clip(Rect::new(0.0, 0.0, ui.size.x, ui.size.y), 0.0);
+     ui.p().rounded(rr.inset(-2.0), 10.0, Color::rgba(0, 0, 0, 0.35));
+-    ui.p().rounded(rr, 8.0, SURFACE_2);
++    ui.p().rounded(rr, 8.0, surface_2());
+     let row = 34.0;
+     let id = id_of("pause-dropdown");
+     let content = d.items.len() as f32 * row + 8.0;
+@@ -564,12 +572,12 @@ fn dropdown(sh: &mut Shell, d: &DropdownView, a: Rect, kbd: bool) {
+         let cell = Rect::new(rr.x + 4.0, y, rr.w - 8.0, row);
+         let (h, _, clicked) = ui.interact(id_of(&format!("pause-dd-{i}")), cell);
+         if d.current == Some(i) {
+-            ui.p().rounded(cell, 5.0, SURFACE_3);
+-            ui.icon("check", Vec2::new(cell.right() - 16.0, cell.center().y), 15.0, ACCENT);
++            ui.p().rounded(cell, 5.0, surface_3());
++            ui.icon("check", Vec2::new(cell.right() - 16.0, cell.center().y), 15.0, accent());
+         } else if h || (kbd && d.sel == i) {
+-            ui.p().rounded(cell, 5.0, SURFACE_3.alpha(0.6));
++            ui.p().rounded(cell, 5.0, surface_3().alpha(0.6));
+         }
+-        ui.text_in(item, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), 13.0, Weight::Regular, TEXT, Align::Left);
++        ui.text_in(item, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), 13.0, Weight::Regular, text(), Align::Left);
+         if clicked {
+             picked = Some(i);
+         }
+@@ -633,23 +641,23 @@ fn list_rows(sh: &mut Shell, v: &PauseView, list: &ListView, r: Rect, keep_marke
+                 acts.push(Action::Choose(k));
+             }
+             let h = ui.hover(row);
+-            let ink = if marked || h { TEXT } else { TEXT_SOFT };
++            let ink = if marked || h { text() } else { text_soft() };
+             let cy = row.center().y;
+             if id == "search" {
+                 let field = row.inset(2.0);
+-                ui.p().rounded(field, 6.0, SURFACE_2);
+-                ui.icon("search", Vec2::new(field.x + 16.0, cy), 16.0, TEXT_DIM);
+-                ui.text_in(label, Rect::new(field.x + 34.0, field.y, field.w - 44.0, field.h), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
++                ui.p().rounded(field, 6.0, surface_2());
++                ui.icon("search", Vec2::new(field.x + 16.0, cy), 16.0, text_dim());
++                ui.text_in(label, Rect::new(field.x + 34.0, field.y, field.w - 44.0, field.h), 13.0, Weight::Regular, text_soft(), Align::Left);
+             } else if let Some((name, info)) = label.strip_prefix(line_pre.as_str()).and_then(|rest| rest.rsplit_once("  (")).map(|(n, t)| (n, t.trim_end_matches(')'))) {
+                 // a line of the timetable: its number on a sign, as a line sign on a bus
+                 let sw = (ui.width(name, 14.0, Weight::Bold) + 22.0).max(48.0);
+                 let sign = Rect::new(row.x + 10.0, cy - 13.0, sw, 26.0);
+-                ui.p().rounded(sign, 6.0, ACCENT.mix(Color::rgba(150, 104, 30, 1.0), if marked || h { 0.0 } else { 0.3 }));
++                ui.p().rounded(sign, 6.0, accent().mix(Color::rgba(150, 104, 30, 1.0), if marked || h { 0.0 } else { 0.3 }));
+                 ui.text_in(name, sign, 14.0, Weight::Bold, Color::rgba(18, 14, 8, 1.0), Align::Center);
+                 ui.text_in(info, Rect::new(sign.right() + 12.0, row.y, row.right() - sign.right() - 40.0, row.h), 13.0, Weight::Regular, ink, Align::Left);
+-                ui.icon("chevron_right", Vec2::new(row.right() - 16.0, cy), 16.0, TEXT_DIM);
++                ui.icon("chevron_right", Vec2::new(row.right() - 16.0, cy), 16.0, text_dim());
+             } else if let Some((code, name)) = code_and_name(label).filter(|_| code_w > 0.0) {
+-                ui.text_in(code, Rect::new(row.x + 12.0, row.y, code_w, row.h), 13.0, Weight::Medium, ACCENT, Align::Right);
++                ui.text_in(code, Rect::new(row.x + 12.0, row.y, code_w, row.h), 13.0, Weight::Medium, accent(), Align::Right);
+                 ui.text_in(name, Rect::new(row.x + 24.0 + code_w, row.y, row.w - code_w - 36.0, row.h), 13.0, Weight::Regular, ink, Align::Left);
+             } else {
+                 let (text, more) = plain(label);
+@@ -657,10 +665,10 @@ fn list_rows(sh: &mut Shell, v: &PauseView, list: &ListView, r: Rect, keep_marke
+                 let row_parts = parse_row(text);
+                 ui.text_in(row_parts.name, Rect::new(row.x + 12.0, row.y, row.w - 60.0, row.h), 13.0, Weight::Regular, ink, Align::Left);
+                 if !row_parts.value.is_empty() && row_parts.kind != "a" {
+-                    ui.text_in(row_parts.value, Rect::new(row.x + row.w * 0.5, row.y, row.w * 0.5 - 36.0, row.h), 12.5, Weight::Medium, TEXT_DIM, Align::Right);
++                    ui.text_in(row_parts.value, Rect::new(row.x + row.w * 0.5, row.y, row.w * 0.5 - 36.0, row.h), 12.5, Weight::Medium, text_dim(), Align::Right);
+                 }
+                 if more {
+-                    ui.icon("chevron_right", Vec2::new(row.right() - 16.0, cy), 16.0, TEXT_DIM);
++                    ui.icon("chevron_right", Vec2::new(row.right() - 16.0, cy), 16.0, text_dim());
+                 }
+             }
+             y += LIST_ROW;
+@@ -711,8 +719,8 @@ fn preview(sh: &mut Shell, p: &Preview, list: &ListView, r: Rect) {
+     let ui = &mut sh.ui;
+     ui.panel(r);
+     let inner = Rect::new(r.x + 18.0, r.y + 16.0, r.w - 36.0, r.h - 32.0);
+-    ui.text_in(&p.title, Rect::new(inner.x, inner.y, inner.w, 24.0), 16.0, Weight::Bold, TEXT, Align::Left);
+-    ui.text_in(&p.meta, Rect::new(inner.x, inner.y + 26.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
++    ui.text_in(&p.title, Rect::new(inner.x, inner.y, inner.w, 24.0), 16.0, Weight::Bold, text(), Align::Left);
++    ui.text_in(&p.meta, Rect::new(inner.x, inner.y + 26.0, inner.w, 18.0), 12.0, Weight::Regular, text_dim(), Align::Left);
+     let mut top = inner.y + 54.0;
+     top += 6.0;
+     if let Some(time) = p.time.as_ref() {
+@@ -725,7 +733,7 @@ fn preview(sh: &mut Shell, p: &Preview, list: &ListView, r: Rect) {
+                 acts.push(Action::Pane(code));
+             }
+         }
+-        ui.text_in(time, Rect::new(prev.right() + 8.0, top, next.x - prev.right() - 16.0, bh), 18.0, Weight::Bold, ACCENT, Align::Center);
++        ui.text_in(time, Rect::new(prev.right() + 8.0, top, next.x - prev.right() - 16.0, bh), 18.0, Weight::Bold, accent(), Align::Center);
+         top += bh + 10.0;
+     }
+     let lh = 28.0;
+@@ -744,8 +752,8 @@ fn preview(sh: &mut Shell, p: &Preview, list: &ListView, r: Rect) {
+                     if i == chosen {
+                         first_view = Some(i as f32 * lh);
+                     }
+-                    ui.text_in(when, Rect::new(row.right() - 70.0, row.y, 60.0, row.h), 12.5, Weight::Medium, ACCENT, Align::Right);
+-                    ui.text_in(what, Rect::new(row.x + 10.0, row.y, row.w - 90.0, row.h), 12.5, Weight::Regular, if i == chosen { TEXT } else { TEXT_SOFT }, Align::Left);
++                    ui.text_in(when, Rect::new(row.right() - 70.0, row.y, 60.0, row.h), 12.5, Weight::Medium, accent(), Align::Right);
++                    ui.text_in(what, Rect::new(row.x + 10.0, row.y, row.w - 90.0, row.h), 12.5, Weight::Regular, if i == chosen { text() } else { text_soft() }, Align::Left);
+                 }
+                 p.rows.len() as f32 * lh
+             });
+@@ -765,18 +773,18 @@ fn preview(sh: &mut Shell, p: &Preview, list: &ListView, r: Rect) {
+             ui.scroll_area(&key, rows_r, &mut |ui, view| {
+                 for (i, (what, when)) in p.rows.iter().enumerate() {
+                     let y = view.y + i as f32 * lh;
+-                    ui.text_in(when, Rect::new(view.right() - 78.0, y, 70.0, lh), 12.5, Weight::Medium, ACCENT, Align::Right);
++                    ui.text_in(when, Rect::new(view.right() - 78.0, y, 70.0, lh), 12.5, Weight::Medium, accent(), Align::Right);
+                     match what.strip_prefix(tp.as_str()) {
+                         Some(rest) => {
+                             let (num, dest) = rest.split_once("  ›  ").unwrap_or((rest, ""));
+                             let tw = (ui.width(num.trim(), 12.5, Weight::Bold) + 16.0).max(34.0);
+                             let tile = Rect::new(view.x, y + 3.0, tw, lh - 6.0);
+-                            ui.p().rounded(tile, 5.0, ACCENT.alpha(0.16));
+-                            ui.text_in(num.trim(), tile, 12.5, Weight::Bold, ACCENT, Align::Center);
+-                            ui.text_in(dest, Rect::new(tile.right() + 10.0, y, view.w - tw - 100.0, lh), 12.5, Weight::Regular, TEXT_SOFT, Align::Left);
++                            ui.p().rounded(tile, 5.0, accent().alpha(0.16));
++                            ui.text_in(num.trim(), tile, 12.5, Weight::Bold, accent(), Align::Center);
++                            ui.text_in(dest, Rect::new(tile.right() + 10.0, y, view.w - tw - 100.0, lh), 12.5, Weight::Regular, text_soft(), Align::Left);
+                         }
+                         None => {
+-                            ui.text_in(what, Rect::new(view.x, y, view.w - 90.0, lh), 12.5, Weight::Regular, TEXT_SOFT, Align::Left);
++                            ui.text_in(what, Rect::new(view.x, y, view.w - 90.0, lh), 12.5, Weight::Regular, text_soft(), Align::Left);
+                         }
+                     }
+                 }
+diff --git a/crates/omsi-app/src/skin.rs b/crates/omsi-app/src/skin.rs
+new file mode 100644
+index 0000000..9a97cf2
+--- /dev/null
++++ b/crates/omsi-app/src/skin.rs
+@@ -0,0 +1,343 @@
++//! A skin: another look for the game's own screens, brought by a folder plugin
++//! (`plugins/<name>/skin.json`, see docs/PLUGINS.md "Skins") and chosen with `skin=<name>` in
++//! the settings or `--skin <name>`. It gives the theme's colours (`omsi_ui::theme`: the
++//! widget kit, the pause menu, the photo and developer panels), the loading screen's logo,
++//! colours and tips, the pause menu's name and mark and lines of the plugin's own in it (a
++//! click on one is the plugin's `menu_entry` event), and the navigator's map colours
++//! (`omsi_mapdraw::style`). It is read once, before the window opens; one that cannot be read
++//! is said in the log and the game keeps its own look.
++
++use std::path::{Path, PathBuf};
++use std::sync::{Arc, RwLock};
++
++use omsi_ui::Color;
++use serde_json::Value;
++
++/// The most lines a skin adds to the pause menu, and the most tips it gives.
++const MAX_ENTRIES: usize = 6;
++const MAX_TIPS: usize = 40;
++/// A picture of a skin, at most (a PNG's or JPEG's bytes).
++const MAX_PICTURE: u64 = 4 * 1024 * 1024;
++
++/// A picture of the skin: an SVG drawn at the size it is shown at, or a picture's pixels.
++#[derive(Clone)]
++pub(crate) enum Picture {
++    Svg(String),
++    Rgba { w: u32, h: u32, px: Vec<u8> },
++}
++
++impl Picture {
++    /// Its width over its height.
++    pub(crate) fn aspect(&self) -> f32 {
++        match self {
++            Picture::Svg(src) => omsi_ui::icons::svg_size(src).map_or(1.0, |(w, h)| w / h.max(1e-3)),
++            Picture::Rgba { w, h, .. } => *w as f32 / (*h).max(1) as f32,
++        }
++    }
++
++    /// Its pixels fitted into `w` x `h` (straight RGBA, as the interface's textures are).
++    pub(crate) fn pixels(&self, w: u32, h: u32) -> Option<Vec<u8>> {
++        match self {
++            Picture::Svg(src) => omsi_ui::icons::rasterize_rgba(src, w, h),
++            Picture::Rgba { w: pw, h: ph, px } => {
++                let img = image::RgbaImage::from_raw(*pw, *ph, px.clone())?;
++                Some(image::imageops::resize(&img, w.max(1), h.max(1), image::imageops::FilterType::Triangle).into_raw())
++            }
++        }
++    }
++}
++
++/// A line of the pause menu the skin adds: its id (`skin:<id>`, what the plugin hears), its
++/// text and its icon, and the line it comes after (None: before "End the session").
++#[derive(Clone, Debug, PartialEq)]
++pub(crate) struct Entry {
++    pub id: &'static str,
++    pub label: &'static str,
++    pub icon: &'static str,
++    pub after: Option<String>,
++}
++
++/// What a skin changes.
++#[derive(Clone, Default)]
++pub(crate) struct Skin {
++    /// The plugin (its folder's name).
++    pub plugin: String,
++    /// The name in the pause menu's sidebar, in place of "openOMSI".
++    pub title: Option<String>,
++    /// The theme's colours by name (`omsi_ui::theme::SWATCHES`).
++    pub colours: Vec<(String, Color)>,
++    /// The loading screen.
++    pub logo: Option<Picture>,
++    pub background: Option<Color>,
++    pub map_name: Option<Color>,
++    pub text: Option<Color>,
++    /// The bar's two stripes (the same twice: plain) and its track.
++    pub bar: Option<(Color, Color)>,
++    pub track: Option<Color>,
++    /// (made static once, as they are read: the loading screen's tips are the game's texts)
++    pub tips: Vec<&'static str>,
++    /// Only the skin's tips (else they are shown among the game's).
++    pub tips_only: bool,
++    /// The pause menu's mark (a square beside the name) and its lines.
++    pub mark: Option<Picture>,
++    pub entries: Vec<Entry>,
++    /// The map's colours, over the light and the dark palettes.
++    pub map_light: Vec<(String, Color)>,
++    pub map_dark: Vec<(String, Color)>,
++}
++
++static CURRENT: RwLock<Option<Arc<Skin>>> = RwLock::new(None);
++
++/// The skin in use, if any.
++pub(crate) fn current() -> Option<Arc<Skin>> {
++    CURRENT.read().ok().and_then(|s| s.clone())
++}
++
++/// The skin chosen (`--skin`, else the settings' `skin`) read from the plugins' folders and put
++/// in use; none chosen, or none to be found, the game's own look.
++pub(crate) fn load(arg: Option<&str>) {
++    let settings = crate::settings::Settings::load().skin;
++    let name = arg.map(str::trim).filter(|n| !n.is_empty()).unwrap_or(settings.trim()).to_string();
++    if name.is_empty() {
++        return;
++    }
++    let dirs: Vec<PathBuf> = omsi_cfg::content_roots()
++        .iter()
++        .filter(|r| !omsi_cfg::is_sandbox(r))
++        .filter_map(|r| omsi_plugin::resolve_path(r, "plugins"))
++        .filter(|d| d.is_dir())
++        .collect();
++    match find(&dirs, &name).map(|d| read(&d, &name)) {
++        Some(Ok(skin)) => {
++            log::info!("skin: {} ({})", skin.title.as_deref().unwrap_or(&skin.plugin), skin.plugin);
++            set(Some(skin));
++        }
++        Some(Err(e)) => log::warn!("skin {name}: {e}; the game's own look"),
++        None => log::warn!("skin {name}: no plugins/{name}/skin.json; the game's own look"),
++    }
++}
++
++/// The folder of plugin `name` that has a skin, in the first plugins folder that has it.
++fn find(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
++    // (a folder's name only: nothing that reaches out of the plugins folder)
++    if name.contains(['/', '\\', '.']) {
++        return None;
++    }
++    dirs.iter().map(|d| d.join(name)).find(|d| d.join("skin.json").is_file())
++}
++
++/// `skin` in use (its colours given to the theme and the map), or none: the game's own look.
++pub(crate) fn set(skin: Option<Skin>) {
++    let skin = skin.map(Arc::new);
++    let colours: Vec<(&str, Color)> = skin.as_ref().map(|s| s.colours.iter().map(|(k, c)| (k.as_str(), *c)).collect()).unwrap_or_default();
++    for k in omsi_ui::theme::set_skin_colours(&colours) {
++        log::warn!("skin: the theme has no colour \"{k}\"");
++    }
++    fn pairs(v: Option<&Vec<(String, Color)>>) -> Vec<(&str, Color)> {
++        v.map(|v| v.iter().map(|(k, c)| (k.as_str(), *c)).collect()).unwrap_or_default()
++    }
++    let (light, dark) = (pairs(skin.as_ref().map(|s| &s.map_light)), pairs(skin.as_ref().map(|s| &s.map_dark)));
++    for k in omsi_mapdraw::style::set_skin(&light, &dark) {
++        log::warn!("skin: the map has no colour \"{k}\"");
++    }
++    if let Ok(mut c) = CURRENT.write() {
++        *c = skin;
++    }
++}
++
++/// `#RRGGBB` or `#RRGGBBAA`.
++fn colour(v: &Value) -> Option<Color> {
++    let s = v.as_str()?.trim().strip_prefix('#')?;
++    if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
++        return None;
++    }
++    let n = |k: usize| u8::from_str_radix(&s[k..k + 2], 16).ok();
++    match s.len() {
++        6 => Some(Color::rgba(n(0)?, n(2)?, n(4)?, 1.0)),
++        8 => Some(Color::rgba(n(0)?, n(2)?, n(4)?, n(6)? as f32 / 255.0)),
++        _ => None,
++    }
++}
++
++/// A text, or a table of texts by language (`{"en": ..., "nl": ...}`): the game's language's,
++/// else English, else the first.
++fn text(v: &Value) -> Option<String> {
++    match v {
++        Value::String(s) => Some(s.clone()),
++        Value::Object(m) => {
++            let lang = omsi_ui::i18n::language();
++            let lang = if lang.is_empty() { "en".to_string() } else { lang };
++            m.get(&lang).or_else(|| m.get("en")).or_else(|| m.values().next()).and_then(Value::as_str).map(str::to_string)
++        }
++        _ => None,
++    }
++    .map(|s| s.chars().filter(|c| !c.is_control()).take(200).collect::<String>().trim().to_string())
++    .filter(|s| !s.is_empty())
++}
++
++/// A picture of the plugin's folder (an SVG, PNG, JPEG, BMP or TGA), never outside it.
++fn picture(dir: &Path, rel: &str) -> Result<Picture, String> {
++    if rel.contains("..") || Path::new(rel).is_absolute() {
++        return Err(format!("{rel}: outside the plugin's folder"));
++    }
++    let p = omsi_plugin::resolve_path(dir, rel).ok_or_else(|| format!("{rel}: not there"))?;
++    if std::fs::metadata(&p).map_or(true, |m| m.len() > MAX_PICTURE) {
++        return Err(format!("{rel}: not there, or larger than 4 MB"));
++    }
++    if rel.to_ascii_lowercase().ends_with(".svg") {
++        let src = std::fs::read_to_string(&p).map_err(|e| format!("{rel}: {e}"))?;
++        omsi_ui::icons::svg_size(&src).ok_or_else(|| format!("{rel}: not an SVG that can be read"))?;
++        return Ok(Picture::Svg(src));
++    }
++    let img = image::open(&p).map_err(|e| format!("{rel}: {e}"))?.to_rgba8();
++    Ok(Picture::Rgba { w: img.width(), h: img.height(), px: img.into_raw() })
++}
++
++/// Colours by name (`{"accent": "#2A75F7", ...}`).
++fn colours(v: Option<&Value>, what: &str) -> Result<Vec<(String, Color)>, String> {
++    let Some(v) = v else { return Ok(Vec::new()) };
++    let m = v.as_object().ok_or_else(|| format!("{what}: not a table of colours"))?;
++    m.iter().map(|(k, c)| colour(c).map(|c| (k.clone(), c)).ok_or_else(|| format!("{what}.{k}: not a colour (#RRGGBB or #RRGGBBAA)"))).collect()
++}
++
++/// The skin of plugin `name` in folder `dir` (its `skin.json`).
++pub(crate) fn read(dir: &Path, name: &str) -> Result<Skin, String> {
++    let text_of = std::fs::read_to_string(dir.join("skin.json")).map_err(|e| format!("skin.json: {e}"))?;
++    parse(dir, name, &text_of)
++}
++
++/// The skin of `json`, its pictures in `dir`.
++pub(crate) fn parse(dir: &Path, name: &str, json: &str) -> Result<Skin, String> {
++    let v: Value = serde_json::from_str(json).map_err(|e| format!("skin.json: {e}"))?;
++    let mut skin = Skin { plugin: name.to_string(), title: v.get("title").and_then(text), colours: colours(v.get("colours"), "colours")?, ..Default::default() };
++    if let Some(l) = v.get("loading") {
++        let c = |k: &str| l.get(k).map(|x| colour(x).ok_or_else(|| format!("loading.{k}: not a colour"))).transpose();
++        skin.background = c("background")?;
++        skin.map_name = c("map_name")?;
++        skin.text = c("text")?;
++        skin.track = c("track")?;
++        skin.bar = match l.get("bar") {
++            None => None,
++            Some(Value::Array(a)) if a.len() == 2 => Some((colour(&a[0]).ok_or("loading.bar: not a colour")?, colour(&a[1]).ok_or("loading.bar: not a colour")?)),
++            Some(x) => colour(x).map(|c| (c, c)).ok_or("loading.bar: a colour, or two for the stripes")?.into(),
++        };
++        if let Some(logo) = l.get("logo").and_then(Value::as_str) {
++            skin.logo = Some(picture(dir, logo)?);
++        }
++        skin.tips = l.get("tips").and_then(Value::as_array).map(|a| a.iter().filter_map(text).take(MAX_TIPS).map(|t| &*Box::leak(t.into_boxed_str())).collect()).unwrap_or_default();
++        skin.tips_only = l.get("tips_only").and_then(Value::as_bool).unwrap_or(false) && !skin.tips.is_empty();
++    }
++    if let Some(m) = v.get("menu") {
++        if let Some(mark) = m.get("mark").and_then(Value::as_str) {
++            skin.mark = Some(picture(dir, mark)?);
++        }
++        for e in m.get("entries").and_then(Value::as_array).into_iter().flatten().take(MAX_ENTRIES) {
++            let id = e.get("id").and_then(Value::as_str).filter(|id| !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
++            let (Some(id), Some(label)) = (id, e.get("label").and_then(text)) else {
++                return Err("menu.entries: each one needs an id (letters, digits, _ and -) and a label".into());
++            };
++            // (the menu's lines are the game's static texts: a skin's are made so once, as it is read)
++            let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
++            skin.entries.push(Entry {
++                id: leak(format!("skin:{id}")),
++                label: leak(label),
++                icon: leak(e.get("icon").and_then(Value::as_str).unwrap_or("chevron_right").to_string()),
++                after: e.get("after").and_then(Value::as_str).map(str::to_string),
++            });
++        }
++    }
++    skin.map_light = colours(v.get("map_light"), "map_light")?;
++    skin.map_dark = colours(v.get("map_dark"), "map_dark")?;
++    Ok(skin)
++}
++
++/// The game menu's lines with the skin's put in: each after the line it names (one it does
++/// not find, or none named: before the way out).
++pub(crate) fn menu_lines(lines: &mut Vec<(&'static str, &'static str)>) {
++    if let Some(skin) = current() {
++        put_lines(&skin, lines);
++    }
++}
++
++fn put_lines(skin: &Skin, lines: &mut Vec<(&'static str, &'static str)>) {
++    for e in &skin.entries {
++        let at = e
++            .after
++            .as_deref()
++            .and_then(|a| lines.iter().position(|l| l.0 == a).map(|k| k + 1))
++            .or_else(|| lines.iter().position(|l| l.0 == "quit"))
++            .unwrap_or(lines.len());
++        lines.insert(at, (e.id, e.label));
++    }
++}
++
++/// The icon of a skin's line of the pause menu.
++pub(crate) fn icon_of(id: &str) -> Option<&'static str> {
++    current()?.entries.iter().find(|e| e.id == id).map(|e| e.icon)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn dir(tag: &str) -> PathBuf {
++        let d = std::env::temp_dir().join(format!("openomsi-skin-{tag}-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&d);
++        std::fs::create_dir_all(d.join("skin")).unwrap();
++        d
++    }
++
++    const MARK: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50"><rect width="200" height="50" fill="#2a75f7"/></svg>"##;
++
++    /// A skin's colours, loading screen, menu lines and map colours, read as written.
++    #[test]
++    fn a_skin_is_read_as_it_is_written() {
++        let d = dir("read");
++        std::fs::write(d.join("skin/logo.svg"), MARK).unwrap();
++        let json = r##"{
++            "title": "Omsi-Hub",
++            "colours": { "accent": "#2A75F7", "bg": "#0A142ECC" },
++            "loading": { "logo": "skin/logo.svg", "background": "#0A142E", "bar": ["#2A75F7", "#5B95F9"], "tips": ["One", {"en": "Two", "nl": "Twee"}], "tips_only": true },
++            "menu": { "mark": "skin/logo.svg", "entries": [{ "id": "duty", "label": "My duty", "icon": "badge", "after": "resume" }, { "id": "company", "label": "Company" }] },
++            "map_dark": { "land": "#0A142E" }
++        }"##;
++        let s = parse(&d, "omsihub", json).unwrap();
++        assert_eq!(s.title.as_deref(), Some("Omsi-Hub"));
++        assert_eq!(s.colours[0], ("accent".to_string(), Color::rgba(42, 117, 247, 1.0)));
++        assert!((s.colours[1].1 .0[3] - 0.8).abs() < 1e-3);
++        assert_eq!(s.bar, Some((Color::rgba(42, 117, 247, 1.0), Color::rgba(91, 149, 249, 1.0))));
++        assert_eq!(s.tips, vec!["One", "Two"]);
++        assert!(s.tips_only);
++        assert!((s.logo.as_ref().unwrap().aspect() - 4.0).abs() < 1e-3);
++        assert_eq!(s.logo.as_ref().unwrap().pixels(80, 20).map(|p| p.len()), Some(80 * 20 * 4));
++        assert_eq!(s.entries[0], Entry { id: "skin:duty", label: "My duty", icon: "badge", after: Some("resume".into()) });
++        assert_eq!(s.entries[1].icon, "chevron_right");
++        assert_eq!(s.map_dark, vec![("land".to_string(), Color::rgba(10, 20, 46, 1.0))]);
++        let _ = std::fs::remove_dir_all(&d);
++    }
++
++    /// What cannot be used is said, and nothing outside the plugin's folder is read.
++    #[test]
++    fn a_skin_that_cannot_be_used_says_why() {
++        let d = dir("bad");
++        assert!(parse(&d, "x", "{").err().unwrap().starts_with("skin.json"));
++        assert!(parse(&d, "x", r#"{"colours": {"accent": "blue"}}"#).err().unwrap().contains("colours.accent"));
++        assert!(parse(&d, "x", r#"{"loading": {"logo": "../../secret.png"}}"#).err().unwrap().contains("outside"));
++        assert!(parse(&d, "x", r#"{"loading": {"logo": "skin/none.svg"}}"#).err().unwrap().contains("not there"));
++        assert!(parse(&d, "x", r#"{"menu": {"entries": [{"id": "a b", "label": "x"}]}}"#).is_err());
++        assert!(find(&[d.clone()], "../x").is_none());
++        let _ = std::fs::remove_dir_all(&d);
++    }
++
++    /// The skin's lines go in after the line each names, else before the way out.
++    #[test]
++    fn the_skin_s_lines_go_into_the_menu() {
++        let d = dir("menu");
++        let s = parse(&d, "p", r#"{"menu": {"entries": [{"id": "duty", "label": "My duty", "after": "resume"}, {"id": "company", "label": "Company"}]}}"#).unwrap();
++        let mut lines: Vec<(&'static str, &'static str)> = vec![("resume", "Resume"), ("options", "Options..."), ("quit", "End the session")];
++        put_lines(&s, &mut lines);
++        assert_eq!(lines.iter().map(|l| l.0).collect::<Vec<_>>(), ["resume", "skin:duty", "options", "skin:company", "quit"]);
++        assert_eq!(s.entries[1].label, "Company");
++        let _ = std::fs::remove_dir_all(&d);
++    }
++}
+diff --git a/crates/omsi-app/src/ui.rs b/crates/omsi-app/src/ui.rs
+index d4e64a7..e59323d 100644
+--- a/crates/omsi-app/src/ui.rs
++++ b/crates/omsi-app/src/ui.rs
+@@ -1169,7 +1169,13 @@ impl Loading {
+         let n = (self.clock / TIP_SECS) as usize;
+         let t = self.clock - n as f32 * TIP_SECS;
+         let k = (t / 0.4).min((TIP_SECS - t) / 0.4).clamp(0.0, 1.0);
+-        (LOADING_TIPS[(self.tip0 + n) % LOADING_TIPS.len()], k)
++        // (a skin's tips among the game's, or in their place)
++        let tips: Vec<&'static str> = match crate::skin::current() {
++            Some(s) if s.tips_only => s.tips.clone(),
++            Some(s) => s.tips.iter().copied().chain(LOADING_TIPS).collect(),
++            None => LOADING_TIPS.to_vec(),
++        };
++        (tips[(self.tip0 + n) % tips.len()], k)
+     }
+ 
+     /// The screen still stands over the session's pictures: how opaque it is (none: it is
+@@ -1231,14 +1237,23 @@ fn expected_of(v: &serde_json::Value) -> Option<f32> {
+ /// The openOMSI wordmark (white letters, the orange "OMSI"), for the loading screen.
+ const WORDMARK: &str = include_str!("../../../assets/logos/openomsi-wordmark-light.svg");
+ 
++/// The loading bar's stripes: the accent, and a lighter one.
++const STRIPES: ([u8; 3], [u8; 3]) = ([232, 160, 48], [244, 182, 82]);
++
++/// A colour as the overlays take it, `[r, g, b]` (its alpha left aside).
++fn rgb(c: omsi_ui::Color) -> [u8; 3] {
++    [0, 1, 2].map(|k| (c.0[k].clamp(0.0, 1.0) * 255.0).round() as u8)
++}
++
+ /// The pixels of a stretch of the loading bar `w` x `h` with its stripes: 45 degree bands of
+-/// the accent and a lighter one, `period` pixels apart along the bar, moved `phase` pixels on.
+-fn stripe_pixels(w: u32, h: u32, period: u32, phase: u32, alpha: u8) -> Vec<u8> {
++/// the accent and a lighter one (`stripes`), `period` pixels apart along the bar, moved `phase`
++/// pixels on.
++fn stripe_pixels(w: u32, h: u32, period: u32, phase: u32, alpha: u8, stripes: ([u8; 3], [u8; 3])) -> Vec<u8> {
+     let mut px = Vec::with_capacity((w * h * 4) as usize);
+     for y in 0..h {
+         for x in 0..w {
+             let light = (x + period * 4 + phase - y % period) % period < period / 2;
+-            let c = if light { [244, 182, 82] } else { [232, 160, 48] };
++            let c = if light { stripes.1 } else { stripes.0 };
+             px.extend_from_slice(&[c[0], c[1], c[2], alpha]);
+         }
+     }
+@@ -1249,7 +1264,8 @@ impl Ui {
+     /// The loading screen: the openOMSI wordmark large in the middle and the map's name under
+     /// it; along the bottom a square amber bar whose stripes slide on (it is working), over
+     /// it a rotating tip on the left and how far on the right. All of it `opacity` (fading
+-    /// over the first pictures of the session); `clock` moves the stripes and the tips.
++    /// over the first pictures of the session); `clock` moves the stripes and the tips. A skin
++    /// (`skin`) gives its logo, its colours and its tips.
+     #[allow(clippy::too_many_arguments)]
+     pub fn loading_screen(&mut self, r: &Renderer, scene: &mut Scene, width: f32, height: f32, scale: f32, title: &str, progress: f32, opacity: f32, clock: f32, tip: (&str, f32)) {
+         let s = scale.max(0.5);
+@@ -1258,14 +1274,25 @@ impl Ui {
+             return;
+         }
+         let a = |v: f32| (v * k).round().clamp(0.0, 255.0) as u8;
+-        let bg = self.text.solid(r, scene, [18, 18, 18, a(255.0)]);
++        let skin = crate::skin::current();
++        let skin = skin.as_deref();
++        let tint = |c: Option<omsi_ui::Color>, own: [u8; 3]| c.map_or(own, rgb);
++        let ground = tint(skin.and_then(|s| s.background), [18, 18, 18]);
++        let bg = self.text.solid(r, scene, [ground[0], ground[1], ground[2], a(255.0)]);
+         scene.overlays.push((bg, [0.0, 0.0, width, height]));
+-        // the wordmark, large, a little above the middle
+-        let lw = (560.0 * s).min(width * 0.6).round() as u32;
+-        let lh = (lw as f32 * 303.0 / 1142.0).round() as u32;
++        // the wordmark (the skin's logo), large, a little above the middle
++        let logo_of = skin.and_then(|s| s.logo.as_ref());
++        let aspect = logo_of.map_or(1142.0 / 303.0, |p| p.aspect()).clamp(0.2, 12.0);
++        let lw = (560.0 * s).min(width * 0.6).min(height * 0.3 * aspect).round() as u32;
++        let lh = (lw as f32 / aspect).round().max(1.0) as u32;
+         let ka = a(255.0);
+-        let logo = self.text.cached(r, scene, ("\u{0}wordmark".to_string(), lw, [255, 255, 255, ka]), (lw, lh), || {
+-            let mut px = omsi_ui::icons::rasterize_rgba(WORDMARK, lw, lh).unwrap_or_else(|| vec![0; (lw * lh * 4) as usize]);
++        let key = if logo_of.is_some() { "\u{0}skin-logo" } else { "\u{0}wordmark" };
++        let logo = self.text.cached(r, scene, (key.to_string(), lw, [255, 255, 255, ka]), (lw, lh), || {
++            let px = match logo_of {
++                Some(p) => p.pixels(lw, lh),
++                None => omsi_ui::icons::rasterize_rgba(WORDMARK, lw, lh),
++            };
++            let mut px = px.unwrap_or_else(|| vec![0; (lw * lh * 4) as usize]);
+             for p in px.chunks_mut(4) {
+                 p[3] = (p[3] as u32 * ka as u32 / 255) as u8;
+             }
+@@ -1277,7 +1304,8 @@ impl Ui {
+         // the map's name under it
+         let tpx = (24.0 * s).round() as u32;
+         let title = clip_to(&self.text, title, tpx as f32, width - 64.0 * s);
+-        let t = self.text.label_op(r, scene, &title, tpx, [184, 184, 184, 0], k);
++        let soft = tint(skin.and_then(|s| s.map_name), [184, 184, 184]);
++        let t = self.text.label_op(r, scene, &title, tpx, [soft[0], soft[1], soft[2], 0], k);
+         let tx = ((width - t.w as f32) * 0.5).round();
+         let ty = (ly + lh as f32 + 18.0 * s).round();
+         scene.overlays.push((t.tex, [tx, ty, tx + t.w as f32, ty + t.h as f32]));
+@@ -1287,7 +1315,9 @@ impl Ui {
+         let bx = ((width - bw) * 0.5).round();
+         let bh = (14.0 * s).round().max(6.0);
+         let by = (height - margin - bh).round();
+-        let track = self.text.solid(r, scene, [42, 42, 42, a(255.0)]);
++        let tr_c = tint(skin.and_then(|s| s.track), [42, 42, 42]);
++        let track = self.text.solid(r, scene, [tr_c[0], tr_c[1], tr_c[2], a(255.0)]);
++        let stripes = skin.and_then(|s| s.bar).map_or(STRIPES, |(x, y)| (rgb(x), rgb(y)));
+         scene.overlays.push((track, [bx, by, bx + bw, by + bh]));
+         let p = progress.clamp(0.0, 1.0);
+         let fill_w = (bw * p).round() as u32;
+@@ -1300,8 +1330,8 @@ impl Ui {
+             let mut x = 0u32;
+             while x < fill_w {
+                 let w = period.min(fill_w - x);
+-                let key = (format!("\u{0}stripes{period}x{h}p{phase}"), w, [232, 160, 48, fa]);
+-                let tex = self.text.cached(r, scene, key, (w, h), || stripe_pixels(w, h, period, phase, fa));
++                let key = (format!("\u{0}stripes{period}x{h}p{phase}"), w, [stripes.0[0], stripes.0[1], stripes.0[2], fa]);
++                let tex = self.text.cached(r, scene, key, (w, h), || stripe_pixels(w, h, period, phase, fa, stripes));
+                 scene.overlays.push((tex, [bx + x as f32, by, bx + (x + w) as f32, by + bh]));
+                 x += w;
+             }
+@@ -1309,14 +1339,15 @@ impl Ui {
+         // over the bar: a tip on the left, how far on the right
+         let small = (11.0 * s).round() as u32 | BOLD;
+         let tip_px = (14.0 * s).round() as u32;
+-        let pct = self.text.label_op(r, scene, &format!("{:.0} %", p * 100.0), (15.0 * s).round() as u32 | BOLD, [237, 237, 237, 0], k);
++        let ink = tint(skin.and_then(|s| s.text), [237, 237, 237]);
++        let pct = self.text.label_op(r, scene, &format!("{:.0} %", p * 100.0), (15.0 * s).round() as u32 | BOLD, [ink[0], ink[1], ink[2], 0], k);
+         let row_y = by - 12.0 * s;
+         scene.overlays.push((pct.tex, [bx + bw - pct.w as f32, row_y - pct.h as f32, bx + bw, row_y]));
+         let (tip, tk) = tip;
+         let tip = clip_to(&self.text, &omsi_ui::tr(tip), tip_px as f32, bw - pct.w as f32 - 40.0 * s);
+-        let tl = self.text.label_op(r, scene, &tip, tip_px, [184, 184, 184, 0], k * tk);
++        let tl = self.text.label_op(r, scene, &tip, tip_px, [soft[0], soft[1], soft[2], 0], k * tk);
+         scene.overlays.push((tl.tex, [bx, row_y - tl.h as f32, bx + tl.w as f32, row_y]));
+-        let head = self.text.label_op(r, scene, &omsi_ui::tr("Tips").to_uppercase(), small, [232, 160, 48, 0], k);
++        let head = self.text.label_op(r, scene, &omsi_ui::tr("Tips").to_uppercase(), small, [stripes.0[0], stripes.0[1], stripes.0[2], 0], k);
+         let hy = row_y - tl.h as f32 - head.h as f32 + 2.0 * s;
+         scene.overlays.push((head.tex, [bx, hy, bx + head.w as f32, hy + head.h as f32]));
+     }
+diff --git a/crates/omsi-mapdraw/src/style.rs b/crates/omsi-mapdraw/src/style.rs
+index c28c353..7b06499 100644
+--- a/crates/omsi-mapdraw/src/style.rs
++++ b/crates/omsi-mapdraw/src/style.rs
+@@ -123,17 +123,110 @@ pub const DARK: Palette = Palette {
+     contour: Color::rgba(190, 150, 100, 1.0),
+ };
+ 
++/// The light or the dark palette, with a skin's colours over it when one gives them
++/// ([`set_skin`]).
+ pub fn palette(light: bool) -> &'static Palette {
+-    if light {
+-        &LIGHT
+-    } else {
+-        &DARK
++    let skinned = SKINNED.read().ok().and_then(|s| *s);
++    match (skinned, light) {
++        (Some((l, _)), true) => l,
++        (Some((_, d)), false) => d,
++        (None, true) => &LIGHT,
++        (None, false) => &DARK,
+     }
+ }
+ 
++/// The palettes with a skin's colours (made once for each skin: a few hundred bytes kept).
++static SKINNED: std::sync::RwLock<Option<(&'static Palette, &'static Palette)>> = std::sync::RwLock::new(None);
++
++impl Palette {
++    /// The colour of this name (the field's own) set; false for a name a palette does not have.
++    pub fn set(&mut self, name: &str, c: Color) -> bool {
++        let slot = match name {
++            "land" => &mut self.land,
++            "grass" => &mut self.grass,
++            "forest" => &mut self.forest,
++            "field" => &mut self.field,
++            "paved_land" => &mut self.paved_land,
++            "sand" => &mut self.sand,
++            "water" => &mut self.water,
++            "road" => &mut self.road,
++            "road_edge" => &mut self.road_edge,
++            "foot" => &mut self.foot,
++            "area" => &mut self.area,
++            "lane_paint" => &mut self.lane_paint,
++            "lane_amber" => &mut self.lane_amber,
++            "roof" => &mut self.roof,
++            "roof_edge" => &mut self.roof_edge,
++            "wall_lit" => &mut self.wall_lit,
++            "wall_dark" => &mut self.wall_dark,
++            "shadow" => &mut self.shadow,
++            "tree" => &mut self.tree,
++            "tree_edge" => &mut self.tree_edge,
++            "rail" => &mut self.rail,
++            "rail_dash" => &mut self.rail_dash,
++            "tram" => &mut self.tram,
++            "route" => &mut self.route,
++            "route_edge" => &mut self.route_edge,
++            "driven" => &mut self.driven,
++            "card" => &mut self.card,
++            "card_text" => &mut self.card_text,
++            "card_dim" => &mut self.card_dim,
++            "label" => &mut self.label,
++            "label_halo" => &mut self.label_halo,
++            "contour" => &mut self.contour,
++            _ => return false,
++        };
++        *slot = c;
++        true
++    }
++}
++
++/// A skin's map colours over the light and the dark palettes (`skin.json`'s `map_light` and
++/// `map_dark`), or none (both empty: the palettes as they are). The names a palette does not
++/// have are returned, for the skin's loader to say so.
++pub fn set_skin(light: &[(&str, Color)], dark: &[(&str, Color)]) -> Vec<String> {
++    let mut unknown = Vec::new();
++    let mut made = |base: &Palette, colours: &[(&str, Color)]| {
++        let mut p = *base;
++        for (name, c) in colours {
++            if !p.set(name, *c) {
++                unknown.push(name.to_string());
++            }
++        }
++        p
++    };
++    let skinned = (!light.is_empty() || !dark.is_empty()).then(|| {
++        let l: &'static Palette = Box::leak(Box::new(made(&LIGHT, light)));
++        let d: &'static Palette = Box::leak(Box::new(made(&DARK, dark)));
++        (l, d)
++    });
++    if let Ok(mut s) = SKINNED.write() {
++        *s = skinned;
++    }
++    unknown
++}
++
+ /// Traffic on a road: free (the route's own blue), slow, heavy, standing.
+ pub const TRAFFIC: [Color; 4] = [hex(0x2f7cf6), hex(0xff9f0a), hex(0xff453a), hex(0xa4161a)];
+ 
+ /// Which way the shadows fall, per metre of height (world, x east, y north): the light comes
+ /// from the north-west, as on a printed map lit from its top left corner.
+ pub const SHADOW_DIR: [f32; 2] = [0.34, -0.28];
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// A skin's map colours go over the palette it names them for, the rest as they were; no
++    /// skin, the palettes themselves.
++    #[test]
++    fn a_skin_colours_the_map() {
++        let navy = Color::hex(0x0a142e);
++        assert_eq!(set_skin(&[], &[("land", navy), ("lava", navy)]), vec!["lava".to_string()]);
++        assert_eq!(palette(false).land, navy);
++        assert_eq!(palette(false).road, DARK.road);
++        assert_eq!(palette(true).land, LIGHT.land);
++        set_skin(&[], &[]);
++        assert_eq!(palette(false).land, DARK.land);
++    }
++}
+diff --git a/crates/omsi-plugin/src/api/events.rs b/crates/omsi-plugin/src/api/events.rs
+index f91cd3f..8f21056 100644
+--- a/crates/omsi-plugin/src/api/events.rs
++++ b/crates/omsi-plugin/src/api/events.rs
+@@ -82,6 +82,7 @@ pub static EVENTS: &[EventDef] = &[
+     ev("resume", &[], NEW, "The game goes on after a pause."),
+     ev("menu_open", &[], NEW, "The game menu opened."),
+     ev("menu_close", &[], NEW, "The game menu closed."),
++    ev("menu_entry", &["id"], NEW, "A line of the game menu that a skin added (`skin.json`'s `menu.entries`, see Skins) was chosen: its `id`. The menu has closed."),
+     ev("screenshot", &["file"], NEW, "A screenshot was taken: its file."),
+     ev("controller_button", &["device", "button", "down"], NEW, "A button of a steering wheel, joystick or gamepad went down (`true`) or up: the device's name and the button's number."),
+     ev("lan_join", &["id", "name"], NEW, "A player joined the LAN session (or came back)."),
+diff --git a/crates/omsi-ui/src/icons.rs b/crates/omsi-ui/src/icons.rs
+index f9e88b2..253a024 100644
+--- a/crates/omsi-ui/src/icons.rs
++++ b/crates/omsi-ui/src/icons.rs
+@@ -24,6 +24,13 @@ pub fn rasterize(name: &str, size: u32) -> Option<Vec<u8>> {
+     Some(pix.pixels().iter().map(|p| p.alpha()).collect())
+ }
+ 
++/// An SVG's own size (its width and height), None when it cannot be read.
++pub fn svg_size(src: &str) -> Option<(f32, f32)> {
++    let tree = resvg::usvg::Tree::from_str(src, &resvg::usvg::Options::default()).ok()?;
++    let s = tree.size();
++    Some((s.width(), s.height()))
++}
++
+ /// Any SVG (a logo) in its own colours, fitted into `w` x `h` pixels and centred: straight
+ /// (not premultiplied) RGBA, as the interface's textures are.
+ pub fn rasterize_rgba(src: &str, w: u32, h: u32) -> Option<Vec<u8>> {
+diff --git a/crates/omsi-ui/src/kit.rs b/crates/omsi-ui/src/kit.rs
+index 9abb111..21bee93 100644
+--- a/crates/omsi-ui/src/kit.rs
++++ b/crates/omsi-ui/src/kit.rs
+@@ -537,9 +537,9 @@ impl Ui {
+     /// A panel: flat, dark, a hairline edge (none in the `flat` look).
+     pub fn panel(&mut self, r: Rect) {
+         self.solid(r);
+-        let fill = if self.flat { SURFACE } else { PANEL };
++        let fill = if self.flat { surface() } else { panel() };
+         self.p().rounded(r, RADIUS, fill);
+-        self.border(r, RADIUS, 1.0, EDGE);
++        self.border(r, RADIUS, 1.0, edge());
+     }
+ 
+     /// A hairline round a rounded rectangle, unless the look is `flat`.
+@@ -551,18 +551,18 @@ impl Ui {
+ 
+     /// A field's fill and its fill under the mouse.
+     pub fn field_fill(&self) -> (Color, Color) {
+-        if self.flat { (SURFACE_2, SURFACE_3) } else { (FIELD, HOVER) }
++        if self.flat { (surface_2(), surface_3()) } else { (field(), hover()) }
+     }
+ 
+     /// A section heading inside a panel: an accent tick and the title in capitals.
+     pub fn heading(&mut self, r: Rect, title: &str, icon: Option<&str>) -> Rect {
+         let _ = icon;
+-        self.text(&crate::tr(title).to_uppercase(), Vec2::new(r.x, r.y + 14.0), 11.0, Weight::Bold, TEXT_DIM, Align::Left);
++        self.text(&crate::tr(title).to_uppercase(), Vec2::new(r.x, r.y + 14.0), 11.0, Weight::Bold, text_dim(), Align::Left);
+         Rect::new(r.x, r.y + 26.0, r.w, (r.h - 26.0).max(0.0))
+     }
+ 
+     pub fn label(&mut self, r: Rect, text: &str) {
+-        self.text_in(text, r, 13.0, Weight::Medium, TEXT_DIM, Align::Left);
++        self.text_in(text, r, 13.0, Weight::Medium, text_dim(), Align::Left);
+     }
+ 
+     // --- controls ------------------------------------------------------------------------
+@@ -574,13 +574,13 @@ impl Ui {
+         let t = self.anim(id, if h { 1.0 } else { 0.0 }, 0.06);
+         let rr = if held { r.inset(0.5) } else { r };
+         let (fill, text_c, edge) = match kind {
+-            ButtonKind::Primary if self.flat => (ACCENT.mix(ACCENT_HOVER, t), ACCENT_INK, Color::CLEAR),
+-            ButtonKind::Primary => (ACCENT.lighten(0.08 * t), Color::rgba(18, 14, 8, 1.0), Color::CLEAR),
+-            ButtonKind::Danger if self.flat => (SURFACE_2.mix(Color::rgba(58, 34, 32, 1.0), t), DANGER_2, Color::CLEAR),
+-            ButtonKind::Danger => (FIELD.mix(HOVER, t), DANGER, DANGER.alpha(0.35 + 0.3 * t)),
+-            ButtonKind::Normal if self.flat => (SURFACE_2.mix(SURFACE_3, t), INK, Color::CLEAR),
+-            ButtonKind::Normal => (FIELD.mix(HOVER, t), TEXT, EDGE),
+-            ButtonKind::Ghost => (Color::WHITE.alpha(0.05 * t), if h { TEXT } else { TEXT_DIM }, Color::CLEAR),
++            ButtonKind::Primary if self.flat => (accent().mix(accent_hover(), t), accent_ink(), Color::CLEAR),
++            ButtonKind::Primary => (accent().lighten(0.08 * t), Color::rgba(18, 14, 8, 1.0), Color::CLEAR),
++            ButtonKind::Danger if self.flat => (surface_2().mix(Color::rgba(58, 34, 32, 1.0), t), danger_2(), Color::CLEAR),
++            ButtonKind::Danger => (field().mix(hover(), t), danger(), danger().alpha(0.35 + 0.3 * t)),
++            ButtonKind::Normal if self.flat => (surface_2().mix(surface_3(), t), ink(), Color::CLEAR),
++            ButtonKind::Normal => (field().mix(hover(), t), text(), edge()),
++            ButtonKind::Ghost => (Color::WHITE.alpha(0.05 * t), if h { text() } else { text_dim() }, Color::CLEAR),
+         };
+         let rad = 6.0;
+         self.p().rounded(rr, rad, fill);
+@@ -607,7 +607,7 @@ impl Ui {
+         let (h, _, clicked) = self.interact(id, rect);
+         let t = self.anim(id, if h { 1.0 } else { 0.0 }, 0.08);
+         self.p().circle(c, r, Color::WHITE.alpha(0.06 * t));
+-        self.icon(icon, c, r * 1.1, if h { TEXT } else { TEXT_DIM });
++        self.icon(icon, c, r * 1.1, if h { text() } else { text_dim() });
+         if !tip.is_empty() {
+             self.tooltip(rect, tip);
+         }
+@@ -625,10 +625,10 @@ impl Ui {
+         let tw = 34.0;
+         let th = 18.0;
+         let track = Rect::new(r.right() - tw, r.y + (r.h - th) * 0.5, tw, th);
+-        self.p().rounded(track, th * 0.5, Color::rgba(62, 62, 62, 1.0).mix(ACCENT, on));
++        self.p().rounded(track, th * 0.5, Color::rgba(62, 62, 62, 1.0).mix(accent(), on));
+         let kx = track.x + th * 0.5 + (tw - th) * on;
+         self.p().circle(Vec2::new(kx, track.center().y), th * 0.5 - 3.0, Color::rgba(240, 240, 240, 1.0));
+-        self.text_in(label, Rect::new(r.x, r.y, r.w - tw - 10.0, r.h), 13.0, Weight::Regular, if h { TEXT } else { TEXT_SOFT }, Align::Left);
++        self.text_in(label, Rect::new(r.x, r.y, r.w - tw - 10.0, r.h), 13.0, Weight::Regular, if h { text() } else { text_soft() }, Align::Left);
+         clicked
+     }
+ 
+@@ -659,17 +659,17 @@ impl Ui {
+         let frac = ((*value - min) / (max - min).max(1e-6)).clamp(0.0, 1.0);
+         let shown = self.anim(id ^ 3, frac, 0.06);
+         if !label.is_empty() {
+-            self.text_in(label, Rect::new(r.x, r.y, label_w - 8.0, r.h), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
++            self.text_in(label, Rect::new(r.x, r.y, label_w - 8.0, r.h), 13.0, Weight::Regular, text_soft(), Align::Left);
+         }
+         let cy = track_r.center().y;
+         let th = 4.0;
+         let track = Rect::new(track_r.x, cy - th * 0.5, track_r.w, th);
+         self.p().rounded(track, th * 0.5, Color::rgba(58, 58, 58, 1.0));
+-        self.p().rounded(Rect::new(track.x, track.y, track.w * shown, th), th * 0.5, ACCENT);
++        self.p().rounded(Rect::new(track.x, track.y, track.w * shown, th), th * 0.5, accent());
+         let kc = Vec2::new(track.x + track.w * shown, cy);
+         self.p().circle(kc, if h || held { 7.5 } else { 6.5 }, Color::rgba(240, 240, 240, 1.0));
+         let txt = fmt(*value);
+-        self.text_in(&txt, Rect::new(r.right() - val_w + 8.0, r.y, val_w - 8.0, r.h), 12.5, Weight::Medium, TEXT, Align::Right);
++        self.text_in(&txt, Rect::new(r.right() - val_w + 8.0, r.y, val_w - 8.0, r.h), 12.5, Weight::Medium, text(), Align::Right);
+         *value != before
+     }
+ 
+@@ -677,7 +677,7 @@ impl Ui {
+     pub fn segmented(&mut self, name: &str, r: Rect, selected: &mut usize, labels: &[&str]) -> bool {
+         let n = labels.len().max(1);
+         let id = id_of(name);
+-        let (track, knob_c) = if self.flat { (SURFACE, SURFACE_3) } else { (FIELD, Color::rgba(62, 62, 62, 1.0)) };
++        let (track, knob_c) = if self.flat { (surface(), surface_3()) } else { (field(), Color::rgba(62, 62, 62, 1.0)) };
+         self.p().rounded(r, 6.0, track);
+         let w = r.w / n as f32;
+         let at = self.anim(id, *selected as f32, 0.07);
+@@ -691,7 +691,7 @@ impl Ui {
+                 *selected = k;
+                 changed = true;
+             }
+-            let c = if *selected == k { TEXT } else if h { TEXT_SOFT } else { TEXT_DIM };
++            let c = if *selected == k { text() } else if h { text_soft() } else { text_dim() };
+             self.text_in(l, cell.pad(4.0, 0.0), 12.5, Weight::Medium, c, Align::Center);
+         }
+         changed
+@@ -715,11 +715,11 @@ impl Ui {
+         let t = self.anim(id, if h || open { 1.0 } else { 0.0 }, 0.08);
+         let (field, field_hot) = self.field_fill();
+         self.p().rounded(r, 6.0, field.mix(field_hot, t));
+-        self.border(r, 6.0, 1.0, if open { ACCENT.alpha(0.7) } else { EDGE });
++        self.border(r, 6.0, 1.0, if open { accent().alpha(0.7) } else { edge() });
+         let txt = options.get(*selected).cloned().unwrap_or_default();
+-        self.text_in(&txt, Rect::new(r.x + 12.0, r.y, r.w - 40.0, r.h), 13.0, Weight::Regular, TEXT, Align::Left);
++        self.text_in(&txt, Rect::new(r.x + 12.0, r.y, r.w - 40.0, r.h), 13.0, Weight::Regular, text(), Align::Left);
+         let rot = self.anim(id ^ 9, if open { 1.0 } else { 0.0 }, 0.08);
+-        self.icon(if rot > 0.5 { "expand_less" } else { "expand_more" }, Vec2::new(r.right() - 18.0, r.center().y), 20.0, if h { TEXT } else { TEXT_DIM });
++        self.icon(if rot > 0.5 { "expand_less" } else { "expand_more" }, Vec2::new(r.right() - 18.0, r.center().y), 20.0, if h { text() } else { text_dim() });
+         if clicked {
+             // (a phone's tap can come twice - as a touch and as the mouse click made of it:
+             // the second one closed the list it had just opened)
+@@ -804,10 +804,10 @@ impl Ui {
+         let t = self.anim(id, if focused { 1.0 } else if h { 0.5 } else { 0.0 }, 0.08);
+         let (field, field_hot) = self.field_fill();
+         self.p().rounded(r, 6.0, field.mix(field_hot, t * 0.5));
+-        self.border(r, 6.0, 1.0, if focused { ACCENT.alpha(0.7) } else { EDGE });
++        self.border(r, 6.0, 1.0, if focused { accent().alpha(0.7) } else { edge() });
+         let mut x = r.x + 12.0;
+         if let Some(i) = icon {
+-            self.icon(i, Vec2::new(x + 8.0, r.center().y), 18.0, TEXT_DIM);
++            self.icon(i, Vec2::new(x + 8.0, r.center().y), 18.0, text_dim());
+             x += 24.0;
+         }
+         let inner = Rect::new(x, r.y, r.right() - x - 10.0, r.h);
+@@ -858,7 +858,7 @@ impl Ui {
+             }
+         }
+         if value.is_empty() && !focused {
+-            self.text_in(placeholder, inner, px, Weight::Regular, TEXT_FAINT, Align::Left);
++            self.text_in(placeholder, inner, px, Weight::Regular, text_faint(), Align::Left);
+         } else {
+             let (caret, moved) = self.caret.get(&id).copied().unwrap_or((0, 0.0));
+             let upto: String = value.chars().take(caret).collect();
+@@ -876,25 +876,25 @@ impl Ui {
+ 
+                     self.p().rect(
+                         Rect::new(inner.x + sx, r.y + 5.0, sw, r.h - 10.0),
+-                        ACCENT.alpha(0.35),
++                        accent().alpha(0.35),
+                     );
+                 }
+             }
+             // keep the caret in view
+             let shift = (cw - inner.w + 4.0).max(0.0);
+-            self.text_in(value, Rect::new(inner.x - shift, inner.y, inner.w + shift + 2000.0, inner.h), px, Weight::Regular, TEXT, Align::Left);
++            self.text_in(value, Rect::new(inner.x - shift, inner.y, inner.w + shift + 2000.0, inner.h), px, Weight::Regular, text(), Align::Left);
+             if focused 
+                 && self.selection.get(&id).is_none_or(|&(a, b)| a == b)
+                 && ((self.time - moved) % 1.0) < 0.55
+             {
+                 self.p().rect(
+                     Rect::new(inner.x - shift + cw + 0.5, r.center().y -8.5, 1.5, 17.0),
+-                    ACCENT,
++                    accent(),
+                 );
+             }
+         }
+         if value.is_empty() {
+-            self.text_in(placeholder, inner, px, Weight::Regular, TEXT_FAINT, Align::Left);
++            self.text_in(placeholder, inner, px, Weight::Regular, text_faint(), Align::Left);
+         }
+         self.pop_clip();
+         *value != before
+@@ -905,7 +905,7 @@ impl Ui {
+         let before = *minutes;
+         let fill = self.field_fill().0;
+         self.p().rounded(r, 6.0, fill);
+-        self.border(r, 6.0, 1.0, EDGE);
++        self.border(r, 6.0, 1.0, edge());
+         let half = (r.w - 16.0) * 0.5;
+         for (k, (unit, step)) in [(60, 60), (1, 5)].iter().enumerate() {
+             let cell = Rect::new(r.x + k as f32 * (half + 16.0), r.y, half, r.h);
+@@ -916,13 +916,13 @@ impl Ui {
+                 self.wheel_taken = true;
+             }
+             let v = if *unit == 60 { minutes.rem_euclid(1440) / 60 } else { minutes.rem_euclid(60) };
+-            self.text_in(&format!("{v:02}"), Rect::new(cell.x + 8.0, cell.y, cell.w - 30.0, cell.h), 17.0, Weight::Medium, TEXT, Align::Center);
++            self.text_in(&format!("{v:02}"), Rect::new(cell.x + 8.0, cell.y, cell.w - 30.0, cell.h), 17.0, Weight::Medium, text(), Align::Center);
+             let up = Rect::new(cell.right() - 24.0, cell.y + 3.0, 20.0, cell.h * 0.5 - 3.0);
+             let down = Rect::new(cell.right() - 24.0, cell.center().y, 20.0, cell.h * 0.5 - 3.0);
+             let (hu, _, cu) = self.interact(id ^ 1, up);
+             let (hd, _, cd) = self.interact(id ^ 2, down);
+-            self.icon("expand_less", up.center(), 16.0, if hu { TEXT } else { TEXT_FAINT });
+-            self.icon("expand_more", down.center(), 16.0, if hd { TEXT } else { TEXT_FAINT });
++            self.icon("expand_less", up.center(), 16.0, if hu { text() } else { text_faint() });
++            self.icon("expand_more", down.center(), 16.0, if hd { text() } else { text_faint() });
+             if cu {
+                 *minutes += step;
+             }
+@@ -930,7 +930,7 @@ impl Ui {
+                 *minutes -= step;
+             }
+         }
+-        self.text_in(":", Rect::new(r.x + half, r.y, 16.0, r.h - 2.0), 17.0, Weight::Medium, TEXT_DIM, Align::Center);
++        self.text_in(":", Rect::new(r.x + half, r.y, 16.0, r.h - 2.0), 17.0, Weight::Medium, text_dim(), Align::Center);
+         *minutes = minutes.rem_euclid(1440);
+         *minutes != before
+     }
+@@ -951,12 +951,12 @@ impl Ui {
+         let t = self.anim(id, if h || open { 1.0 } else { 0.0 }, 0.08);
+         let (field, field_hot) = self.field_fill();
+         self.p().rounded(r, 6.0, field.mix(field_hot, t));
+-        self.border(r, 6.0, 1.0, if open { ACCENT.alpha(0.7) } else { EDGE });
+-        self.icon("calendar_month", Vec2::new(r.x + 20.0, r.center().y), 17.0, TEXT_DIM);
++        self.border(r, 6.0, 1.0, if open { accent().alpha(0.7) } else { edge() });
++        self.icon("calendar_month", Vec2::new(r.x + 20.0, r.center().y), 17.0, text_dim());
+         let (y, m, d) = parse_date(date);
+         let shown = format!("{} {} {}", d, MONTHS[(m as usize).clamp(1, 12) - 1], y);
+-        self.text_in(&shown, Rect::new(r.x + 38.0, r.y, r.w - 60.0, r.h), 13.0, Weight::Regular, TEXT, Align::Left);
+-        self.icon("expand_more", Vec2::new(r.right() - 18.0, r.center().y), 20.0, TEXT_DIM);
++        self.text_in(&shown, Rect::new(r.x + 38.0, r.y, r.w - 60.0, r.h), 13.0, Weight::Regular, text(), Align::Left);
++        self.icon("expand_more", Vec2::new(r.right() - 18.0, r.center().y), 20.0, text_dim());
+         if clicked {
+             if open {
+                 self.date_popup = None;
+@@ -972,7 +972,7 @@ impl Ui {
+     pub fn progress(&mut self, r: Rect, frac: f32, busy: bool) {
+         self.p().rounded(r, r.h * 0.5, Color::rgba(50, 50, 50, 1.0));
+         let w = (r.w * frac.clamp(0.0, 1.0)).max(r.h);
+-        self.p().rounded(Rect::new(r.x, r.y, w, r.h), r.h * 0.5, ACCENT);
++        self.p().rounded(Rect::new(r.x, r.y, w, r.h), r.h * 0.5, accent());
+         if busy {
+             let x = r.x + ((self.time * 0.6) % 1.0) * (w + 60.0) - 60.0;
+             self.push_clip(Rect::new(r.x, r.y, w, r.h), r.h * 0.5);
+@@ -1045,10 +1045,10 @@ impl Ui {
+         let t = self.anim(id, if h { 1.0 } else { 0.0 }, 0.08);
+         let s = self.anim(id ^ 4, if selected { 1.0 } else { 0.0 }, 0.1);
+         if s > 0.01 {
+-            self.p().rounded(r, 6.0, SELECTED.alpha(s));
+-            self.p().rounded(Rect::new(r.x, r.y + 8.0, 2.0, r.h - 16.0), 1.0, ACCENT.alpha(s));
++            self.p().rounded(r, 6.0, crate::theme::selected().alpha(s));
++            self.p().rounded(Rect::new(r.x, r.y + 8.0, 2.0, r.h - 16.0), 1.0, accent().alpha(s));
+         } else if t > 0.01 {
+-            self.p().rounded(r, 6.0, HOVER.alpha(t));
++            self.p().rounded(r, 6.0, hover().alpha(t));
+         }
+         clicked
+     }
+@@ -1086,11 +1086,11 @@ impl Ui {
+                 (self.size.y - h - 8.0).max(8.0)
+             };
+             let r = Rect::new(x, y, w, h);
+-            let fill = if self.flat { SURFACE_3 } else { Color::rgba(34, 34, 34, 1.0) };
++            let fill = if self.flat { surface_3() } else { Color::rgba(34, 34, 34, 1.0) };
+             self.p().rounded(r, 6.0, fill);
+             self.border(r, 7.0, 1.0, Color::WHITE.alpha(0.1));
+             self.push_clip(Rect::new(r.x + 10.0, r.y + 4.0, text_w, (h - 8.0).max(0.0)), 2.0);
+-            self.paragraph(&t, Vec2::new(r.x + 10.0, r.y + 4.0), text_w, 12.5, Weight::Medium, TEXT_SOFT);
++            self.paragraph(&t, Vec2::new(r.x + 10.0, r.y + 4.0), text_w, 12.5, Weight::Medium, text_soft());
+             self.pop_clip();
+         }
+         let mut layers = Vec::new();
+@@ -1141,7 +1141,7 @@ impl Ui {
+         p.opened = (p.opened + self.dt / 0.3).min(1.0);
+         let e = 1.0 - (1.0 - p.opened).powi(3);
+         let rr = Rect::new(r.x, r.y - 6.0 * (1.0 - e), r.w, r.h);
+-        let fill = if self.flat { SURFACE_2.alpha(e) } else { Color::rgba(28, 28, 28, e) };
++        let fill = if self.flat { surface_2().alpha(e) } else { Color::rgba(28, 28, 28, e) };
+         self.p().rounded(rr, 8.0, fill);
+         self.border(rr, 8.0, 1.0, Color::WHITE.alpha(0.1 * e));
+         let row = 34.0;
+@@ -1174,11 +1174,11 @@ impl Ui {
+         self.push_clip(rr.inset(4.0), 8.0);
+         if head > 0.0 {
+             let y = rr.y + 4.0 - p.scroll;
+-            self.icon("search", Vec2::new(rr.x + 22.0, y + row * 0.5), 16.0, TEXT_DIM);
++            self.icon("search", Vec2::new(rr.x + 22.0, y + row * 0.5), 16.0, text_dim());
+             let caret = if (self.time * 2.0) as i64 % 2 == 0 { "|" } else { "" };
+-            self.text_in(&format!("{}{caret}", p.query), Rect::new(rr.x + 38.0, y, rr.w - 60.0, row), 13.0, Weight::Medium, TEXT, Align::Left);
++            self.text_in(&format!("{}{caret}", p.query), Rect::new(rr.x + 38.0, y, rr.w - 60.0, row), 13.0, Weight::Medium, text(), Align::Left);
+             if shown.is_empty() {
+-                self.text_in("Nothing found", Rect::new(rr.x + 14.0, y + row, rr.w - 28.0, row), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
++                self.text_in("Nothing found", Rect::new(rr.x + 14.0, y + row, rr.w - 28.0, row), 13.0, Weight::Regular, text_dim(), Align::Left);
+             }
+         }
+         for (n, &k) in shown.iter().enumerate() {
+@@ -1190,12 +1190,12 @@ impl Ui {
+             let cell = Rect::new(rr.x + 4.0, y, rr.w - 8.0, row);
+             let h = cell.contains(self.input.mouse) && rr.contains(self.input.mouse) && !dragging && !(max > 0.0 && track.contains(self.input.mouse));
+             if k == p.selected {
+-                self.p().rounded(cell, 5.0, SELECTED);
+-                self.icon("check", Vec2::new(cell.right() - 16.0, cell.center().y), 15.0, ACCENT);
++                self.p().rounded(cell, 5.0, selected());
++                self.icon("check", Vec2::new(cell.right() - 16.0, cell.center().y), 15.0, accent());
+             } else if h {
+-                self.p().rounded(cell, 5.0, HOVER);
++                self.p().rounded(cell, 5.0, hover());
+             }
+-            self.text_in(o, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), 13.0, Weight::Regular, TEXT, Align::Left);
++            self.text_in(o, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), 13.0, Weight::Regular, text(), Align::Left);
+             if h {
+                 self.cursor = winit::window::CursorIcon::Pointer;
+                 if self.input.released && !fresh {
+@@ -1221,14 +1221,14 @@ impl Ui {
+         let r = date_rect(&p, self.size);
+         p.opened = (p.opened + self.dt / 0.12).min(1.0);
+         let e = 1.0 - (1.0 - p.opened).powi(3);
+-        let fill = if self.flat { SURFACE_2.alpha(e) } else { Color::rgba(28, 28, 28, e) };
++        let fill = if self.flat { surface_2().alpha(e) } else { Color::rgba(28, 28, 28, e) };
+         self.p().rounded(r, 8.0, fill);
+         self.border(r, 8.0, 1.0, Color::WHITE.alpha(0.1 * e));
+         let m = self.input.mouse;
+         let click = self.input.released;
+         // month header with arrows
+         let head = Rect::new(r.x + 8.0, r.y + 8.0, r.w - 16.0, 30.0);
+-        self.text_in(&format!("{} {}", MONTHS_LONG[p.month as usize - 1], p.year), head, 14.0, Weight::Bold, TEXT, Align::Center);
++        self.text_in(&format!("{} {}", MONTHS_LONG[p.month as usize - 1], p.year), head, 14.0, Weight::Bold, text(), Align::Center);
+         let prev = Rect::new(head.x, head.y, 30.0, 30.0);
+         let next = Rect::new(head.right() - 30.0, head.y, 30.0, 30.0);
+         let py = Rect::new(head.x + 30.0, head.y, 30.0, 30.0);
+@@ -1239,7 +1239,7 @@ impl Ui {
+                 self.p().rounded(b, 6.0, Color::WHITE.alpha(0.08));
+                 self.cursor = winit::window::CursorIcon::Pointer;
+             }
+-            self.icon(icon, b.center(), 20.0, if h { ACCENT } else { TEXT_DIM });
++            self.icon(icon, b.center(), 20.0, if h { accent() } else { text_dim() });
+         }
+         if click && prev.contains(m) {
+             if p.month == 1 {
+@@ -1265,7 +1265,7 @@ impl Ui {
+         }
+         let cw = (r.w - 16.0) / 7.0;
+         for (k, d) in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].iter().enumerate() {
+-            self.text_in(d, Rect::new(r.x + 8.0 + cw * k as f32, r.y + 42.0, cw, 18.0), 11.0, Weight::Bold, if k >= 5 { ACCENT.alpha(0.8) } else { TEXT_FAINT }, Align::Center);
++            self.text_in(d, Rect::new(r.x + 8.0 + cw * k as f32, r.y + 42.0, cw, 18.0), 11.0, Weight::Bold, if k >= 5 { accent().alpha(0.8) } else { text_faint() }, Align::Center);
+         }
+         let first = weekday(p.year, p.month, 1);
+         let days = days_in_month(p.year, p.month);
+@@ -1277,11 +1277,11 @@ impl Ui {
+             let h = cell.contains(m);
+             let is_chosen = chosen == Some((p.year, p.month, d));
+             if is_chosen {
+-                self.p().rounded(cell, 7.0, ACCENT);
++                self.p().rounded(cell, 7.0, accent());
+             } else if h {
+                 self.p().rounded(cell, 7.0, Color::WHITE.alpha(0.09));
+             }
+-            self.text_in(&d.to_string(), cell, 12.5, Weight::Medium, if is_chosen { Color::rgba(20, 16, 8, 1.0) } else { TEXT }, Align::Center);
++            self.text_in(&d.to_string(), cell, 12.5, Weight::Medium, if is_chosen { Color::rgba(20, 16, 8, 1.0) } else { text() }, Align::Center);
+             if h {
+                 self.cursor = winit::window::CursorIcon::Pointer;
+                 if click {
+diff --git a/crates/omsi-ui/src/theme.rs b/crates/omsi-ui/src/theme.rs
+index eba1304..323dd78 100644
+--- a/crates/omsi-ui/src/theme.rs
++++ b/crates/omsi-ui/src/theme.rs
+@@ -36,6 +36,77 @@ pub const ACCENT_HOVER: Color = Color::rgba(240, 173, 69, 1.0);
+ pub const ACCENT_INK: Color = Color::rgba(26, 18, 6, 1.0);
+ pub const DANGER_2: Color = Color::rgba(229, 83, 75, 1.0);
+ 
++/// The colours above by the names a skin gives them (`skin.json`'s `colours`, see
++/// docs/PLUGINS.md "Skins"), each read through a function of the same name in lower case:
++/// the skin's colour when it has one, else the constant. The game's own screens read them so
++/// (the widget kit, the pause menu, the photo and developer panels).
++macro_rules! swatches {
++    ($($fun:ident = $konst:ident, $key:literal;)*) => {
++        /// The names of the colours a skin may give.
++        pub const SWATCHES: &[&str] = &[$($key),*];
++        $(
++            #[doc = concat!("[`", stringify!($konst), "`], or the skin's `", $key, "`.")]
++            #[inline]
++            pub fn $fun() -> Color {
++                live($key, $konst)
++            }
++        )*
++    };
++}
++
++swatches! {
++    accent = ACCENT, "accent";
++    accent_2 = ACCENT_2, "accent_2";
++    accent_hover = ACCENT_HOVER, "accent_hover";
++    accent_ink = ACCENT_INK, "accent_ink";
++    danger = DANGER, "danger";
++    danger_2 = DANGER_2, "danger_2";
++    ok = OK, "ok";
++    warn = WARN, "warn";
++    text = TEXT, "text";
++    text_soft = TEXT_SOFT, "text_soft";
++    text_dim = TEXT_DIM, "text_dim";
++    text_faint = TEXT_FAINT, "text_faint";
++    rail = RAIL, "rail";
++    panel = PANEL, "panel";
++    field = FIELD, "field";
++    hover = HOVER, "hover";
++    selected = SELECTED, "selected";
++    edge = EDGE, "edge";
++    bg = BG, "bg";
++    sidebar = SIDEBAR, "sidebar";
++    surface = SURFACE, "surface";
++    surface_2 = SURFACE_2, "surface_2";
++    surface_3 = SURFACE_3, "surface_3";
++    ink = INK, "ink";
++    ink_2 = INK_2, "ink_2";
++    ink_muted = INK_MUTED, "ink_muted";
++}
++
++/// The skin's colours, by name (none: the constants).
++static SKINNED: std::sync::RwLock<Vec<(&'static str, Color)>> = std::sync::RwLock::new(Vec::new());
++
++fn live(key: &str, default: Color) -> Color {
++    SKINNED.read().ok().and_then(|v| v.iter().find(|(k, _)| *k == key).map(|(_, c)| *c)).unwrap_or(default)
++}
++
++/// A skin's colours in place of the theme's (`[]`: the theme's own again). A name that is not
++/// one of [`SWATCHES`] is left aside; it is returned, for the skin's loader to say so.
++pub fn set_skin_colours(colours: &[(&str, Color)]) -> Vec<String> {
++    let mut unknown = Vec::new();
++    let mut kept = Vec::new();
++    for (name, c) in colours {
++        match SWATCHES.iter().find(|k| **k == *name) {
++            Some(k) => kept.push((*k, *c)),
++            None => unknown.push(name.to_string()),
++        }
++    }
++    if let Ok(mut v) = SKINNED.write() {
++        *v = kept;
++    }
++    unknown
++}
++
+ pub const RADIUS: f32 = 8.0;
+ /// Height of a control row.
+ pub const ROW: f32 = 36.0;
+@@ -54,6 +125,19 @@ pub fn backdrop(opacity: f32) -> f32 {
+ mod tests {
+     use super::*;
+ 
++    /// A skin's colour is read in place of the constant, the others stay; a name the theme
++    /// does not have is said and left aside; no skin, the constants again.
++    #[test]
++    fn a_skin_gives_the_colours_it_names() {
++        // (a colour no other test of this crate draws with: the tests run side by side)
++        let blue = Color::rgba(42, 117, 247, 1.0);
++        assert_eq!(set_skin_colours(&[("accent_2", blue), ("sparkle", blue)]), vec!["sparkle".to_string()]);
++        assert_eq!(accent_2(), blue);
++        assert_eq!(rail(), RAIL);
++        set_skin_colours(&[]);
++        assert_eq!(accent_2(), ACCENT_2);
++    }
++
+     /// The opacity's default is the design; below it the backgrounds fade, never quite away.
+     #[test]
+     fn backgrounds_follow_the_opacity_setting() {
+diff --git a/docs/PLUGINS.md b/docs/PLUGINS.md
+index af3e66c..50f9cf2 100644
+--- a/docs/PLUGINS.md
++++ b/docs/PLUGINS.md
+@@ -410,6 +410,59 @@ kind makes `set` return `false` and the reason. Limits, each plugin: 16 panels,
+ elements in a panel (those in rows and boxes counted), 500 characters in a text, 64 in an id,
+ rows and boxes 8 deep, 512 values in a chart or cells in a table.
+ 
++### Skins
++
++A folder plugin can bring a **skin**: another look for the game's own screens - the loading
++screen, the pause menu and its lists, the photo and developer panels and the navigator's map -
++and lines of its own in the pause menu. The skin is `plugins/<name>/skin.json`, beside the
++plugin's `main.lua`, with its pictures in the plugin's folder. It is chosen with `skin=<name>`
++in `settings.cfg` (or `--skin <name>` for one run); it is read once as the game starts, before
++the first loading screen, so it needs no Lua. A skin that cannot be read is said in the log and
++the game keeps its own look.
++
++```json
++{
++  "title": "My Company",
++  "colours": { "accent": "#2A75F7", "accent_hover": "#4C8BF8", "accent_ink": "#FFFFFF", "bg": "#0A142E", "sidebar": "#0D1936" },
++  "loading": {
++    "logo": "skin/wordmark.svg",
++    "background": "#0A142E", "map_name": "#959DB0", "text": "#E8EBF2",
++    "bar": ["#2A75F7", "#5B95F9"], "track": "#1B2747",
++    "tips": ["F9 opens the messages", { "en": "Shift+N shows the board", "nl": "Shift+N toont het bord" }],
++    "tips_only": false
++  },
++  "menu": {
++    "mark": "skin/mark.svg",
++    "entries": [{ "id": "duty", "label": "My duty", "icon": "badge", "after": "resume" }]
++  },
++  "map_dark": { "land": "#0A142E", "route": "#2A75F7" },
++  "map_light": { "route": "#2A75F7" }
++}
++```
++
++Every key is optional:
++
++| Key | What it changes |
++| --- | --- |
++| `title` | the name in the pause menu's sidebar, in place of "openOMSI" |
++| `colours` | the interface's colours by name (`#RRGGBB` or `#RRGGBBAA`): `accent`, `accent_2`, `accent_hover`, `accent_ink`, `danger`, `danger_2`, `ok`, `warn`, `text`, `text_soft`, `text_dim`, `text_faint`, `rail`, `panel`, `field`, `hover`, `selected`, `edge`, `bg`, `sidebar`, `surface`, `surface_2`, `surface_3`, `ink`, `ink_2`, `ink_muted` (as `omsi_ui::theme` has them) |
++| `loading.logo` | the loading screen's logo in place of the wordmark: an SVG, PNG, JPEG, BMP or TGA of the plugin's folder (at most 4 MB), drawn as wide as the wordmark |
++| `loading.background`, `map_name`, `text`, `track` | the loading screen's ground, the map's name and the tip, the percentage, the bar's track |
++| `loading.bar` | the bar's stripes: two colours, or one for a plain bar; the "Tips" heading takes the first |
++| `loading.tips` | up to 40 tips, shown among the game's (`tips_only = true`: in their place); a tip is a text, or a table of texts by language (`en`, `nl`, `de` ...) |
++| `menu.mark` | the square picture beside the name in the pause menu's sidebar |
++| `menu.entries` | up to 6 lines of the plugin's own in the pause menu: `id` (letters, digits, `_` and `-`), `label` (a text or a table by language), `icon` (a Material Symbols name, as `omsi.ui`'s icons), `after` (the id of the game's line it follows - `resume`, `options`, `map`, `save` ...; left out: before "End the session") |
++| `map_dark`, `map_light` | the navigator's and the city map's colours over the dark and the light look: `land`, `grass`, `forest`, `field`, `paved_land`, `sand`, `water`, `road`, `road_edge`, `foot`, `area`, `lane_paint`, `lane_amber`, `roof`, `roof_edge`, `wall_lit`, `wall_dark`, `shadow`, `tree`, `tree_edge`, `rail`, `rail_dash`, `tram`, `route`, `route_edge`, `driven`, `card`, `card_text`, `card_dim`, `label`, `label_halo`, `contour` |
++
++A click on one of the skin's lines closes the menu and is the `menu_entry` event, with the
++line's `id`:
++
++```lua
++omsi.on("menu_entry", function(id)
++  if id == "duty" then show_my_duty() end
++end)
++```
++
+ ### Example plugins
+ 
+ Complete plugins to start from (each runs in the tests against a stand-in game):
+@@ -884,6 +937,7 @@ declared to call the function (a plain `.lua` file has them all).
+ | `resume` | - | The game goes on after a pause. | 0.2.22 |
+ | `menu_open` | - | The game menu opened. | 0.2.22 |
+ | `menu_close` | - | The game menu closed. | 0.2.22 |
++| `menu_entry` | `id` | A line of the game menu that a skin added (`skin.json`'s `menu.entries`, see Skins) was chosen: its `id`. The menu has closed. | 0.2.22 |
+ | `screenshot` | `file` | A screenshot was taken: its file. | 0.2.22 |
+ | `controller_button` | `device`, `button`, `down` | A button of a steering wheel, joystick or gamepad went down (`true`) or up: the device's name and the button's number. | 0.2.22 |
+ | `lan_join` | `id`, `name` | A player joined the LAN session (or came back). | 0.2.22 |
+diff --git a/docs/plugin-api.json b/docs/plugin-api.json
+index 7cfb3a5..8d7c63a 100644
+--- a/docs/plugin-api.json
++++ b/docs/plugin-api.json
+@@ -4598,6 +4598,14 @@
+       "doc": "The game menu closed.",
+       "since": "0.2.22"
+     },
++    {
++      "name": "menu_entry",
++      "args": [
++        "id"
++      ],
++      "doc": "A line of the game menu that a skin added (`skin.json`'s `menu.entries`, see Skins) was chosen: its `id`. The menu has closed.",
++      "since": "0.2.22"
++    },
+     {
+       "name": "screenshot",
+       "args": [
+-- 
+2.43.0
+

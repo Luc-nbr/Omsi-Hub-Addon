@@ -1,7 +1,9 @@
-// The depot's colours (sRGB, 0 to 1) and its light, for the light look (a bright day) and the
-// dark one (the evening: a cooler, dimmer light, the windows, lamps and screens lit). The
-// accent is the one chosen in the settings (`--hub-accent`); the company's own look (its walls,
-// roofs, trims and doors, and what the walls are made of: `plan.look`) goes over the rest.
+// The depot's colours (sRGB, 0 to 1) and its light by the company's time of day: a bright day,
+// the night (a cooler, dimmer light, the windows, lamps and screens lit), and the dawn and the
+// dusk between them (`daylight`). The colours change in a few steps (the yard is built again
+// for each: `palette`), the light and the sun's way over the sky with the clock (`lightAt`).
+// The accent is the one chosen in the settings (`--hub-accent`); the company's own look (its
+// walls, roofs, trims and doors, and what the walls are made of: `plan.look`) goes over the rest.
 //
 // A colour of a surface carries its material (`mat`): the texture it wears, a layer of
 // `img/depot/detail.jpg` (`MATERIALS`, in its order), tinted by the colour. A material from
@@ -159,23 +161,69 @@ const EVENING = {
   light: { sun: [0.62, 0.68, 0.86], sky: [0.3, 0.34, 0.46], ground: [0.12, 0.12, 0.14], night: 1 },
 };
 
-/** A colour the company chose, in the evening's light: as much darker as the palette's own. */
+/** A colour the company chose, at night: as much darker as the palette's own. */
 function evening(c, key) {
   return c.map((v, i) => Math.min(1, (v * EVENING[key][i]) / Math.max(0.02, DAY[key][i])));
 }
 
-/** The palette of the look now on the page, with the company's own `look` (`plan.look`:
- * `wall`, `roof`, `trim`, `door` as `#rrggbb` or null, `finish`) over it. */
-export function palette(look = null) {
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+
+/** How light it is at `minute` of the company's day: 0 the night, 1 the day; the sun rises
+ * from 5:30 to 7:30 and sets from 18:30 to 20:30. */
+export function daylight(minute) {
+  const h = (((minute / 60) % 24) + 24) % 24;
+  const ramp = (a, b) => Math.max(0, Math.min(1, (h - a) / (b - a)));
+  return Math.min(ramp(5.5, 7.5), 1 - ramp(18.5, 20.5));
+}
+
+/** The steps the colours take between the night and the day (each is a yard built again). */
+const STEPS = 4;
+/** `daylight` in the colours' steps. */
+export const dayStep = (minute) => Math.round(daylight(minute) * STEPS) / STEPS;
+
+/** The light at `minute`: the sun's colour and its way (from the east in the morning, high at
+ * noon, to the west; the moon's from the south-west at night), the sky's and the ground's, how
+ * lit the windows are (`night`). */
+export function lightAt(minute) {
+  const day = daylight(minute);
+  const L = { sun: mix(EVENING.light.sun.map((v) => v * 0.55), DAY.light.sun, day), sky: mix(EVENING.light.sky.map((v) => v * 0.8), DAY.light.sky, day), ground: mix(EVENING.light.ground, DAY.light.ground, day), night: Math.min(1, (1 - day) * 1.5) };
+  // (the dusk's sun is warmer)
+  const low = day > 0 && day < 1 ? Math.sin(day * Math.PI) * 0.25 : 0;
+  L.sun = [L.sun[0] * (1 + low), L.sun[1] * (1 + low * 0.35), L.sun[2] * (1 - low * 0.4)];
+  const h = (((minute / 60) % 24) + 24) % 24;
+  if (h >= 6 && h <= 20) {
+    // (6:00 in the east, 13:00 in the south, 20:00 in the west; as high as autumn has it)
+    const a = ((h - 6) / 14) * Math.PI;
+    const up = 0.18 + Math.sin(a) * 0.62;
+    L.dir = [-Math.cos(a), up, 0.35 + Math.sin(a) * 0.25];
+  } else L.dir = [-0.55, 0.9, 0.5];
+  return L;
+}
+
+/** The sky behind the town at `minute`, as a CSS background. */
+export function skyAt(minute) {
+  const day = daylight(minute);
+  const top = mix([12, 18, 32], [150, 186, 222], day).map(Math.round);
+  const low = mix([28, 34, 52], [214, 226, 238], day).map(Math.round);
+  return `linear-gradient(rgb(${top}), rgb(${low}))`;
+}
+
+/** The palette at `day` (0 the night to 1 the day, as `dayStep` gives it), with the company's
+ * own `look` (`plan.look`: `wall`, `roof`, `trim`, `door` as `#rrggbb` or null, `finish`) over
+ * it. */
+export function palette(look = null, day = 1) {
   const root = document.documentElement;
-  const dark = root.dataset.theme !== 'light';
   const accent = hex(getComputedStyle(root).getPropertyValue('--hub-accent') || '#2a75f7');
-  const pal = { ...(dark ? EVENING : DAY), accent, trim: accent, dark };
+  const pal = { accent, trim: accent, dark: day < 0.5, day };
+  for (const [key, c] of Object.entries(DAY)) pal[key] = Array.isArray(c) ? mix(EVENING[key], c, day) : c;
+  pal.light = { ...DAY.light, night: 1 - day };
+  pal.trim = accent;
+  pal.accent = accent;
   const [finish, wall] = FINISH[look?.finish] || FINISH.cladding;
   const own = { wall: look?.wall || wall, roof: look?.roof, trim: look?.trim, door: look?.door };
   for (const [key, h] of Object.entries(own)) {
     if (!h || !/^#?[0-9a-f]{6}$/i.test(h)) continue;
-    pal[key] = dark && DAY[key] ? evening(hex(h), key) : hex(h);
+    pal[key] = DAY[key] ? mix(evening(hex(h), key), hex(h), day) : hex(h);
   }
   for (const [key, mat] of Object.entries(WEARS)) pal[key] = wearing(pal[key], MAT[mat]);
   pal.wall = wearing(pal.wall, MAT[finish]);

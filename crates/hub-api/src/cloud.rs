@@ -3,7 +3,7 @@
 //! `company/cloud.rs` archive beside it ([`archive`]).
 //!
 //! A company is a **local save** unless the player puts it in the cloud: then it is linked to
-//! one of the account's 2 slots, and its sync metadata (`Sync`: the slot, the version last
+//! the account's one slot, and its sync metadata (`Sync`: the slot, the version last
 //! synced, its sha256, "cloud" or "local") is kept in the app's own data folder
 //! (`omsihub-cloud.json`), not in the company's file. A company without metadata - every company
 //! of before - is local. Local companies are unlimited and play as before, company multiplayer
@@ -16,8 +16,11 @@
 //! * **Uploading**: a changed cloud company goes up when its pages are left (`closed`, or
 //!   `cs_sync`), and every ten minutes while it changes (the worker), on top of the version last
 //!   synced - another computer's newer version is a conflict, never overwritten.
-//! * **The limit**: "Put in the cloud" with both slots taken offers to keep the company local or
-//!   to replace one of the two (`cs_put` with `replace`, after the page's confirm).
+//! * **The limit**: "Put in the cloud" with the slot taken offers to keep the company local or
+//!   to replace the one in it (`cs_put` with `replace`, after the page's confirm).
+//! * **A save of before**: an account had two slots; a save left in the second is listed read
+//!   only (`Slot::read_only`): it can be downloaded or removed, a company of it is never synced
+//!   (`Sync::holds`, not `linked`) - put in the cloud, it goes into the one slot.
 //!
 //! The commands: `cs_state` (the chooser's badges, the account panel's slots: no network),
 //! `cs_companies` (the driver's companies, to choose one to put in the cloud),
@@ -321,7 +324,7 @@ pub struct Sync {
     pub place: Place,
     /// The account it is in the cloud of (the user id): signed in as another, it is local here.
     pub user: String,
-    /// Its cloud slot (1 or 2).
+    /// Its cloud slot (1; 2 for a slot of before, read only).
     pub slot: u8,
     /// The cloud's version last synced (uploaded or downloaded).
     pub version: u64,
@@ -335,8 +338,14 @@ pub struct Sync {
 }
 
 impl Sync {
+    /// In this account's cloud, in a slot it syncs with.
     fn linked(&self, user: &str) -> bool {
-        self.place == Place::Cloud && (1..=saves::MAX_SLOTS).contains(&self.slot) && !user.is_empty() && self.user == user
+        self.holds(user) && self.slot <= saves::MAX_SLOTS
+    }
+
+    /// In this account's cloud, a slot of before (read only) too.
+    fn holds(&self, user: &str) -> bool {
+        self.place == Place::Cloud && (1..=saves::SLOTS_BEFORE).contains(&self.slot) && !user.is_empty() && self.user == user
     }
 }
 
@@ -492,7 +501,7 @@ pub fn decide(s: &Sync, user: &str, name: &str, local_sha: &str, cloud: &Cloud) 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Put {
     Done(Slot),
-    /// Both slots taken: keep it local, or replace one of these.
+    /// The slot taken: keep it local, or replace the one in it.
     Limit(Vec<Slot>),
 }
 
@@ -573,8 +582,12 @@ impl Engine<'_> {
     }
 
     /// "Put this company in the cloud": into the first free slot, or into `replace` - that slot
-    /// emptied first, and the company of this computer it held made local.
+    /// emptied first, and the company of this computer it held made local (never a slot of
+    /// before: `read_only`, nothing deleted).
     pub fn put(&mut self, id: &str, replace: Option<u8>) -> Result<Put, Error> {
+        if replace.is_some_and(|n| n > saves::MAX_SLOTS) {
+            return Err(Error::Code("read_only"));
+        }
         let user = self.remote.user()?;
         let s = sync_of(self.data, id);
         if s.linked(&user) {
@@ -587,7 +600,7 @@ impl Engine<'_> {
         if let Some(n) = replace {
             self.remote.delete(n)?;
             for (other, o) in read_book(self.data).companies {
-                if o.linked(&user) && o.slot == n {
+                if o.holds(&user) && o.slot == n {
                     self.unlink(&other);
                 }
             }
@@ -597,7 +610,7 @@ impl Engine<'_> {
                 self.linked(id, &user, &slot, sha);
                 Ok(Put::Done(slot))
             }
-            Err(SaveError::Failed(Error::Code("limit"))) => Ok(Put::Limit(self.remote.list()?.slots.into_iter().filter(|x| !x.empty).collect())),
+            Err(SaveError::Failed(Error::Code("limit"))) => Ok(Put::Limit(self.remote.list()?.slots.into_iter().filter(|x| !x.empty && !x.read_only).collect())),
             // (the slot filled meanwhile, from another computer)
             Err(SaveError::Conflict(_)) => Err(Error::Code("conflict")),
             Err(SaveError::Failed(e)) => Err(e),
@@ -657,7 +670,20 @@ impl Engine<'_> {
     /// computer as a new one. The company's id.
     pub fn download(&mut self, n: u8, profile: &str) -> Result<Result<String, Decision>, Error> {
         let user = self.remote.user()?;
-        let here = read_book(self.data).companies.into_iter().find(|(id, o)| o.linked(&user) && o.slot == n && files::path_of(self.data, id).exists());
+        let here = read_book(self.data).companies.into_iter().find(|(id, o)| o.holds(&user) && o.slot == n && files::path_of(self.data, id).exists());
+        // (a slot of before is read only: its company here is brought back to it unless it changed
+        // here since - then the cloud's comes as a company of its own, this PC's kept)
+        if let Some((id, o)) = here.as_ref().filter(|(_, o)| !o.linked(&user)) {
+            if packed(self.data, id).is_some_and(|(_, sha)| sha == o.local_sha256) {
+                self.fetch_into(&user, n, id, profile)?;
+                return Ok(Ok(id.clone()));
+            }
+            let slot = self.remote.list()?.slot(n).cloned().ok_or(Error::Code("no_cloud_save"))?;
+            let copy = files::unused_id(self.data, &slot.name);
+            self.fetch_into(&user, n, &copy, profile)?;
+            self.unlink(id);
+            return Ok(Ok(copy));
+        }
         if let Some((id, _)) = here {
             return match self.check(&id)? {
                 d @ Decision::Conflict(_) => Ok(Err(d)),
@@ -680,7 +706,7 @@ impl Engine<'_> {
         let user = self.remote.user()?;
         self.remote.delete(n)?;
         for (id, o) in read_book(self.data).companies {
-            if o.linked(&user) && o.slot == n {
+            if o.holds(&user) && o.slot == n {
                 self.unlink(&id);
             }
         }
@@ -904,12 +930,20 @@ fn millis(t: Option<&str>) -> Option<i64> {
 }
 
 fn slot_json(s: &Slot, linked: Option<&str>) -> Value {
-    json!({ "slot": s.slot, "empty": s.empty, "name": s.name, "size": s.size, "version": s.version, "device": s.device, "at": millis(s.updated_at.as_deref()), "linked": linked })
+    json!({ "slot": s.slot, "empty": s.empty, "name": s.name, "size": s.size, "version": s.version, "device": s.device, "at": millis(s.updated_at.as_deref()), "linked": linked, "read_only": s.read_only })
 }
 
 /// What a company's states are called (the last: a local save).
-const STATES: &[(&str, &str)] =
-    &[("synced", "Synced"), ("uploading", "Uploading"), ("newer", "Newer in the cloud"), ("conflict", "Changed on both"), ("offline", "Offline"), ("error", "Not synced"), ("local", "Local save")];
+const STATES: &[(&str, &str)] = &[
+    ("synced", "Synced"),
+    ("uploading", "Uploading"),
+    ("newer", "Newer in the cloud"),
+    ("conflict", "Changed on both"),
+    ("offline", "Offline"),
+    ("error", "Not synced"),
+    ("read_only", "Cloud save of before: not synced"),
+    ("local", "Local save"),
+];
 
 fn state_label(st: &str) -> String {
     tr(STATES.iter().find(|x| x.0 == st).unwrap_or(&STATES[STATES.len() - 1]).1)
@@ -940,6 +974,8 @@ fn view() -> Value {
         let newer = there.is_some_and(|x| x.version != s.version);
         let kind = if !signed_in || offline || user.is_empty() {
             "offline"
+        } else if s.slot > saves::MAX_SLOTS {
+            "read_only"
         } else if st.conflict.contains(id) || (changed && newer) {
             "conflict"
         } else if st.busy.contains(id) || (changed && !st.failed.contains_key(id)) {
@@ -954,7 +990,7 @@ fn view() -> Value {
         let tip = st.failed.get(id).map(|e| tr(e.text()));
         companies.insert(id.clone(), json!({ "place": "cloud", "state": kind, "label": state_label(kind), "tip": tip, "slot": s.slot }));
     }
-    let linked = |n: u8| book.companies.iter().find(|(id, s)| s.linked(&user) && s.slot == n && files::path_of(&d, id).exists()).map(|(id, _)| id.clone());
+    let linked = |n: u8| book.companies.iter().find(|(id, s)| s.holds(&user) && s.slot == n && files::path_of(&d, id).exists()).map(|(id, _)| id.clone());
     let slots: Vec<Value> = cloud.as_ref().map(|c| c.slots.iter().map(|s| slot_json(s, linked(s.slot).as_deref())).collect()).unwrap_or_default();
     let notices = std::mem::take(&mut state().notices);
     json!({

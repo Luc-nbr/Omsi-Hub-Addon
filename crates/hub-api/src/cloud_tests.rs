@@ -1,6 +1,6 @@
 //! The cloud saves' engine against a cloud in memory (`Fake`, shared by two "computers": two data
-//! folders), as the function behaves (docs/ONLINE.md): two slots, `limit`, `conflict` on another
-//! base version. The client's own requests are tested against a mock server in `hub-online`;
+//! folders), as the function behaves (docs/ONLINE.md): one slot (a second of before read only),
+//! `limit`, `conflict` on another base version. The client's own requests are tested against a mock server in `hub-online`;
 //! nothing here reaches the network. The companies are written as the company port keeps them
 //! (`companies/<id>.json`), with only the fields these tests need.
 
@@ -33,6 +33,7 @@ impl Fake {
             updated_at: Some("2026-10-16T10:00:00Z".into()),
             device: "Laptop".into(),
             versions: vec![s.1],
+            read_only: n > saves::MAX_SLOTS,
         }
     }
     fn gate(&self) -> Result<(), Error> {
@@ -55,16 +56,23 @@ impl Remote for Fake {
     fn list(&mut self) -> Result<Cloud, Error> {
         self.gate()?;
         let f = self.0.borrow();
-        let slots = (1..=2).map(|n| f.slots.get(&n).map(|s| Fake::slot(n, s)).unwrap_or(Slot { slot: n, empty: true, ..Default::default() })).collect();
-        Ok(Cloud { max_slots: 2, max_bytes: saves::MAX_BYTES, slots })
+        // (the one slot, empty or not; a slot of before only while it holds a save)
+        let slots = (1..=saves::SLOTS_BEFORE)
+            .filter_map(|n| match f.slots.get(&n) {
+                Some(s) => Some(Fake::slot(n, s)),
+                None => (n <= saves::MAX_SLOTS).then(|| Slot { slot: n, empty: true, ..Default::default() }),
+            })
+            .collect();
+        Ok(Cloud { max_slots: saves::MAX_SLOTS, max_bytes: saves::MAX_BYTES, slots })
     }
 
     fn upload(&mut self, slot: Option<u8>, name: &str, base: u64, archive: &[u8]) -> Result<Slot, SaveError> {
         self.gate()?;
         let mut f = self.0.borrow_mut();
         let n = match slot {
+            Some(n) if n > saves::MAX_SLOTS => return Err(SaveError::Failed(Error::Code("read_only"))),
             Some(n) => n,
-            None => (1..=2).find(|n| !f.slots.contains_key(n)).ok_or(SaveError::Failed(Error::Code("limit")))?,
+            None => (1..=saves::MAX_SLOTS).find(|n| !f.slots.contains_key(n)).ok_or(SaveError::Failed(Error::Code("limit")))?,
         };
         let current = f.slots.get(&n).map_or(0, |s| s.1);
         if base != current {
@@ -310,30 +318,69 @@ fn a_conflict_is_asked_and_never_loses_a_copy() {
 }
 
 #[test]
-fn the_third_company_is_offered_keep_local_or_replace_and_never_blocked() {
+fn the_second_company_is_offered_keep_local_or_replace_and_never_blocked() {
     let data = temp("limit");
     let fake = Fake::default();
     let mut r = fake.clone();
-    let ids: Vec<String> = ["One", "Two", "Three"].iter().map(|n| company(&data, n)).collect();
-    for id in &ids[..2] {
-        assert!(matches!(Engine { data: &data, remote: &mut r }.put(id, None), Ok(Put::Done(_))));
-    }
-    let Ok(Put::Limit(slots)) = Engine { data: &data, remote: &mut r }.put(&ids[2], None) else { panic!() };
-    assert_eq!(slots.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["One", "Two"]);
+    let ids: Vec<String> = ["One", "Two"].iter().map(|n| company(&data, n)).collect();
+    assert!(matches!(Engine { data: &data, remote: &mut r }.put(&ids[0], None), Ok(Put::Done(_))));
+    let Ok(Put::Limit(slots)) = Engine { data: &data, remote: &mut r }.put(&ids[1], None) else { panic!() };
+    assert_eq!(slots.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["One"]);
     // ("keep it local": the company plays on as it is, a local save)
-    assert_eq!(sync_of(&data, &ids[2]).place, Place::Local);
-    assert!(files::load(&data, &ids[2]).is_some());
-    assert_eq!(Engine { data: &data, remote: &mut r }.sync(&ids[2]), Ok(Decision::Local));
-    // ("replace Two", confirmed: Two stays here as a local save, Three takes its slot)
-    let Ok(Put::Done(s)) = Engine { data: &data, remote: &mut r }.put(&ids[2], Some(2)) else { panic!() };
-    assert_eq!((s.slot, s.name.as_str()), (2, "Three"));
     assert_eq!(sync_of(&data, &ids[1]).place, Place::Local);
-    assert!(files::load(&data, &ids[1]).is_some(), "its files stay");
-    assert_eq!(sync_of(&data, &ids[2]).slot, 2);
+    assert!(files::load(&data, &ids[1]).is_some());
+    assert_eq!(Engine { data: &data, remote: &mut r }.sync(&ids[1]), Ok(Decision::Local));
+    // ("replace One", confirmed: One stays here as a local save, Two takes its slot)
+    let Ok(Put::Done(s)) = Engine { data: &data, remote: &mut r }.put(&ids[1], Some(1)) else { panic!() };
+    assert_eq!((s.slot, s.name.as_str()), (1, "Two"));
+    assert_eq!(sync_of(&data, &ids[0]).place, Place::Local);
+    assert!(files::load(&data, &ids[0]).is_some(), "its files stay");
+    assert_eq!(sync_of(&data, &ids[1]).slot, 1);
+    assert_eq!(fake.0.borrow().slots.len(), 1, "never a second slot");
     // (removed from the cloud: the company stays, local)
     Engine { data: &data, remote: &mut r }.remove(1).unwrap();
-    assert_eq!(sync_of(&data, &ids[0]).place, Place::Local);
-    assert!(files::load(&data, &ids[0]).is_some());
+    assert_eq!(sync_of(&data, &ids[1]).place, Place::Local);
+    assert!(files::load(&data, &ids[1]).is_some());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_second_save_of_before_is_read_only_and_its_company_can_move_into_the_one_slot() {
+    let data = temp("before");
+    let fake = Fake::default();
+    let mut r = fake.clone();
+    // (the account had two slots: this PC's "Old" in the second, as the app of before put it)
+    let old = company(&data, "Old");
+    let (a, sha) = packed(&data, &old).unwrap();
+    let cloud_sha = saves::compress(&a).unwrap().sha256;
+    fake.0.borrow_mut().slots.insert(2, ("Old".into(), 3, cloud_sha.clone(), a));
+    write_sync(&data, &old, Some(Sync { place: Place::Cloud, user: "me".into(), slot: 2, version: 3, sha256: cloud_sha, local_sha256: sha, synced_at: 1 }));
+    // (listed read only; changed here, it is not uploaded)
+    let list = r.list().unwrap();
+    assert_eq!((list.max_slots, list.free(), list.slot(2).map(|s| s.read_only)), (1, Some(1), Some(true)));
+    change(&data, &old, 10);
+    assert_eq!(Engine { data: &data, remote: &mut r }.sync(&old), Ok(Decision::Local));
+    assert_eq!(fake.0.borrow().uploads, 0);
+    // (it cannot be replaced: nothing is deleted)
+    let other = company(&data, "Other");
+    assert_eq!(Engine { data: &data, remote: &mut r }.put(&other, Some(2)), Err(Error::Code("read_only")));
+    assert!(fake.0.borrow().slots.contains_key(&2));
+    // (downloaded: changed here, the cloud's comes as a company of its own, this PC's kept
+    // local; unchanged, the same company is brought back to it)
+    let Ok(Ok(got)) = Engine { data: &data, remote: &mut r }.download(2, "Luc") else { panic!() };
+    assert_ne!(got, old);
+    assert_eq!((cash(&data, &old), cash(&data, &got)), (10_010, 10_000));
+    assert_eq!(sync_of(&data, &old).place, Place::Local);
+    assert_eq!(Engine { data: &data, remote: &mut r }.download(2, "Luc"), Ok(Ok(got.clone())));
+    assert!(files::load(&data, &got).is_some());
+    // (put in the cloud: into the one slot, synced from then on)
+    let Ok(Put::Done(s)) = Engine { data: &data, remote: &mut r }.put(&old, None) else { panic!() };
+    assert_eq!(s.slot, 1);
+    assert_eq!(sync_of(&data, &old).slot, 1);
+    // (the save of before removed: the company in the one slot stays linked)
+    Engine { data: &data, remote: &mut r }.remove(2).unwrap();
+    assert_eq!((sync_of(&data, &old).place, sync_of(&data, &old).slot), (Place::Cloud, 1));
+    assert_eq!(fake.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -382,9 +429,10 @@ fn a_slot_emptied_or_replaced_elsewhere_leaves_the_company_here_local() {
     assert_eq!(sync_of(&a, &id).place, Place::Local);
     assert_eq!(cash(&a, &id), before, "never overwritten by another company");
     // (emptied: the same)
+    rb.delete(1).unwrap();
     let id2 = company(&a, "Ring");
-    Engine { data: &a, remote: &mut ra }.put(&id2, None).unwrap();
-    rb.delete(2).unwrap();
+    assert!(matches!(Engine { data: &a, remote: &mut ra }.put(&id2, None), Ok(Put::Done(_))));
+    rb.delete(1).unwrap();
     assert_eq!(Engine { data: &a, remote: &mut ra }.check(&id2), Ok(Decision::Gone));
     assert_eq!(sync_of(&a, &id2).place, Place::Local);
     let _ = std::fs::remove_dir_all(&a);

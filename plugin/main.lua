@@ -18,7 +18,7 @@
 --   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.9.0"
+local VERSION = "1.11.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -205,8 +205,13 @@ strip.setup(tr, company_duty() and assignment.crew or nil, function(kind, fields
   if has["ui.toast"] then omsi.ui.toast(text, { title = title, icon = icon, seconds = 8 }) else omsi.message(title .. ": " .. text, 8) end
 end)
 
-local function panel()
-  if not (company_duty() and has["ui.set"]) then return end
+-- the navigator as one unit (nav.lua): the board, the sign-on, the duty strip and the inbox in
+-- the navigator, where this openOMSI has its board; the panels below where not
+local nav = require("nav")
+
+-- the company's panel's elements: the duty, signing on, starting it, signing off
+local function duty_children()
+  if not company_duty() then return {} end
   local d = duty_now()
   local status
   if d then
@@ -237,10 +242,23 @@ local function panel()
     children[#children + 1] = { type = "divider" }
     children[#children + 1] = { type = "text", text = tr("On the duty board"), size = 12, weight = "bold", color = "#9AA3AD" }
     for _, p in ipairs(company.PARTS) do
-      children[#children + 1] = { type = "checkbox", id = "part_" .. p, text = tr(company.LABELS[p]), checked = on[p], color = "#F58620" }
+      children[#children + 1] = { type = "checkbox", id = "part_" .. p, text = tr(company.LABELS[p]), checked = on[p], color = "#2A75F7" }
     end
   end
-  layout.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F58620", draggable = true, children = children })
+  return children
+end
+
+local panel_shown = false
+local function panel()
+  if not (company_duty() and has["ui.set"]) then return end
+  -- (in the navigator's Duty tab: no panel of its own)
+  if nav.active() then
+    if panel_shown and has["ui.remove"] then layout.remove(PANEL) end
+    panel_shown = false
+    return
+  end
+  layout.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#2A75F7", draggable = true, children = duty_children() })
+  panel_shown = true
 end
 
 -- the IBIS: typed by the game as each trip begins, unless Omsi-Hub says the driver types it -
@@ -394,6 +412,16 @@ messages.setup(tr, { send = send_out, issued = issued, assignment = assignment, 
   trip_ended(run, { trip = d.trip, how = how, delay = delay() })
 end })
 
+local function boarded()
+  return { trip.boarded_on_trip(), trip.boarded_total(), fn("bus.passengers") and omsi.bus.passengers() or nil }
+end
+nav.setup(tr, {
+  duty_children = duty_children,
+  parts = function() return company_duty() and parts() or {} end,
+  assignment = function() return assignment end,
+  boarded = boarded,
+})
+
 omsi.on("duty", function(line, tour)
   -- (a short-turn takes the same duty again at its next trip: no new duty)
   if messages.turned(line, tour) then return panel() end
@@ -507,7 +535,7 @@ omsi.on("vehicle", function(name)
   panel()
 end)
 
-omsi.on("ui_click", function(p, element)
+local function on_click(p, element)
   if layout.click(p, element) then return end
   if card.click(p, element) then return end
   if messages.click(p, element) then return end
@@ -529,9 +557,16 @@ omsi.on("ui_click", function(p, element)
     ibis_rule()
     panel()
   end
+end
+
+-- (the navigator's unit: a tab, or the element of the module it came from - redrawn at once)
+omsi.on("ui_click", function(p, element)
+  local q = nav.route(p, element)
+  if q then on_click(q, element) else panel() end
+  if p == nav.PANEL then nav.refresh() end
 end)
 
-omsi.on("ui_change", function(p, element, value)
+local function on_change(p, element, value)
   if card.change(p, element, value) then return end
   if strip.change(p, element, value) then return end
   local part = p == PANEL and type(element) == "string" and element:match("^part_(%w+)$")
@@ -543,6 +578,12 @@ omsi.on("ui_change", function(p, element, value)
     return
   end
   if p == PANEL and signon.change(element, value) then panel() end
+end
+
+omsi.on("ui_change", function(p, element, value)
+  local q = nav.route(p, element)
+  if q then on_change(q, element, value) end
+  if p == nav.PANEL then nav.refresh() end
 end)
 
 -- (Ctrl, Alt and Shift held: a key with them is another one's - Ctrl+Enter the IBIS's)
@@ -550,6 +591,7 @@ local modifiers = {}
 omsi.on("key", function(key, down)
   if type(key) == "string" and (key:match("^Control") or key:match("^Alt") or key:match("^Shift")) then modifiers[key] = down or nil end
   if card.key(key, down, next(modifiers) ~= nil) then return end
+  if nav.key(key, down) then return end
   if messages.key(key, down) then return end
   if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then
     omsi.ui.focus(not omsi.ui.focused())
@@ -558,11 +600,32 @@ omsi.on("key", function(key, down)
   end
 end)
 
+-- the pause menu's lines of Omsi-Hub's skin (`skin.json`; a game without skins has none)
+omsi.on("menu_entry", function(id)
+  if id == "messages" then
+    if nav.active() then
+      nav.show("messages")
+    elseif not messages.show() then
+      say(tr("No messages from the control room"), "Omsi-Hub", "forum", 4)
+    end
+  elseif id == "duty" then
+    if nav.active() then nav.show("duty") end
+    if fn("ui.focus") and (company_duty() or duty_now()) then
+      omsi.ui.focus(true)
+      layout.refresh()
+    elseif not (company_duty() or duty_now()) then
+      say(tr("No duty: take one in the Omsi-Hub app"), "Omsi-Hub", "badge", 4)
+    end
+    panel()
+  end
+end)
+
 omsi.on("stop", function()
   layout.keep()
   if has["ui.remove"] then layout.remove(PANEL) end
   strip.stop()
   ontime.stop()
+  nav.stop()
 end)
 
 -- service control's messages for the duty (`company.lua`), each once, when they are due
@@ -591,7 +654,10 @@ end
 omsi.every(1, function()
   -- (the panels gave the mouse back without F10 - Esc, a menu: their size rows go)
   layout.watch()
-  board.update((not assignment or assignment.board ~= false) and signon.at_work(), company_duty() and parts() or {}, assignment, { trip.boarded_on_trip(), trip.boarded_total(), fn("bus.passengers") and omsi.bus.passengers() or nil })
+  -- (the navigator's unit where it can be; the board, the strip and the inbox on their own else)
+  local wanted = not assignment or assignment.board ~= false
+  nav.update(wanted and (company_duty() or duty_now() ~= nil or messages.has_inbox()))
+  board.update(wanted and signon.at_work() and not nav.asking(), company_duty() and parts() or {}, assignment, boarded())
   messages.tick()
   strip.update(company_duty() and signon.at_work())
   if signon.at_work() then ontime.tick(1) end

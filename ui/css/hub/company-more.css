@@ -47,7 +47,8 @@
 .cm-plan3d canvas:active { cursor: grabbing; }
 .cm-plan3d canvas.on-bus { cursor: pointer; }
 .cm-plan3d .dp-tags { position: absolute; inset: 0; pointer-events: none; }
-.cm-plan3d .dp-tag { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 9px 4px 7px; border-radius: 8px; background: var(--hub-panel); color: var(--hub-text); font-size: 9.6px; font-weight: 700; white-space: nowrap; box-shadow: 0 0 0 1px var(--hub-edge), 0 4px 14px rgba(0, 0, 0, 0.18); will-change: transform; }
+.cm-plan3d .dp-tag { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 9px 4px 7px; border: 0; border-radius: 8px; background: var(--hub-panel); color: var(--hub-text); font: inherit; font-size: 9.6px; font-weight: 700; white-space: nowrap; box-shadow: 0 0 0 1px var(--hub-edge), 0 4px 14px rgba(0, 0, 0, 0.18); will-change: transform; pointer-events: auto; cursor: pointer; text-align: left; }
+.cm-plan3d .dp-tag:hover { box-shadow: 0 0 0 1.5px var(--hub-accent), 0 4px 14px rgba(0, 0, 0, 0.22); }
 .cm-plan3d .dp-tag::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; transform: rotate(45deg); box-shadow: 1px 1px 0 0 var(--hub-edge); }
 .cm-plan3d .dp-tag .co-icon, .cm-plan3d .dp-tag svg { color: var(--hub-accent-text, var(--hub-accent)); flex: none; }
 .cm-plan3d .dp-tag span { display: flex; flex-direction: column; line-height: 1.2; }
@@ -72,11 +73,69 @@
 .cm-plan3d .dp-place .dp-why { flex: 1; min-width: 0; font-size: 10.6px; font-weight: 600; color: var(--co-ok); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-plan3d .dp-place .dp-why.no { color: var(--co-danger-text); }
 .cm-plan3d .dp-place .co-btn { height: 32px; padding: 0 10px; flex: none; }
-.cm-plan3d .dp-card { position: absolute; left: 12px; bottom: 12px; width: 280px; display: flex; flex-direction: column; gap: 3px; padding: 12px 14px 10px; border-radius: 12px; background: var(--hub-panel); color: var(--hub-text); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.22); }
-.cm-plan3d .dp-card b { font-size: 11.4px; }
-.cm-plan3d .dp-card span { font-size: 10px; color: var(--hub-text-dim); }
-.cm-plan3d .dp-card .row { display: flex; gap: 6px; margin-top: 6px; }
+/* (the card of what was clicked in the yard, over it: `--arrow` where its point is) */
+.cm-plan3d .dp-card { position: absolute; left: 0; top: 0; z-index: 4; width: 312px; max-height: calc(100% - 20px); overflow-y: auto; display: flex; flex-direction: column; padding: 12px 12px 12px 14px; border-radius: 12px; background: var(--hub-panel); color: var(--hub-text); box-shadow: 0 0 0 1px var(--hub-edge), 0 10px 28px rgba(0, 0, 0, 0.3); will-change: transform; cursor: default; }
+.cm-plan3d .dp-card::after { content: ''; position: absolute; left: var(--arrow, 50%); bottom: -5px; width: 10px; height: 10px; margin-left: -5px; background: inherit; transform: rotate(45deg); box-shadow: 1px 1px 0 0 var(--hub-edge); }
+.cm-plan3d .dp-card[data-side="below"]::after { bottom: auto; top: -5px; box-shadow: -1px -1px 0 0 var(--hub-edge); }
+.cm-plan3d .dp-card[data-side="right"]::after { left: -5px; top: var(--arrow, 50%); bottom: auto; margin: -5px 0 0; box-shadow: -1px 1px 0 0 var(--hub-edge); }
+.cm-plan3d .dp-card[data-side="left"]::after { left: auto; right: -5px; top: var(--arrow, 50%); bottom: auto; margin: -5px 0 0; box-shadow: 1px -1px 0 0 var(--hub-edge); }
+.cm-plan3d .dp-card.loose::after { display: none; }
 .cm-plan3d .dp-card .co-btn { height: 30px; padding: 0 10px; }
+.cm-plan3d .dp-card .co-caps { margin-bottom: 4px; }
+.cm-plan3d .dp-head { display: flex; align-items: flex-start; gap: 8px; }
+.cm-plan3d .dp-head .co-iconbtn { width: 26px; height: 26px; margin: -4px -4px 0 0; flex: none; }
+.cm-plan3d .dp-icon { display: flex; flex: none; color: var(--hub-accent-text, var(--hub-accent)); padding-top: 1px; }
+.cm-plan3d .dp-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cm-plan3d .dp-title b { font-size: 11.6px; }
+.cm-plan3d .dp-title span { font-size: 10px; color: var(--hub-text-dim); }
+.cm-plan3d .dp-level { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.cm-plan3d .dp-lv { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cm-plan3d .dp-lv .cm-pips { position: static; }
+.cm-plan3d .dp-lv small { font-size: 9.6px; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-said { font-size: 9.8px; font-weight: 600; white-space: nowrap; flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-sub { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 10.6px; }
+.cm-plan3d .dp-ups { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hub-hairline); }
+.cm-plan3d .dp-up { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.cm-plan3d .dp-up > span:first-child { display: flex; flex: none; }
+.cm-plan3d .dp-uptext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cm-plan3d .dp-uptext b { font-size: 10.4px; }
+.cm-plan3d .dp-uptext small { font-size: 9.2px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-up .co-btn { height: 28px; padding: 0 8px; flex: none; }
+.cm-plan3d .dp-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cm-plan3d .dp-what { margin-top: 8px; font-size: 10px; color: var(--hub-text-soft); }
+.cm-plan3d .dp-tag.room { background: var(--hub-glass-card); backdrop-filter: blur(6px); }
+/* (a building opened: its bar under the yard - its floors, what is being drawn, the kinds of room) */
+.cm-plan3d .dp-inside { position: absolute; left: 12px; bottom: 12px; z-index: 3; display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 12px; background: var(--hub-panel); box-shadow: 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(0, 0, 0, 0.25); }
+.cm-plan3d .dp-insidehead { display: flex; align-items: center; gap: 10px; padding-left: 6px; min-width: 0; }
+.cm-plan3d .dp-insidehead > b { font-size: 11.4px; white-space: nowrap; }
+.cm-plan3d .dp-insidehead .co-seg { height: 30px; flex: none; }
+.cm-plan3d .dp-insidehead .co-seg button { flex: none; padding: 0 12px; }
+.cm-plan3d .dp-insidehead .dp-why { flex: 1; min-width: 0; font-size: 10.4px; font-weight: 600; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-plan3d .dp-insidehead .dp-why.no { color: var(--co-danger-text); }
+.cm-plan3d .dp-insidehead .co-btn { height: 32px; padding: 0 12px; flex: none; }
+.cm-plan3d .dp-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-plan3d .dp-kind { display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 12px 0 9px; border: 0; border-radius: 9px; background: var(--hub-field); color: var(--hub-text); font: inherit; cursor: pointer; text-align: left; }
+.cm-plan3d .dp-kind:hover { background: var(--hub-hover); }
+.cm-plan3d .dp-kind.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.cm-plan3d .dp-kind svg { flex: none; color: var(--hub-accent-text, var(--hub-accent)); }
+.cm-plan3d .dp-kind.on svg { color: var(--hub-on-accent); }
+.cm-plan3d .dp-kind span { display: flex; flex-direction: column; }
+.cm-plan3d .dp-kind b { font-size: 10.4px; white-space: nowrap; }
+.cm-plan3d .dp-kind small { font-size: 9px; opacity: 0.75; white-space: nowrap; }
+.cm-plan3d .dp-cond { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 9.6px; color: var(--hub-text-soft); }
+
+/* (the depot page over the whole yard: its figures and its bar over the yard's top, the Build
+   and workshop lists in a panel at its right) */
+.cm-depot .dp-figs { position: absolute; left: 12px; top: 12px; z-index: 2; display: flex; gap: 8px; max-width: calc(100% - 420px); }
+.cm-depot .dp-fig { display: flex; flex-direction: column; gap: 1px; min-width: 92px; padding: 7px 12px 8px; border-radius: 12px; background: var(--hub-glass-card); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px var(--hub-edge); }
+.cm-depot .dp-fig .co-caps { font-size: 8.4px; }
+.cm-depot .dp-fig b { font-size: 15px; line-height: 1.2; }
+.cm-depot .dp-fig small { font-size: 9px; color: var(--hub-text-dim); white-space: nowrap; }
+.cm-depot .dp-bar { position: absolute; right: 12px; top: 12px; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 4px; border-radius: 12px; background: var(--hub-glass-card); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px var(--hub-edge); }
+.cm-depot .dp-bar .co-btn { height: 30px; padding: 0 10px; }
+.cm-depot .dp-bar .co-btn.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.cm-depot .dp-panel { z-index: 3; background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 10px 32px rgba(0, 0, 0, 0.3); }
+.cm-depot:fullscreen { background: var(--hub-ground, #0b0f18); }
 .cm-buildrow .co-btn.on { background: var(--hub-accent); color: var(--hub-on-accent); }
 /* (the Build list: a dot a level, the one being built in amber) */
 .cm-pips { position: absolute; display: flex; gap: 5px; }

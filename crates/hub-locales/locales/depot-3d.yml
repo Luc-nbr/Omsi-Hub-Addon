@@ -220,3 +220,10 @@ _version: 2
   ru: "%{m} м земли рядом с территорией, сразу ваши"
   uk: "%{m} м землі поруч із територією, одразу ваші"
   pl: "%{m} m gruntu obok placu, od razu twoje"
+"Buy it":
+  nl: "Kopen"
+  de: "Kaufen"
+  fr: "L'acheter"
+  ru: "Купить"
+  uk: "Купити"
+  pl: "Kup"

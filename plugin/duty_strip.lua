@@ -17,6 +17,7 @@ local layout = require("layout")
 local M = {}
 
 local PANEL = "omsihub_strip"
+M.PANEL = PANEL
 local GREEN, AMBER, RED, DIM, ACCENT = "#37D67A", "#F0B429", "#FF5F57", "#9AA3AD", "#F47F30"
 -- (a stand shorter than this is a layover, not a break; the relief is told this long before)
 local BREAK_MIN = 10
@@ -31,6 +32,8 @@ local notify = function() end
 
 local enabled = true
 local shown = false
+-- (in the navigator's Duty tab, `nav.lua`: no panel of its own)
+local docked = false
 -- what the driver has open: nil, "note" or "check"
 local open = nil
 local note = { template = nil, text = "" }
@@ -267,10 +270,27 @@ function M.rows(now)
   return children
 end
 
+-- what the driver has open on the strip: nil, "note" or "check" (the walk-around at sign-off
+-- brings the navigator to its Duty tab)
+function M.form()
+  return open
+end
+
+-- the strip goes into the navigator (`on`) or has a panel of its own again
+function M.dock(on)
+  docked = on
+end
+
+-- the strip's elements now, for the navigator's Duty tab (none: no company's duty, or switched off)
+function M.children()
+  if not (crew and enabled) then return {} end
+  return M.rows(minute())
+end
+
 -- the strip now (`on`: the driver is at work on the company's duty)
 function M.update(on)
   if not (crew and omsi.ui and omsi.ui.set) then return end
-  if not (enabled and on) then
+  if not (enabled and on) or docked then
     if shown then
       layout.remove(PANEL)
       shown = false

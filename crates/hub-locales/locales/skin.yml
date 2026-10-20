@@ -1,0 +1,54 @@
+_version: 2
+# The plugin's lines in openOMSI's pause menu (plugin/main.lua, "menu_entry"; their labels are in
+# plugin/skin.json itself).
+
+"No messages from the control room":
+  nl: "Geen berichten van de centrale"
+  de: "Keine Nachrichten der Leitstelle"
+  fr: "Aucun message du poste de contrôle"
+  ru: "Нет сообщений от диспетчерской"
+  uk: "Немає повідомлень від диспетчерської"
+  pl: "Brak wiadomości od dyspozytorni"
+"No duty: take one in the Omsi-Hub app":
+  nl: "Geen dienst: neem er een in de Omsi-Hub app"
+  de: "Kein Dienst: nimm einen in der Omsi-Hub-App"
+  fr: "Aucun service : prenez-en un dans l’app Omsi-Hub"
+  ru: "Нет смены: возьмите её в приложении Omsi-Hub"
+  uk: "Немає зміни: візьміть її в застосунку Omsi-Hub"
+  pl: "Brak służby: weź ją w aplikacji Omsi-Hub"
+# the navigator as one unit (plugin/nav.lua)
+"Navigate":
+  nl: "Navigeren"
+  de: "Navigation"
+  fr: "Navigation"
+  ru: "Навигация"
+  uk: "Навігація"
+  pl: "Nawigacja"
+"Break over":
+  nl: "Pauze voorbij"
+  de: "Pause vorbei"
+  fr: "Pause terminée"
+  ru: "Перерыв окончен"
+  uk: "Перерву закінчено"
+  pl: "Przerwa skończona"
+"Message from control":
+  nl: "Bericht van de centrale"
+  de: "Nachricht der Leitstelle"
+  fr: "Message du poste de contrôle"
+  ru: "Сообщение диспетчерской"
+  uk: "Повідомлення диспетчерської"
+  pl: "Wiadomość od dyspozytorni"
+"No trip under way":
+  nl: "Geen rit onderweg"
+  de: "Keine Fahrt unterwegs"
+  fr: "Aucun trajet en cours"
+  ru: "Нет текущего рейса"
+  uk: "Немає поточного рейсу"
+  pl: "Brak kursu w trakcie"
+"No trips yet: start your duty":
+  nl: "Nog geen ritten: start je dienst"
+  de: "Noch keine Fahrten: starte deinen Dienst"
+  fr: "Pas encore de trajets : commencez votre service"
+  ru: "Рейсов пока нет: начните смену"
+  uk: "Рейсів ще немає: почніть зміну"
+  pl: "Brak kursów: rozpocznij służbę"

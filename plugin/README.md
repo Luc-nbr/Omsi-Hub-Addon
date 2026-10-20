@@ -5,10 +5,16 @@ official plugin API. `hub-game` installs these files into openOMSI's `Plugins/om
 the plugin through plain files (`crates/hub-game/src/bridge.rs`).
 
 - `main.lua`: the entry point (the duty, the reports, the handshake); the other files are its
-  modules (`board`, `card`, `career`, `company`, `duty_strip`, `messages`, `ontime`, `signon`,
-  `traffic`, `trip`, `watch`, `hubjson`, `layout`). `layout` gives every draggable panel the
+  modules (`board`, `card`, `career`, `company`, `duty_strip`, `messages`, `nav`, `ontime`,
+  `signon`, `traffic`, `trip`, `watch`, `hubjson`, `layout`). `nav` puts the board, the sign-on,
+  the duty strip and the inbox together in openOMSI's navigator as one unit with tabs
+  (Navigate, Stops, Trips, Duty, Messages); where the game has no navigator's board they keep
+  panels of their own. `layout` gives every draggable panel the
   driver's size and place (a size row under it with F10; kept in `omsi.data.layout`). `traffic` writes what is on the road (`data/traffic.json`)
   for the company's fleet map; it only reads the game.
+- `skin.json`, `skin/`: Omsi-Hub's look for openOMSI's loading screen, pause menu and
+  navigator's map (openOMSI's skins, docs/openomsi-patches/), with the pause menu's "My duty"
+  and "Messages" (`menu_entry` in `main.lua`).
 - `harness/`: our own test harness (`hub-plugin-harness`, on mlua). It mocks the official API
   functions the plugin uses, so `cargo test` runs the plugin without openOMSI.
 

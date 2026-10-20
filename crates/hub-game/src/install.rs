@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `plugin/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.9.0";
+pub const VERSION: &str = "1.11.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../../../plugin/main.lua")),
@@ -38,6 +38,12 @@ pub const FILES: &[(&str, &str)] = &[
     ("traffic.lua", include_str!("../../../plugin/traffic.lua")),
     ("dash.lua", include_str!("../../../plugin/dash.lua")),
     ("layout.lua", include_str!("../../../plugin/layout.lua")),
+    ("nav.lua", include_str!("../../../plugin/nav.lua")),
+    // the look openOMSI's own screens take with the plugin (`skin=omsihub` in its settings: a
+    // game that has no skins reads none of them)
+    ("skin.json", include_str!("../../../plugin/skin.json")),
+    ("skin/wordmark.svg", include_str!("../../../plugin/skin/wordmark.svg")),
+    ("skin/mark.svg", include_str!("../../../plugin/skin/mark.svg")),
 ];
 /// The texts the plugin shows (`tr` in `plugin/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -257,6 +263,19 @@ pub const TEXTS: &[&str] = &[
     "Roadworks on the line today: expect delays",
     "Diversion on the line today: expect delays",
     "Diversion on the line today",
+    // the pause menu's lines of the skin (`menu_entry`)
+    "No messages from the control room",
+    "No duty: take one in the Omsi-Hub app",
+    // the navigator as one unit (`lua/nav.lua`): its tabs, the break clock, the slim strip
+    "Navigate",
+    "Trips",
+    "Messages",
+    "Break",
+    "Break over",
+    "until %{time}",
+    "Message from control",
+    "No trip under way",
+    "No trips yet: start your duty",
 ];
 
 /// The sounds of the control room's messages (`lua/messages.lua`), made here as small WAV files:
@@ -338,6 +357,9 @@ struct Stamp {
     version: String,
     #[serde(default)]
     bridge: u32,
+    /// Omsi-Hub's skin was put in the game's settings once (`skin_offered`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    skin: bool,
 }
 
 /// The plugin's folder in a plugins folder.
@@ -357,9 +379,29 @@ pub fn disabled_names(plugins: &Path) -> Vec<String> {
     std::fs::read_to_string(plugins.join(DISABLED_LIST)).map(|t| t.lines().map(|l| l.split('#').next().unwrap_or("").trim().to_lowercase()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
 }
 
-fn stamp_version(dir: &Path) -> Option<String> {
+fn stamp(dir: &Path) -> Option<Stamp> {
     let text = std::fs::read_to_string(dir.join(STAMP)).ok()?;
-    serde_json::from_str::<Stamp>(&text).ok().map(|s| s.version).filter(|v| !v.is_empty())
+    serde_json::from_str::<Stamp>(&text).ok()
+}
+
+fn stamp_version(dir: &Path) -> Option<String> {
+    stamp(dir).map(|s| s.version).filter(|v| !v.is_empty())
+}
+
+/// Whether Omsi-Hub's skin was put in the game's settings for the plugin in `dir` (its folder,
+/// or the parked one): it is put there once, so a player who chose another look keeps it.
+pub fn skin_offered(dir: &Path) -> bool {
+    stamp(dir).is_some_and(|s| s.skin)
+}
+
+/// Say in the plugin's stamp in `dir` whether the skin was put in the game's settings.
+pub fn set_skin_offered(dir: &Path, offered: bool) -> std::io::Result<()> {
+    let Some(mut s) = stamp(dir) else { return Ok(()) };
+    if s.skin != offered {
+        s.skin = offered;
+        std::fs::write(dir.join(STAMP), serde_json::to_string_pretty(&s).unwrap_or_default())?;
+    }
+    Ok(())
 }
 
 /// The plugin in the plugins folder `plugins`.
@@ -396,6 +438,9 @@ pub fn install(plugins: &Path) -> std::io::Result<Status> {
     for (name, text) in FILES {
         let path = dir.join(name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(*text) {
+            if let Some(d) = path.parent() {
+                std::fs::create_dir_all(d)?;
+            }
             std::fs::write(&path, text)?;
         }
     }
@@ -405,7 +450,7 @@ pub fn install(plugins: &Path) -> std::io::Result<Status> {
             std::fs::write(&path, bytes)?;
         }
     }
-    let stamp = serde_json::to_string_pretty(&Stamp { version: VERSION.into(), bridge: crate::bridge::BRIDGE }).unwrap_or_default();
+    let stamp = serde_json::to_string_pretty(&Stamp { version: VERSION.into(), bridge: crate::bridge::BRIDGE, skin: skin_offered(&dir) }).unwrap_or_default();
     std::fs::write(dir.join(STAMP), stamp)?;
     set_listed(plugins, false)?;
     Ok(status(plugins))

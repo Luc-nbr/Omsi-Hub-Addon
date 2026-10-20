@@ -76,7 +76,7 @@ never changes the files of openOMSI or OMSI 2.
     </td>
     <td width="50%" valign="top">
       <h3>Better together, optional</h3>
-      An account (email or Google) adds friends, invites, the leaderboard and up to two cloud saves.
+      An account (email or Google) adds friends, invites, the leaderboard and a cloud save.
       Without one, everything works offline.
     </td>
   </tr>

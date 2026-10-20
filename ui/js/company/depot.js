@@ -6,17 +6,21 @@
 // could be built is a dashed plot, building work is amber, the buses wear the company's colour.
 // A bus clicked on the plan is picked for the workshop's list (and clicked again let go).
 //
-// The yard is drawn in 3D (`depot3d/`) where the computer can, or from straight above (2D); the
-// plan drawn flat stays where there is no WebGL2. A row of the Build list under the pointer
-// lights its area up in the yard; a module more (a block of spaces, a bay, a wash lane ...) is
-// put down where the player wants it (the build mode: `placing`), more land bought. A row opens
-// to what can be added to its area (the upgrades: a paint booth, a gantry, a bulk tank ...); a
-// new company's building credit stands over the list while some is left, and the last row is
-// the depot's look - its walls', roofs', trims' and doors' colours and what its walls are of.
+// The yard is drawn in 3D (`depot3d/`) where the computer can, or from straight above (2D),
+// over the whole page: the four figures and the page's bar over its top, the Build list and the
+// workshop's list in a panel over its right side, opened from the bar; a building clicked in the
+// yard opens its card over it (what can be built and added there). The plan drawn flat, beside
+// the lists, stays where there is no WebGL2. A row of the Build list under the pointer lights
+// its area up in the yard; a module more (a block of spaces, a bay, a wash lane ...) is put down
+// where the player wants it (the build mode: `placing`), more land bought. A row opens to what
+// can be added to its area (the upgrades: a paint booth, a gantry, a bulk tank ...); a new
+// company's building credit stands over the list while some is left, and the last row is the
+// depot's look - its walls', roofs', trims' and doors' colours and what its walls are of.
 
 import { html, tr, ui, setUi, useSize, textW, Icon, Btn, Section, Figure, Tag, Meter, Plate, IconBtn, Seg, rgbOf, inkOn, fill } from './kit.js';
 import { useMore, actMore, TextIn, box, fillOf, useListSize } from './more.js';
 import { Depot3D } from './depot3d/view.js';
+import { S } from '../store.js';
 
 const ASPHALT = [25, 31, 44];
 const ROOF = [38, 46, 62];
@@ -27,37 +31,65 @@ const EARLY = '42, 117, 247';
 const EARLY_SOFT = '122, 168, 255';
 const faint = (a) => `rgba(var(--co-faint-rgb), ${a})`;
 
+/** The company's time of day in minutes (its clock in the bar: "07:42"), for the 3D yard's
+ * light; noon when there is no clock. */
+function minuteNow() {
+  const m = /(\d{1,2}):(\d{2})/.exec(S.co.shell?.clock?.time || '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 12 * 60;
+}
+
 export function DepotPage() {
-  const st = ui('depot', { selected: null, view: '3d', hover: null, no3d: false, placing: null, open: null });
+  const st = ui('depot', { selected: null, view: '3d', hover: null, no3d: false, placing: null, open: null, panel: null });
   const v = useMore('depot', { selected: st.selected });
   const [ref, size] = useSize();
   let body = null;
   if (v?.figures && size.w > 0) {
     const W = size.w;
     const H = size.h;
-    const gap = 16;
-    const leftW = Math.max(420, (W - gap) * 0.56);
-    const rx = leftW + gap;
-    const rw = Math.max(0, W - leftW - gap);
-    const fh = 100;
-    const fw = (leftW - 3 * 12) / 4;
-    const bh = Math.min(6 * 62 + 56, H * 0.62);
-    const pw = leftW - 36;
-    const ph = Math.max(0, H - fh - 12 - 58);
-    const names = Object.fromEntries(v.build.rows.map((a) => [a.key, { label: a.label, icon: a.icon }]));
     const pick = (id) => setUi('depot', { selected: st.selected === id ? null : id });
     const tools = !st.no3d && html`<${Seg} value=${st.view} options=${[['3d', tr('3D')], ['2d', tr('2D')]]} onChange=${(view) => setUi('depot', { view })} style="height:26px;width:92px" />`;
-    body = html`
-      ${v.figures.map((f, k) => html`<div style=${box(k * (fw + 12), 0, fw, fh)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
-      <${Section} title=${v.plan.title} tools=${tools} style=${box(0, fh + 12, leftW, Math.max(0, H - fh - 12))}>
-        ${!st.no3d && ph >= 120 && v.plan.layout
-          ? html`<${Depot3D} p=${v.plan} names=${names} w=${pw} h=${ph} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />`
-          : html`<${Plan} p=${v.plan} w=${pw} h=${ph} selected=${st.selected} />`}
-      </${Section}>
-      <${Section} title=${v.build.title} style=${box(rx, 0, rw, bh)}><${Build} b=${v.build} land=${v.plan.layout?.land} look=${v.plan.look} place=${!st.no3d && !!v.plan.layout} placing=${st.placing} open=${st.open} /></${Section}>
-      <${Section} title=${v.workshop.title} style=${box(rx, bh + 12, rw, Math.max(0, H - bh - 12))}><${Workshop} ws=${v.workshop} selected=${st.selected} /></${Section}>`;
+    const build = () => html`<${Build} b=${v.build} land=${v.plan.layout?.land} look=${v.plan.look} place=${!st.no3d && !!v.plan.layout} placing=${st.placing} open=${st.open} />`;
+    if (!st.no3d && v.plan.layout && H >= 240) {
+      // the yard over the whole page; the figures and the bar over its top, the panel at its right
+      const panel = st.panel;
+      const pw = Math.round(Math.min(460, Math.max(360, W * 0.34)));
+      const bar = 56;
+      const side = (key) => setUi('depot', { panel: panel === key ? null : key });
+      body = html`
+        <div style=${box(0, 0, W, H)}>
+          <${Depot3D} p=${v.plan} rows=${v.build.rows} wsBuses=${v.workshop.buses || []} w=${W} h=${H} right=${panel ? pw + 12 : 0} top=${bar} minute=${minuteNow()} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />
+        </div>
+        <div class="dp-figs">${v.figures.map((f) => html`<div class="dp-fig" title=${f.under}><span class="co-caps">${f.label}</span><b class=${'t-' + (f.tone || 'text')}>${f.value}</b>${W >= 1100 && html`<small>${f.under}</small>`}</div>`)}</div>
+        <div class="dp-bar">
+          ${tools}
+          <${Btn} kind=${panel === 'build' ? 'on' : 'ghost'} icon="construction" label=${v.build.title} onClick=${() => side('build')} />
+          <${Btn} kind=${panel === 'workshop' ? 'on' : 'ghost'} icon="build" label=${v.workshop.title} onClick=${() => side('workshop')} />
+        </div>
+        ${panel && html`<${Section} class="dp-panel" title=${panel === 'build' ? v.build.title : v.workshop.title} tools=${html`<${IconBtn} icon="close" size=${16} title=${tr('Close')} onClick=${() => setUi('depot', { panel: null })} />`} style=${box(W - pw - 12, bar + 12, pw, H - bar - 24)}>
+          ${panel === 'build' ? build() : html`<${Workshop} ws=${v.workshop} selected=${st.selected} />`}
+        </${Section}>`}`;
+    } else {
+      const gap = 16;
+      const leftW = Math.max(420, (W - gap) * 0.56);
+      const rx = leftW + gap;
+      const rw = Math.max(0, W - leftW - gap);
+      const fh = 100;
+      const fw = (leftW - 3 * 12) / 4;
+      const bh = Math.min(6 * 62 + 56, H * 0.62);
+      const pw = leftW - 36;
+      const ph = Math.max(0, H - fh - 12 - 58);
+      body = html`
+        ${v.figures.map((f, k) => html`<div style=${box(k * (fw + 12), 0, fw, fh)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
+        <${Section} title=${v.plan.title} tools=${tools} style=${box(0, fh + 12, leftW, Math.max(0, H - fh - 12))}>
+          ${!st.no3d && ph >= 120 && v.plan.layout
+            ? html`<${Depot3D} p=${v.plan} rows=${v.build.rows} wsBuses=${v.workshop.buses || []} w=${pw} h=${ph} minute=${minuteNow()} selected=${st.selected} hover=${st.hover} onPick=${pick} onFail=${() => setUi('depot', { no3d: true, placing: null })} placing=${st.placing} onPlaced=${() => setUi('depot', { placing: null })} flat=${st.view === '2d'} />`
+            : html`<${Plan} p=${v.plan} w=${pw} h=${ph} selected=${st.selected} />`}
+        </${Section}>
+        <${Section} title=${v.build.title} style=${box(rx, 0, rw, bh)}>${build()}</${Section}>
+        <${Section} title=${v.workshop.title} style=${box(rx, bh + 12, rw, Math.max(0, H - bh - 12))}><${Workshop} ws=${v.workshop} selected=${st.selected} /></${Section}>`;
+    }
   }
-  return html`<div class="cm-page" ref=${ref}>${body}</div>`;
+  return html`<div class="cm-page cm-depot" ref=${ref}>${body}</div>`;
 }
 
 // --- the plan -----------------------------------------------------------------------------

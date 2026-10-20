@@ -189,7 +189,7 @@ fn next_id(s: &mut Site) -> u32 {
 
 /// Bring the layout in line with the levels: what is too many goes (the last put down), what
 /// is missing is put on the first free spot - the land grown for a depot of before that does not
-/// fit on the land of now.
+/// fit on the land of now; the rooms of what went go with it (`rooms::prune`).
 pub fn reconcile(s: &mut Site) {
     depot::migrate(s);
     for a in Area::ALL {
@@ -211,6 +211,7 @@ pub fn reconcile(s: &mut Site) {
             }
         }
     }
+    super::rooms::prune(s);
 }
 
 /// Whether the next level of an area is put down somewhere (a module more) rather than built
@@ -285,15 +286,20 @@ pub fn demolish(c: &mut Company, id: u32) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// What the next plot of land costs the company now (None: it has all there is).
+/// What the next plot of land costs the company now (None: it has all there is). The land is
+/// counted as the yard has it once it is in line with the levels (`reconcile` may have grown it
+/// for a depot of before that did not fit), as the page draws it.
 pub fn land_cost(c: &Company) -> Option<Cents> {
-    let k = c.site.land as usize;
-    let base = *LAND_COST.get(k)?;
+    let mut s = c.site.clone();
+    reconcile(&mut s);
+    let base = *LAND_COST.get(s.land as usize)?;
     Some(((base as f64 * super::econ_uk::mode(c.game_mode).costs * c.price_index / 100.0).round() as Cents) * 100)
 }
 
 /// Buy the next plot of land: paid now, the company's at once.
 pub fn buy_land(c: &mut Company) -> Result<(), &'static str> {
+    // (the land the yard already grew to first: what is bought is a plot more than the page shows)
+    reconcile(&mut c.site);
     let Some(cost) = land_cost(c) else { return Err("There is no more land to buy here.") };
     if !c.can_pay(cost) {
         return Err("Not enough cash.");
@@ -452,5 +458,20 @@ mod tests {
         buy_land(&mut c).unwrap();
         assert_eq!(buy_land(&mut c), Err("There is no more land to buy here."));
         assert!(land_cost(&c).is_none());
+    }
+
+    #[test]
+    fn the_land_bought_is_a_plot_more_than_the_yard_grew_to() {
+        // a depot of before too big for the land it had: the yard grew its plots when it was
+        // laid out, so none is left to sell, though none was bought
+        let mut c = company();
+        c.site = Site { parking: 8, workshop: 6, wash: 2, fuel: 3, charging: 10, offices: 3, ..Site::default() };
+        let mut drawn = c.site.clone();
+        reconcile(&mut drawn);
+        assert_eq!((c.site.land, drawn.land), (0, LAND_MAX));
+        let cash = c.cash;
+        assert!(land_cost(&c).is_none());
+        assert_eq!(buy_land(&mut c), Err("There is no more land to buy here."));
+        assert_eq!(c.cash, cash);
     }
 }

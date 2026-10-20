@@ -19,6 +19,23 @@ never changes their files.
   openOMSI's version), your **account** - sign in, or continue locally without sync -, your driver
   and the way on (the tour, or straight to the start). Before the first drive, Omsi-Hub puts its
   plugin into openOMSI (Settings, "openOMSI and OMSI 2", switches it off or removes it).
+- **Omsi-Hub's look in the game**: with the plugin comes a skin for openOMSI - the loading screen
+  in Omsi-Hub's navy and blue with its logo and tips of its own, the pause menu in the same colours
+  with Omsi-Hub's name and mark and the lines "My duty" and "Messages", and the navigator's map in
+  navy. Switching the plugin on chooses it once (`skin=omsihub` in openOMSI's settings; Settings,
+  "Screen and navigator", gives openOMSI's own look back), switching it off takes it out. It needs
+  an openOMSI with skins (`docs/openomsi-patches/`, proposed to openOMSI); an older one simply
+  keeps its own look.
+- **The navigator as one unit**, laid out as a phone: under openOMSI's map a status line (the
+  line's plate, where the trip goes, on time or how late, the clock) and five tabs - Navigate
+  (the next stops and what comes after this trip), Stops (every stop still to come), Trips (the
+  duty's trips, the one under way marked, the next break and relief), Duty (signing on where the
+  company asks for it, the duty order, start and sign off, the notes and the walk-around) and
+  Messages (the control room's messages, answered there; a new one shows its count on the tab,
+  an instruction opens it). At a terminus with time to spare the **break clock** comes up by
+  itself and counts down to the next departure. It fits the navigator: a narrow one gets the
+  tabs as icons, a short one only the status line and the one thing that matters now. F9 opens
+  the Messages tab. An openOMSI without the navigator's board keeps the panels of before.
 - **Windows blocking openOMSI** (Smart App Control, "os error 4551"): Omsi-Hub takes the
   "downloaded from the internet" mark off openOMSI's program and its libraries before it starts
   them, and where Windows still refuses it, says so and what can be done.
@@ -38,14 +55,21 @@ never changes their files.
   of before keep the yard they rented.
 - **The depot's look**: its walls', roofs', trims' and doors' own colours, and walls of steel
   cladding, brick or plaster.
+- **The depot over the whole page**: the yard in 3D fills the page (full screen too), the Build
+  and workshop lists in a panel beside it. Click a building or its label for its card over it:
+  the next level, what can be added, move it or pull it down; the land to buy has its card, a bus
+  its jobs. The light follows the company's clock - morning sun from the east, a warm dusk, the
+  windows lit at night - and the town round it stays the same whatever you build.
+- **Rooms inside the buildings**, as in City Bus Manager: open the offices or a workshop bay from
+  its card and look inside, the roof off and the walls cut low; drag rooms out on its floor,
+  floor by floor in the offices - offices, a meeting room, rest rooms, lockers, toilets, a
+  reception, an archive; a tool store, a parts store, the mechanics' room and the foreman's
+  office at the back of a bay -, each furnished at once and paid by the square metre.
 - **The depot in its town**: streets with their pavements, worn road markings, zebra crossings,
   street lamps, trees and parked cars round it, the trading estate's halls next door and blocks
   of flats further out, their windows lit in the evening; the surfaces textured (asphalt, concrete,
   brick, the wash bay's tiles, the workshop's coated floor ...) with cracks, tyre tracks and oil
-  where they are used; and the company's people at work - mechanics at the buses in the bays,
-  cleaners in the wash lanes, drivers on their way to their buses -, each role a cartoon figure
-  of its own (the driver, the mechanic, the cleaner, the service employee, the inspector, the
-  researcher) that walks and, where it works, stands at ease.
+  where they are used.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.
@@ -80,8 +104,9 @@ never changes their files.
 - **The editors**: the timetable editor (a map's lines and tours) and the depot editor (depot files
   of your own, for the IBIS and the destination displays). What they write goes into openOMSI's
   content folder or Omsi-Hub's own data folder, never into the OMSI 2 folder.
-- **Online, optional**: an account (email or Google) for friends, the leaderboard and up to two
-  cloud saves. Without one, everything works offline.
+- **Online, optional**: an account (email or Google) for friends, the leaderboard and a cloud
+  save: one company kept online (a second one saved before stays there read only, to download or
+  remove). Without one, everything works offline.
 - **Windows, macOS (Apple silicon and Intel) and Linux** (an AppImage, or a `.deb` / `.rpm`).
 - **English and six translations**: Dutch, German, French, Russian, Ukrainian and Polish, as the old
   Omsi-Hub had them.
@@ -139,7 +164,8 @@ never changes their files.
 
 - **What needs a newer openOMSI plugin API** than the official releases have: the bus's own display
   font, the IBIS typed in for you, closed stops struck through on the navigator, and the duty board
-  docked in the navigator. The launcher shows which ones your openOMSI supports.
+  docked in the navigator. The launcher shows which ones your openOMSI supports. Omsi-Hub's
+  skin needs openOMSI's skins, proposed to openOMSI but not in a release yet.
 
 ### Good to know
 

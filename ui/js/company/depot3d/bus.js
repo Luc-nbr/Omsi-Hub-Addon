@@ -95,8 +95,9 @@ export function pickBus(buses, o, d) {
     const oz = o[2] - b.z;
     const lo = [c * ox - s * oz, o[1], s * ox + c * oz];
     const ld = [c * d[0] - s * d[2], d[1], s * d[0] + c * d[2]];
-    const min = [-HALF - 0.3, 0, -b.len / 2 - 0.3];
-    const max = [HALF + 0.3, b.height + 0.4, b.len / 2 + 0.3];
+    // (a little larger than the bus, to be easy to hit: not as far as the next space)
+    const min = [-HALF - 0.6, 0, -b.len / 2 - 0.9];
+    const max = [HALF + 0.6, b.height + 0.9, b.len / 2 + 0.9];
     let t0 = 0;
     let t1 = Infinity;
     for (let i = 0; i < 3; i++) {

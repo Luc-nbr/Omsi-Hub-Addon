@@ -62,8 +62,9 @@ What changed for the app's client ("The app's side" below):
   `/verify` with `type=email|recovery`, `/resend`, `/recover`, `PUT /user`, `/logout?scope=...`),
   the access token renewed with the refresh token;
 - the functions: the same names and arguments at `/rest/v1/rpc/<name>`, plus `report_stats`;
-- cloud saves: Storage objects under `saves/users/<user id>/slot1|slot2/` instead of the `saves`
-  function; deleting the account removes them first, then calls `delete_my_account`.
+- cloud saves: Storage objects under `saves/users/<user id>/slot1/` (a `slot2/` of before, when
+  an account had two, read and deleted only) instead of the `saves` function; deleting the account
+  removes them first, then calls `delete_my_account`.
 
 ### Google
 
@@ -321,18 +322,19 @@ sign in on. The code is `online/functions/saves/` (how to deploy: `online/README
 
 ### Cloud saves and local saves
 
-- **The limit of 2 companies applies to cloud saves only.** A player can always create more
+- **The limit of 1 company applies to cloud saves only** (it was 2 before; a second save of then
+  stays read only: "A save of before" under "Cloud saves in the app"). A player can always create more
   companies as **local saves**. Local saves are unlimited and stay on that PC only. A local company
   is a full company: it can host company multiplayer like any other.
 - When `upload_begin` answers `{error:'limit'}`, the app never blocks the company itself. It offers:
   - **keep it local**: the company goes on as a local save;
-  - **replace one of your 2 cloud saves**: the app deletes that slot (`delete`) and uploads into it.
+  - **replace your cloud save**: the app deletes the slot (`delete`) and uploads into it.
 - Without an account everything is local, as before.
 
 ### How it works
 
 - The save files sit in the **private** object-storage bucket `saves`, under
-  `users/<user id>/slot<1|2>/`:
+  `users/<user id>/slot1/`:
   - `v<version>.omsave` is the save file, compressed by the app with zstd before upload. The
     object's `x-amz-meta-*` headers carry the company name (URL-encoded), the sha256, the promised
     size and the device name.
@@ -351,7 +353,7 @@ Every route is `POST <function URL><route>` with a JSON body (`{}` when it takes
 
 | Route | Body | Answer |
 |---|---|---|
-| `list` | `{}` | `max_slots: 2`, `max_bytes`, `slots: [{slot, empty}` or `{slot, empty:false, name, version, size, sha256, updated_at, device, versions}]` |
+| `list` | `{}` | `max_slots: 1`, `max_bytes`, `slots: [{slot, empty}` or `{slot, empty:false, name, version, size, sha256, updated_at, device, versions}]` |
 | `upload_begin` | `{slot?, name, size, sha256, base_version, device?}` | `{slot, version, method:'PUT', url, headers, expires_in:600}` |
 | `upload_commit` | `{slot, version, sha256?}` | the slot as in `list`, plus `committed:true` |
 | `download` | `{slot, version?}` | `{slot, version, name, size, sha256, method:'GET', url, expires_in:600}` |
@@ -359,8 +361,8 @@ Every route is `POST <function URL><route>` with a JSON body (`{}` when it takes
 | `delete_all` | `{}` | `{deleted}` |
 
 - **`upload_begin`**:
-  - no `slot`: the first free slot is used. With both slots taken the answer is
-    `409 {error:'limit', max_slots:2}` (see above).
+  - no `slot`: the slot is used if it is free. With it taken the answer is
+    `409 {error:'limit', max_slots:1}` (see above).
   - `base_version` is the version the app last synced: `0` for a company that is not in the cloud
     yet. When it is not the current version, the answer is `409 {error:'conflict', current:{...}}`
     with the slot as it is now; the app then asks the player which copy to keep.
@@ -381,9 +383,10 @@ Every route is `POST <function URL><route>` with a JSON body (`{}` when it takes
 
 ### Limits
 
-- 2 companies (slots) per account, in the cloud only;
+- 1 company (slot) per account, in the cloud only;
 - at most 25 MB per save, after zstd compression;
-- the last 3 versions of each company are kept, so an account uses at most 2 × 3 × 25 MB;
+- the last 3 versions of the company are kept, so an account uses at most 3 × 25 MB (twice that
+  with a save of before);
 - the presigned URLs are valid for 10 minutes;
 - 60 requests a minute per player, counted per function instance (in memory);
 - a request body of at most 4 KB; company and device names of at most 64 characters.
@@ -400,8 +403,9 @@ Every route is `POST <function URL><route>` with a JSON body (`{}` when it takes
 - **Isolation.** The storage prefix is built only from the token's verified `sub` (the user id),
   never from the request, so a player can never reach another player's files. Each presigned URL
   is for one key and one method, and lasts 10 minutes.
-- **Validation.** Every input is checked: slot 1 or 2, versions as integers, sha256 as 64 hex
-  characters, the size, name lengths, no control characters, and no unknown fields.
+- **Validation.** Every input is checked: slot 1 (2 of before: read and deleted only), versions
+  as integers, sha256 as 64 hex characters, the size, name lengths, no control characters, and no
+  unknown fields.
 - **No browser access.** The function sends no CORS headers: the app calls it from Rust, never
   from the page's JS.
 - **Errors and logs.** The errors are generic codes. The log holds the route, the status and a
@@ -516,13 +520,14 @@ exchange, with the same redirect globs (`STANDIN_REDIRECTS`); the example
 
 ### The cloud saves (Supabase Storage)
 
-`crates/omsihub-online/src/saves.rs`: the bucket `saves`, the player's folder `users/<user id>/`, two
-slots. A slot holds `v<version>.omsave` (the company's archive compressed with zstd, level 12; the
+`crates/omsihub-online/src/saves.rs`: the bucket `saves`, the player's folder `users/<user id>/`, one
+slot (`slot1`; a `slot2` of before, from when an account had two, is listed, downloaded and deleted
+but never written: `read_only`). A slot holds `v<version>.omsave` (the company's archive compressed with zstd, level 12; the
 last 3 versions) and `meta.json` (the company's name, the device, and each kept version's size,
 sha256 and time). An upload is three steps: `saves_upload_begin` reads `meta.json` and holds the
 version it was made from (`base_version`, 0 for a company not in the cloud yet) against it, another
-one answering `conflict` with the slot as it is now, and with both slots taken an upload without a
-slot answers `limit`; `Transfer::put` sends the file (`POST /storage/v1/object/saves/<path>`,
+one answering `conflict` with the slot as it is now, and with the slot taken an upload without a
+slot answers `limit` (into the slot of before, `read_only`); `Transfer::put` sends the file (`POST /storage/v1/object/saves/<path>`,
 `x-upsert: true`) with the access token the begin fetched, outside the client's lock; then
 `saves_upload_commit` writes `meta.json` (unless another computer committed since: `conflict`) and
 deletes the versions past the last 3. The file goes first and `meta.json` after it, so a
@@ -560,12 +565,18 @@ the client's lock), a company's archive `crates/omsi-launcher-core/src/company/c
 - **Uploading**: a changed cloud company goes up when its pages are left, every ten minutes
   while it changes, and after a start; always on top of the version last synced, so another
   computer's newer version is a conflict, never overwritten.
-- **The limit**: "Put this company in the cloud" with both slots taken offers "Keep it local" or
+- **The limit**: "Put this company in the cloud" with the slot taken offers "Keep it local" or
   "Replace <name>" (armed by a second click); the replaced company stays on this PC as a local
   save. Local companies are never blocked and can host company multiplayer.
-- Deleting the account deletes the cloud saves (every file of both slots) after the password is
-  checked and before `delete_my_account()`; a failure stops it before the account is deleted.
-  Every company here is local afterwards.
+- **A save of before**: an account had two slots until the limit became one. A save left in the
+  second is shown read only ("From before the limit of one"): it can be downloaded (a company of it
+  that changed on this PC is kept, the cloud's comes as a company of its own) or removed, never
+  updated; a company of it here is "Cloud save of before: not synced" and can be put in the cloud,
+  into the one slot. The bucket's policy writes `slot1` only (the website's migration
+  `saves_one_slot`).
+- Deleting the account deletes the cloud saves (every file of the slot and of a slot of before)
+  after the password is checked and before `delete_my_account()`; a failure stops it before the
+  account is deleted. Every company here is local afterwards.
 
 ### Online state and invites
 

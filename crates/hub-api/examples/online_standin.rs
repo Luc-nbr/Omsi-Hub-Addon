@@ -7,10 +7,10 @@
 //!
 //! An account made on "the website", signed in through `ol_verify` without the privacy statement
 //! agreed to (the account and the cloud wait), then agreed to (`ol_privacy_accept`); the display
-//! name; the leaderboard switched on and a service record reported; three companies, two put in
-//! the cloud and the third meeting the limit, then replacing one; a change going up; another
-//! computer's newer version offered and taken; changes on both sides asked and both kept; a slot
-//! downloaded; one removed; the account deleted with its cloud saves. Then Google through the
+//! name; the leaderboard switched on and a service record reported; two companies, one put in
+//! the cloud and the second meeting the limit; a change going up; another computer's newer
+//! version offered and taken; changes on both sides asked and both kept; the second replacing
+//! the first, downloaded and removed; the account deleted with its cloud save. Then Google through the
 //! loopback (the stand-in's "browser" answers at once), its privacy statement accepted before,
 //! and that account deleted without a password.
 
@@ -144,24 +144,17 @@ fn main() {
     assert_eq!((me["points"].as_u64(), me["km"].as_u64()), (Some(4321), Some(250)), "{board}");
     step("the display name changed; on the leaderboard, the record reported once in 30 seconds, read by the website");
 
-    // --- two companies into the cloud, the third meets the limit --------------------------------
-    let (a, b, c) = (company(&data, "Stadtbus Nord"), company(&data, "Regio Süd"), company(&data, "Dritter Betrieb"));
+    // --- a company into the cloud, the second meets the limit --------------------------------------
+    let (a, b) = (company(&data, "Stadtbus Nord"), company(&data, "Regio Süd"));
     let companies = call("cs_companies", json!({}));
-    assert_eq!(companies.as_array().map(Vec::len), Some(3), "{companies}");
-    for (id, slot) in [(&a, 1), (&b, 2)] {
-        let r = call("cs_put", json!({ "id": id }));
-        assert_eq!(r["slot"], slot, "{r}");
-    }
-    let r = call("cs_put", json!({ "id": c }));
-    assert_eq!((r["limit"].as_bool(), r["slots"].as_array().map(Vec::len)), (Some(true), Some(2)), "{r}");
+    assert_eq!(companies.as_array().map(Vec::len), Some(2), "{companies}");
+    let r = call("cs_put", json!({ "id": a }));
+    assert_eq!(r["slot"], 1, "{r}");
+    let r = call("cs_put", json!({ "id": b }));
+    assert_eq!((r["limit"].as_bool(), r["slots"].as_array().map(Vec::len), r["slots"][0]["name"].as_str()), (Some(true), Some(1), Some("Stadtbus Nord")), "{r}");
     assert_eq!(badge(&a, "synced")["state"], "synced");
-    step("two companies in the cloud; the third is offered keep-local or replace");
-    let r = call("cs_put", json!({ "id": c, "replace": 2 }));
-    assert_eq!(r["slot"], 2, "{r}");
     assert_eq!(badge(&b, "local")["state"], "local");
-    let slots = call("cs_state", json!({}))["slots"].clone();
-    assert_eq!((slots[1]["name"].as_str(), slots[1]["linked"].as_str()), (Some("Dritter Betrieb"), Some(c.as_str())), "{slots}");
-    step("the third replaced the second, which stays here as a local save");
+    step("a company in the cloud; the second is offered keep-local or replace");
 
     // --- a change goes up --------------------------------------------------------------------------
     change(&data, &a, 1000);
@@ -201,16 +194,23 @@ fn main() {
     assert_eq!(badge(&copy, "local")["state"], "local");
     step("changes on both sides are asked; both kept, this PC's as a local copy");
 
-    // --- a slot downloaded, one removed --------------------------------------------------------------
-    std::fs::remove_file(hub_api::cloud::files::path_of(&data, &c)).unwrap();
-    let r = call("cs_download", json!({ "slot": 2 }));
+    // --- the second replaces the first; downloaded, removed ------------------------------------------
+    let r = call("cs_put", json!({ "id": b, "replace": 1 }));
+    assert_eq!(r["slot"], 1, "{r}");
+    assert_eq!(badge(&a, "local")["state"], "local");
+    let slots = call("cs_state", json!({}))["slots"].clone();
+    assert_eq!((slots[0]["name"].as_str(), slots[0]["linked"].as_str()), (Some("Regio Süd"), Some(b.as_str())), "{slots}");
+    std::fs::remove_file(hub_api::cloud::files::path_of(&data, &b)).unwrap();
+    let r = call("cs_download", json!({ "slot": 1 }));
     let got = r["reread"].as_str().unwrap_or_else(|| panic!("{r}")).to_string();
-    assert_eq!(hub_api::cloud::files::load(&data, &got).unwrap()["name"], "Dritter Betrieb");
-    let r = call("cs_remove", json!({ "slot": 2 }));
+    assert_eq!(hub_api::cloud::files::load(&data, &got).unwrap()["name"], "Regio Süd");
+    let r = call("cs_remove", json!({ "slot": 1 }));
     assert!(r["ok"].as_bool() == Some(true), "{r}");
-    assert!(other.saves_list().unwrap().slots[1].empty);
+    assert!(other.saves_list().unwrap().slots[0].empty);
     assert!(hub_api::cloud::files::path_of(&data, &got).exists(), "the company here stays, local");
-    step("a cloud slot downloaded to this PC; one removed from the cloud, kept here");
+    step("the second replaced the first, which stays here as a local save; downloaded to this PC, removed from the cloud, kept here");
+    let r = call("cs_put", json!({ "id": a }));
+    assert_eq!(r["slot"], 1, "{r}");
 
     // --- the account deleted with its cloud saves ---------------------------------------------------
     let r = call("ol_delete", json!({ "password": "not it" }));
@@ -221,7 +221,7 @@ fn main() {
     assert_eq!(call("cs_state", json!({}))["companies"], json!({}), "every company here is local");
     assert_eq!(call("ol_state", json!({}))["mode"], "out");
     assert!(other.sign_in(&email, password).is_err());
-    step("the account deleted with its cloud saves; every company here is local");
+    step("the account deleted with its cloud save; every company here is local");
 
     // --- Google, through the loopback ------------------------------------------------------------------
     assert_eq!(call("ol_oauth", json!({}))["code"], "privacy", "only after the statement's question");

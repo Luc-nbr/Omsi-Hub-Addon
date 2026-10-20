@@ -99,6 +99,8 @@ pub const FIELDS: &[Field] = &[
     field("Screen and navigator", "nav_light", "Navigator in a light look", Kind::Switch),
     field("Screen and navigator", "nav_ai", "Other vehicles on the navigator", Kind::Switch),
     field("Screen and navigator", "nav_surface", "Water, land and rail on the navigator", Kind::Switch),
+    // (a plugin's skin, docs/PLUGINS.md "Skins": Omsi-Hub's comes with its plugin)
+    field("Screen and navigator", "skin", "Look of the loading screen and the pause menu", Kind::Choice(&[("omsihub", "Omsi-Hub")])),
     // the language of the game
     field("Language", "language", "The game's language", Kind::Choice(&[("ENG", "English"), ("DEU", "Deutsch"), ("FRA", "Français")])),
     // sound and the radio
@@ -267,6 +269,29 @@ pub fn set(path: &Path, key: &str, value: Option<&str>) -> Result<Option<String>
     Ok(value)
 }
 
+/// The skin the plugin brings (its folder's name).
+pub const OWN_SKIN: &str = "omsihub";
+
+/// Omsi-Hub's skin put in use in the settings file at `path`, unless another one is chosen there.
+/// Returns whether it is Omsi-Hub's now.
+pub fn offer_skin(path: &Path) -> Result<bool, String> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    match value(&text, "skin").map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => Ok(v == OWN_SKIN),
+        None => set(path, "skin", Some(OWN_SKIN)).map(|_| true),
+    }
+}
+
+/// Omsi-Hub's skin taken out of the settings file at `path` (another one chosen there stays).
+/// Returns whether it was taken out.
+pub fn take_skin(path: &Path) -> Result<bool, String> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    if value(&text, "skin").map(str::trim) != Some(OWN_SKIN) {
+        return Ok(false);
+    }
+    set(path, "skin", None).map(|_| true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,6 +362,25 @@ mod tests {
         std::fs::write(&p, b"msaa=4\nname=M\xfcller\n").unwrap();
         assert!(set(&p, "msaa", Some("2")).unwrap_err().contains("not plain text"));
         assert_eq!(std::fs::read(&p).unwrap(), b"msaa=4\nname=M\xfcller\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn omsi_hub_s_skin_is_put_in_once_and_another_one_is_left_alone() {
+        let dir = std::env::temp_dir().join(format!("hub-game-skin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = path(&dir);
+        assert_eq!(offer_skin(&p), Ok(true), "no file: made with the skin");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "skin=omsihub\n");
+        assert_eq!(take_skin(&p), Ok(true));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "");
+        std::fs::write(&p, "msaa=4\r\nskin=mybus\r\n").unwrap();
+        assert_eq!(offer_skin(&p), Ok(false), "the player's own choice");
+        assert_eq!(take_skin(&p), Ok(false));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "msaa=4\r\nskin=mybus\r\n");
+        std::fs::write(&p, "msaa=4\r\nskin=\r\n").unwrap();
+        assert_eq!(offer_skin(&p), Ok(true), "an empty one is none");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "msaa=4\r\nskin=omsihub\r\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,10 +1,11 @@
 // Omsi-Hub's cloud saves, the page's side (docs/ONLINE.md "Cloud saves"; the Rust side is
 // crates/hub-api/src/cloud.rs): a company tile's badge - cloud or local, and how its sync stands
 // -, the question asked before a cloud company opens (a newer version in the cloud, or both
-// copies changed), and the account panel's "Cloud saves": the 2 slots, downloading, removing, and
-// putting a company in the cloud (both slots taken: keep it local, or replace one). Signed out
-// or offline everything is local and nothing here says more than that quietly. The page never
-// talks to the cloud itself: Rust does, and answers `cs_state` from what it last fetched.
+// copies changed), and the account panel's "Cloud saves": the one slot (a second of before read
+// only), downloading, removing, and putting a company in the cloud (the slot taken: keep it
+// local, or replace the one in it). Signed out or offline everything is local and nothing here
+// says more than that quietly. The page never talks to the cloud itself: Rust does, and answers
+// `cs_state` from what it last fetched.
 //
 // For the company port: `CloudBadge` on a company's tile, `cloudBeforeOpen(id)` before a company
 // opens, and `cs_sync {id}` when its pages are left. After a download or a choice the answer's
@@ -60,7 +61,7 @@ export function useCloud() {
   return v;
 }
 
-const ICONS = { synced: 'cloud', uploading: 'upload', newer: 'cloud_download', conflict: 'sync_alt', offline: 'cloud', error: 'error', local: 'save' };
+const ICONS = { synced: 'cloud', uploading: 'upload', newer: 'cloud_download', conflict: 'sync_alt', offline: 'cloud', error: 'error', read_only: 'lock', local: 'save' };
 
 /** A company tile's badge: a local save, or a cloud save with how its sync stands. */
 export function CloudBadge({ cloud, id }) {
@@ -154,7 +155,8 @@ export async function cloudBeforeOpen(id) {
 
 // --- the account panel's "Cloud saves" ----------------------------------------------------------------
 
-/** The 2 slots, a local company to put in the cloud, and the limit's offer. */
+/** The one slot (and a second of before, read only: downloaded or removed, never updated), a
+ * local company to put in the cloud - one of that slot of before too -, and the limit's offer. */
 export function CloudSaves() {
   const v = useCloud();
   const [companies, setCompanies] = useState([]);
@@ -190,19 +192,20 @@ export function CloudSaves() {
     setLimit(r.limit ? { id, text: r.text, slots: r.slots } : null);
     if (r.ok) setPick('');
   };
-  const local = companies.filter((c) => !v.companies?.[c.id]);
+  const local = companies.filter((c) => !v.companies?.[c.id] || v.companies[c.id].state === 'read_only');
   const chosen = pick && local.some((c) => c.id === pick) ? pick : local[0]?.id || '';
   const slots = v.slots || [];
   return html`<section class="hubcs-panel">
-    <div class="ol-caps"><b>${tr('Cloud saves')}</b><span>${tr('%{n} of %{max} used', { n: slots.filter((s) => !s.empty).length, max: v.max_slots || 2 })}</span></div>
+    <div class="ol-caps"><b>${tr('Cloud saves')}</b><span>${tr('%{n} of %{max} used', { n: slots.filter((s) => !s.empty && !s.read_only).length, max: v.max_slots || 1 })}</span></div>
     ${v.offline && html`<p class="hubcs-quiet"><${Icon} name="cloud" size=${14} />${tr('Offline: your companies play on as local saves and sync when the network is back.')}</p>`}
     ${!v.listed && !v.offline && html`<p class="hubcs-quiet">…</p>`}
-    ${slots.map((s) => html`<div class=${'hubcs-slot' + (s.empty ? ' empty' : '')}>
+    ${slots.map((s) => html`<div class=${'hubcs-slot' + (s.empty ? ' empty' : '') + (s.read_only ? ' old' : '')}>
       <span class="hubcs-num">${s.slot}</span>
       ${s.empty
         ? html`<div class="hubcs-who"><b>${tr('Empty slot')}</b><span>${tr('Put a company in the cloud to play it on every PC you sign in on.')}</span></div>`
         : html`<div class="hubcs-who"><b class="hubcs-cut">${s.name}</b><span class="hubcs-cut">${size(s.size)} · ${tr('Last sync %{when}', { when: when(s.at) })}${s.device ? ' · ' + s.device : ''}</span>
-            ${!s.linked && html`<span class="hubcs-cut">${tr('Not on this PC')}</span>`}</div>
+            ${!s.linked && html`<span class="hubcs-cut">${tr('Not on this PC')}</span>`}
+            ${s.read_only && html`<span class="hubcs-old"><${Icon} name="lock" size=${12} />${tr('From before the limit of one: it can be downloaded or removed, no longer updated.')}</span>`}</div>
           <span class="hubcs-btns">
             <button type="button" class="ol-btn-x" disabled=${busy} onClick=${() => run('cs_download', { slot: s.slot })}><${Icon} name="cloud_download" size=${14} />${tr('Download to this PC')}</button>
             <${Sure} icon="delete" label=${tr('Remove from the cloud')} sure=${tr('Remove for good?')} busy=${busy} onClick=${() => run('cs_remove', { slot: s.slot })} />
@@ -223,6 +226,6 @@ export function CloudSaves() {
       </div>
       <p class="hubcs-note">${tr('Replacing removes that company from the cloud. Its copy on this PC, if any, stays as a local save.')}</p>
     </div>`}
-    <p class="hubcs-note">${tr('At most 2 companies in the cloud. Every other company is a local save on this PC: unlimited, and it can still host company multiplayer.')} <${PrivacyLink} /></p>
+    <p class="hubcs-note">${tr('One company in the cloud. Every other company is a local save on this PC: unlimited, and it can still host company multiplayer.')} <${PrivacyLink} /></p>
   </section>`;
 }

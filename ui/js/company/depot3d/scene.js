@@ -16,12 +16,15 @@
 import { Mesh } from './mesh.js';
 import { MAT } from './palette.js';
 import { buildTown, seeded, tree } from './city.js';
+import { CUT, bayInside, floorY, officesInside, roomsMesh } from './inside.js';
 
 export const AREAS = { parking: 1, workshop: 2, wash: 3, fuel: 4, charging: 5, offices: 6, land: 7 };
 
 /** A bus's length in metres by its size (`BusSize`). */
 const LENGTH = { midi: 10.5, solo: 12, articulated: 18, double: 11.5 };
 const VERGE = 16;
+/** How tall each area's module stands (its ghost in the build mode, its card over it). */
+export const TALL = { parking: 0.6, workshop: 8.5, wash: 6, fuel: 6.5, offices: 8 };
 
 /** A module's frame onto the yard: its own (lx, y, lz), lw wide and ld deep, turned `rot` with
  * its corner at (x0, z0). */
@@ -32,11 +35,14 @@ export function frame(rot, x0, z0, lw, ld) {
   return { pt, dir, heading: (h) => h + (k * Math.PI) / 2 };
 }
 
-/** The yard: `{ mesh, decals, buses, labels, bounds, world, picks }` (`picks`: each module's
- * place in metres, to point at; `bounds` the depot's plot, `world` the town's). `pal` is the
- * look's palette (`palette.js`), `level` how finely it is drawn (`quality.js`: without trees at
- * the lowest, the town smaller). */
-export function buildScene(p, pal, level = { trees: true, town: 2 }) {
+/** The yard: `{ mesh, decals, buses, labels, bounds, world, picks, land }` (`picks`: each
+ * module's place in metres and its height, to point at; `bounds` the depot's plot, `world` the
+ * town's; `land` the land to buy, if any). `pal` is the look's palette (`palette.js`), `level`
+ * how finely it is drawn (`quality.js`: without trees at the lowest, the town smaller). The
+ * town and the marks of use are drawn from the company's `p.seed`. `inside` (`{ id, floor }`)
+ * a building opened: drawn as its inside on that floor with its rooms (`inside.js`), the
+ * rooms labelled in place of the buildings. */
+export function buildScene(p, pal, level = { trees: true, town: 2 }, inside = null) {
   const L = p.layout;
   const cell = L.cell;
   const m = new Mesh();
@@ -58,19 +64,24 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
   const bz0 = -VERGE;
   const bz1 = street.z1 + 6;
   const gate = { x0: L.gate.x * cell, x1: (L.gate.x + L.gate.w) * cell };
-  const world = buildTown(m, marks, { plot: { x0: bx0, x1: bx1, z0: bz0, z1: street.z0 }, street, gate }, pal, level, 7 + L.max_cols * 13);
+  const world = buildTown(m, marks, { plot: { x0: bx0, x1: bx1, z0: bz0, z1: street.z0 }, street, gate }, pal, level, p.seed ?? 7 + L.max_cols * 13);
   m.flat(0, 0, W, D, 0.02, pal.asphalt);
   // the land still to buy: its edge marked, a label to say so
   if (MW > W) {
     m.dashed(W + 1, 1, MW - 1, D - 1, pal.plot, AREAS.land, { w: 0.35 });
     for (let z = 4; z < D - 2; z += 12) m.box(MW - 1.2, 0, z, MW - 1, 1.2, z + 0.2, pal.fence, { area: AREAS.land });
-    if (L.land) labels.push({ key: 'land', pos: [(W + Math.min(MW, W + 40)) / 2, 2.5, D / 2], built: false, works: null });
+    if (L.land && !inside) labels.push({ key: 'land', pos: [(W + Math.min(MW, W + 40)) / 2, 2.5, D / 2], built: false, works: null });
   }
   m.flat(gate.x0, D, gate.x1, street.z0 - 2.5, 0.03, pal.asphalt);
   // the yard's wear: the tracks from the gate, cracks here and there
-  const wear = seeded(11 + L.cols * 7 + L.rows);
+  // (strewn over all the land there could be, the ones on the land owned drawn: buying more
+  // leaves those there where they were)
+  const wear = seeded((p.seed ?? 1) ^ 0x2c1b3c6d);
   marks.decal((gate.x0 + gate.x1) / 2, D - 6, gate.x1 - gate.x0, 18, 0, MAT.tyres, 0.5);
-  for (let k = 0; k < (W * D) / 900; k++) marks.decal(2 + wear() * (W - 4), 2 + wear() * (D - 4), 3 + wear() * 4, 3 + wear() * 4, wear() * 6, MAT.cracks, 0.35 + wear() * 0.4);
+  for (let k = 0; k < (MW * D) / 900; k++) {
+    const [x, z, w, l, turn, st] = [2 + wear() * (MW - 4), 2 + wear() * (D - 4), 3 + wear() * 4, 3 + wear() * 4, wear() * 6, 0.35 + wear() * 0.4];
+    if (x < W - 2) marks.decal(x, z, w, l, turn, MAT.cracks, st);
+  }
   // the fence round the yard, open at the gate; a gatehouse beside it
   const post = (x, z) => m.box(x - 0.08, 0, z - 0.08, x + 0.08, 1.9, z + 0.08, pal.fence);
   const rail = (x0, z0, x1, z1) => m.box(Math.min(x0, x1) - 0.04, 1.75, Math.min(z0, z1) - 0.04, Math.max(x0, x1) + 0.04, 1.85, Math.max(z0, z1) + 0.04, pal.fence);
@@ -101,10 +112,22 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
     const lm = new Mesh();
     draw(lm, { x0: 0, x1: lw, z0: 0, z1: ld }, f);
     m.append(lm, f);
-    picks.push({ id: o.id, area: o.area, title: o.title, what: o.what, works: o.works, building: o.building, rot: o.rot, x0: o.x * cell, z0: o.y * cell, x1: (o.x + o.w) * cell, z1: (o.y + o.h) * cell });
+    picks.push({ id: o.id, area: o.area, title: o.title, what: o.what, works: o.works, building: o.building, rot: o.rot, x0: o.x * cell, z0: o.y * cell, x1: (o.x + o.w) * cell, z1: (o.y + o.h) * cell, h: o.building ? 4 : o.area === 'parking' ? 3.2 : TALL[o.area] || 4 });
     return f;
   };
-  const tag = (key, f, lx, y, lz, o) => labels.push({ key, head: o.title, pos: f.pt([lx, y, lz]), built: !o.building, works: o.works });
+  const tag = (key, f, lx, y, lz, o) => !inside && labels.push({ key, id: o.id, head: o.title, pos: f.pt([lx, y, lz]), built: !o.building, works: o.works });
+  /** The rooms of the building opened, on its floor: drawn at `y`, each labelled. */
+  const rooms = (mm, o, y) => {
+    const list = (o.rooms || []).filter((x) => x.floor === inside.floor);
+    roomsMesh(mm, list, shape(o.area).inside, y, pal);
+    return list;
+  };
+  const roomTags = (list, f, o, y) => {
+    for (const x of list) {
+      const kind = (L.rooms?.[o.area] || []).find((k) => k.key === x.kind);
+      labels.push({ key: 'room', id: x.id, kind: x.kind, icon: kind?.icon, head: kind?.label || x.kind, pos: f.pt([x.x + x.w / 2, y + CUT + 0.6, x.y + x.h / 2]), built: true, works: null });
+    }
+  };
   // building work: an amber outline, a site fence and a crane's mast
   const works = (mm, r, area, h = 4) => {
     mm.dashed(r.x0, r.z0, r.x1, r.z1, pal.warn, area, { w: 0.4 });
@@ -118,10 +141,22 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
     tag(o.area, f, (s.w * cell) / 2, 8, (s.h * cell) / 2, o);
   }
 
-  // the offices: a storey a level, windows round every floor, lit at night
+  // the offices: a storey a level, windows round every floor, lit at night; opened, the floor
+  // chosen with its rooms
   for (const o of of('offices')) {
     const floors = Math.max(1, p.offices.floors || 1);
     const h = 1 + floors * 3.6;
+    if (inside?.id === o.id) {
+      const y = floorY(inside.floor);
+      let list = [];
+      const f = put(o, (mm, r) => {
+        officesInside(mm, r, pal, inside.floor, AREAS.offices);
+        list = rooms(mm, o, y);
+      });
+      picks[picks.length - 1].h = y + CUT;
+      roomTags(list, f, o, y);
+      continue;
+    }
     const f = put(o, (mm, r) => {
       const A = AREAS.offices;
       mm.box(r.x0, 0, r.z0 + 4, r.x1, h, r.z1, pal.wall, { area: A, top: pal.roof });
@@ -149,6 +184,7 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
       if (up.has('solar')) for (let z = r.z0 + 11; z < r.z1 - 8; z += 2.2) for (let x = r.x0 + 1.5; x < r.x1 - 9; x += 3.4) mm.box(x, h + 0.3, z, x + 3, h + 0.45, z + 1.7, pal.solar, { area: A });
       if (o.works) works(mm, r, A, h);
     });
+    picks[picks.length - 1].h = h + 1;
     tag('offices', f, 10, h + 3, 14, o);
   }
 
@@ -157,6 +193,18 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
   const H = 8.5;
   const bays = of('workshop');
   bays.forEach((o, k) => {
+    if (inside?.id === o.id) {
+      let list = [];
+      const f = put(o, (mm, r) => {
+        bayInside(mm, r, pal, AREAS.workshop);
+        list = rooms(mm, o, 0.05);
+      });
+      picks[picks.length - 1].h = CUT;
+      roomTags(list, f, o, 0.05);
+      const bus = p.in_ws[k];
+      if (bus) buses.push(place(bus, f, 4, 15, 'workshop'));
+      return;
+    }
     const f = put(o, (mm, r, fr) => {
       const t = 0.5;
       const A = AREAS.workshop;
@@ -283,6 +331,7 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
   let n = 0;
   of('parking').forEach((o, k) => {
     const first = n;
+    const oil = seeded((p.seed ?? 1) ^ Math.imul(o.id + 1, 2246822519));
     const f = put(o, (mm, r, fr) => {
       const sw = (r.x1 - r.x0) / per;
       for (let s = 0; s <= per; s++) mm.flat(r.x0 + s * sw - 0.07, r.z0, r.x0 + s * sw + 0.07, r.z1, 0.05, pal.paint, AREAS.parking);
@@ -307,7 +356,7 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
           mm.box(x - 0.5, 8.7, r.z1 + 0.2, x + 0.5, 9.1, r.z1 + 0.84, pal.lamp, { glow: 1 });
         }
       // (oil where the buses stand)
-      for (let s = 0; s < per; s++) if (wear() < 0.6) marks.append(mark(r.x0 + (s + 0.5) * sw, (r.z0 + r.z1) / 2 + (wear() - 0.5) * 4, 1.8 + wear() * 1.4, 2.4 + wear() * 1.6, wear() * 6, MAT.oil, 0.5 + wear() * 0.4), fr);
+      for (let s = 0; s < per; s++) if (oil() < 0.6) marks.append(mark(r.x0 + (s + 0.5) * sw, (r.z0 + r.z1) / 2 + (oil() - 0.5) * 4, 1.8 + oil() * 1.4, 2.4 + oil() * 1.6, oil() * 6, MAT.oil, 0.5 + oil() * 0.4), fr);
       for (let s = 0; s < per; s++) {
         if (first + s >= pk.chargers) break;
         const cx = r.x0 + (s + 0.5) * sw;
@@ -329,7 +378,7 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
 
   // trees on the verge, round the land but not on the street
   if (level.trees) {
-    const rnd = seeded(7 + L.cols * 31 + L.rows);
+    const rnd = seeded((p.seed ?? 1) ^ 0x5bd1e995);
     for (let x = bx0 + 4; x < bx1 - 2; x += 7 + rnd() * 5) tree(m, pal, rnd, x, bz0 + 4 + rnd() * 6);
     for (let z = bz0 + 14; z < street.z0 - 6; z += 8 + rnd() * 6) {
       tree(m, pal, rnd, bx0 + 4 + rnd() * 7, z);
@@ -337,7 +386,7 @@ export function buildScene(p, pal, level = { trees: true, town: 2 }) {
     }
   }
 
-  return { mesh: m, decals: marks, buses, labels, picks, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, world, yard: { w: W, d: D } };
+  return { mesh: m, decals: marks, buses, labels, picks, bounds: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 }, world, yard: { w: W, d: D }, land: L.land && MW > W ? { x0: W, x1: MW, z0: 0, z1: D } : null };
 }
 
 /** A mark on the ground in a module's own frame (appended turned with it: `Mesh.decal`). */
@@ -371,7 +420,7 @@ export function ghostMesh(L, area, x, y, rot, pal) {
   const ld = s.h * cell;
   const f = frame(rot, x * cell, y * cell, lw, ld);
   const lm = new Mesh();
-  const h = { parking: 0.6, workshop: 8.5, wash: 6, fuel: 6.5, offices: 8 }[area] || 3;
+  const h = TALL[area] || 3;
   lm.box(0.2, 0.06, 0.2, lw - 0.2, h, ld - 0.2, pal.wall);
   lm.box(0.2, 0.06, ld - 0.6, lw - 0.2, Math.min(h, 1.2) + 0.05, ld - 0.2, pal.paint);
   if (s.front) lm.flat(0, ld, lw, ld + s.front * cell, 0.08, pal.paint);

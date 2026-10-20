@@ -14,16 +14,10 @@
 // some lit in the evening. The marks on the ground (cracks, tyre tracks, oil, manholes) are a
 // layer of their own over it, darkening what is under them. Without the picture (the lowest
 // level, or before it is there) everything is drawn in its plain colour.
-//
-// The people at work (`people.js`) are drawn as their roles' skinned figures (`figures.js`), one
-// draw a role for all of them: their clips' bone matrices a frame a row of a float texture, each
-// figure at its own frame, with a soft patch of shade on the ground under each. Until a role's
-// figure is there, its people are the one small model whose arms and legs swing.
 
 import { inverse, lookAt, mul, ortho, perspective, project, unit } from '../../hub/bus3d/math.js';
 import { STRIDE } from './mesh.js';
 import { INSTANCE, SKINNED } from './bus.js';
-import { FIGURE, PERSON } from './people.js';
 import { MAT, MATERIALS, WINDOWS } from './palette.js';
 
 /** The textures' picture: square layers one under the other. */
@@ -242,121 +236,6 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
-const FIGURE_VS = `#version 300 es
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNrm;
-layout(location=2) in vec2 aUv;
-layout(location=3) in uvec4 aJIdle;
-layout(location=4) in vec4 aWIdle;
-layout(location=5) in uvec4 aJWalk;
-layout(location=6) in vec4 aWWalk;
-layout(location=7) in vec4 aI;
-layout(location=8) in vec4 aF;
-uniform mat4 uVP, uLight;
-uniform highp sampler2D uBones;
-out vec3 vNrm;
-out vec2 vUv;
-out vec4 vSh;
-mat4 bone(uint j, int row) {
-  int x = int(j) * 3;
-  vec4 a = texelFetch(uBones, ivec2(x, row), 0);
-  vec4 b = texelFetch(uBones, ivec2(x + 1, row), 0);
-  vec4 c = texelFetch(uBones, ivec2(x + 2, row), 0);
-  return mat4(a.x, b.x, c.x, 0.0, a.y, b.y, c.y, 0.0, a.z, b.z, c.z, 0.0, a.w, b.w, c.w, 1.0);
-}
-mat4 skin(uvec4 j, vec4 w, int row) {
-  return bone(j.x, row) * w.x + bone(j.y, row) * w.y + bone(j.z, row) * w.z + bone(j.w, row) * w.w;
-}
-void main() {
-  bool walk = aF.z > 0.5;
-  uvec4 j = walk ? aJWalk : aJIdle;
-  vec4 wt = walk ? aWWalk : aWIdle;
-  mat4 m = skin(j, wt, int(aF.x)) * (1.0 - aI.w) + skin(j, wt, int(aF.y)) * aI.w;
-  // (as large as the plain figures: a little larger than life, so they are seen from above)
-  vec3 p = (m * vec4(aPos, 1.0)).xyz * 1.45;
-  vec3 n = mat3(m) * aNrm;
-  float c = cos(aI.z), s = sin(aI.z);
-  vec3 w = vec3(aI.x + c * p.x + s * p.z, p.y, aI.y - s * p.x + c * p.z);
-  vNrm = vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z);
-  vUv = aUv;
-  vSh = uLight * vec4(w, 1.0);
-  gl_Position = uVP * vec4(w, 1.0);
-}`;
-
-// The people at work (`people.js`): one figure for all of them, each turned and put where it is,
-// its legs and arms swinging as it walks (its arms only when it works where it stands).
-const PEOPLE_VS = `#version 300 es
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNrm;
-layout(location=2) in vec3 aCol;
-layout(location=3) in float aPart;
-layout(location=5) in vec4 aI0;
-layout(location=6) in vec4 aI1;
-uniform mat4 uVP, uLight;
-uniform float uTime;
-out vec3 vCol, vNrm;
-out vec4 vSh;
-void main() {
-  // (a little larger than life, so they are seen from above the yard)
-  vec3 p = aPos * 1.45;
-  float walking = aI1.w;
-  float swing = sin(uTime * 7.0 + aI0.w);
-  int part = int(aPart + 0.5);
-  // (the legs from the hip, the arms from the shoulder, each against the other)
-  if (part == 1 || part == 2) p.z += (0.99 - p.y) * swing * 0.55 * walking * (part == 1 ? 1.0 : -1.0);
-  float arms = walking > 0.5 ? swing * 0.45 : sin(uTime * 3.2 + aI0.w) * 0.35;
-  if (part == 4 || part == 5) p.z -= (1.64 - p.y) * arms * (part == 4 ? 1.0 : -1.0);
-  p.y += walking * abs(swing) * 0.03;
-  float c = cos(aI0.z), s = sin(aI0.z);
-  vec3 w = vec3(aI0.x + c * p.x + s * p.z, p.y, aI0.y - s * p.x + c * p.z);
-  vNrm = vec3(c * aNrm.x + s * aNrm.z, aNrm.y, -s * aNrm.x + c * aNrm.z);
-  vCol = part == 3 || ((part == 4 || part == 5) && aPos.y > 0.9) ? aI1.rgb : aCol;
-  vSh = uLight * vec4(w, 1.0);
-  gl_Position = uVP * vec4(w, 1.0);
-}`;
-
-const FIGURE_FS = `#version 300 es
-precision highp float;
-${LIGHT_FS}
-uniform sampler2D uTex;
-in vec3 vNrm;
-in vec2 vUv;
-in vec4 vSh;
-out vec4 o;
-void main() {
-  o = vec4(lit(texture(uTex, vUv).rgb, normalize(vNrm), vSh, 0.0), 1.0);
-}`;
-
-/** The patch of shade under a figure: a quad on the ground, darkest in its middle. */
-const SHADE_VS = `#version 300 es
-layout(location=0) in vec2 aCorner;
-layout(location=7) in vec4 aI;
-uniform mat4 uVP;
-out vec2 vC;
-void main() {
-  vC = aCorner;
-  gl_Position = uVP * vec4(aI.x + aCorner.x * 0.8, 0.08, aI.y + aCorner.y * 0.8, 1.0);
-}`;
-
-const SHADE_FS = `#version 300 es
-precision mediump float;
-uniform float uShade;
-in vec2 vC;
-out vec4 o;
-void main() {
-  o = vec4(0.0, 0.0, 0.0, (1.0 - smoothstep(0.25, 1.0, length(vC))) * uShade);
-}`;
-
-const PEOPLE_FS = `#version 300 es
-precision highp float;
-${LIGHT_FS}
-in vec3 vCol, vNrm;
-in vec4 vSh;
-out vec4 o;
-void main() {
-  o = vec4(lit(vCol, normalize(vNrm), vSh, 0.0), 1.0);
-}`;
-
 const DEPTH_FS = `#version 300 es
 precision mediump float;
 out vec4 o;
@@ -422,20 +301,10 @@ export class DepotRenderer {
     this.skin = compile(gl, SKIN_VS, SKIN_FS);
     this.skinDepth = compile(gl, SKIN_VS, DEPTH_FS);
     this.decal = compile(gl, YARD_VS, DECAL_FS);
-    this.people = compile(gl, PEOPLE_VS, PEOPLE_FS);
-    this.time = 0;
     this.detailOn = false;
     if (level.detail) this.loadDetail();
-    this.figure = compile(gl, FIGURE_VS, FIGURE_FS);
-    this.shade = compile(gl, SHADE_VS, SHADE_FS);
     /** The buses' own models: `key -> { vao, count, tex, inst, instances }`. */
     this.skins = new Map();
-    /** The staff's figures: `role -> { vao, shadeVao, count, tex, bones, inst, instances, clips,
-     * fps, speed }`. */
-    this.figures = new Map();
-    this.corners = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.corners);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1]), gl.STATIC_DRAW);
     const SHADOW = Math.max(1, level.shadow);
     this.shadowSize = SHADOW;
     this.shadowTex = gl.createTexture();
@@ -489,41 +358,6 @@ export class DepotRenderer {
     img.src = DETAIL;
   }
 
-  /** The figure of the people at work (`people.js`'s mesh), once. */
-  setPersonModel(mesh) {
-    if (!this.ok) return;
-    const gl = this.gl;
-    this.personVao = this.personVao || gl.createVertexArray();
-    this.personBuf = this.personBuf || gl.createBuffer();
-    this.peopleBuf = this.peopleBuf || gl.createBuffer();
-    gl.bindVertexArray(this.personVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.personBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.floats(), gl.STATIC_DRAW);
-    this.vertexLayout();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.peopleBuf);
-    for (const [loc, off] of [
-      [5, 0],
-      [6, 16],
-    ]) {
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, PERSON * 4, off);
-      gl.vertexAttribDivisor(loc, 1);
-    }
-    gl.bindVertexArray(null);
-    this.personCount = mesh.count;
-  }
-
-  /** Where the people are now (`people.js`), at `time` seconds (their arms and legs). */
-  setPeople(data, time) {
-    if (!this.ok || !this.peopleBuf) return;
-    const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.peopleBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    this.peopleN = data.length / PERSON;
-    this.time = time;
-    this.invalidate();
-  }
-
   /** The marks on the ground (`scene.js`'s decals), drawn over the yard. */
   setDecals(mesh) {
     if (!this.ok) return;
@@ -536,6 +370,15 @@ export class DepotRenderer {
     this.vertexLayout(true);
     gl.bindVertexArray(null);
     this.decalCount = mesh.count;
+    this.invalidate();
+  }
+
+  /** The light of the time of day (`palette.js`'s `lightAt`): the sun's way and colour, the
+   * sky's, the ground's, how lit the windows are; the shadows cast again. */
+  setLight(light) {
+    if (!this.ok) return;
+    this.light = light;
+    this.dirtyShadow = true;
     this.invalidate();
   }
 
@@ -645,94 +488,6 @@ export class DepotRenderer {
     if (aniso && this.level.msaa) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 4);
     return tex;
   }
-
-  /** A role's figure (`figures.js`), once: its mesh, its texture, its clips' bones. */
-  setFigureModel(role, model) {
-    if (!this.ok || this.figures.has(role)) return;
-    const gl = this.gl;
-    const vao = gl.createVertexArray();
-    const buf = gl.createBuffer();
-    const index = gl.createBuffer();
-    const inst = gl.createBuffer();
-    gl.bindVertexArray(vao);
-    // (the whole file as it is: each attribute at its part's offset)
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(model.bytes), gl.STATIC_DRAW);
-    const at = (name) => model.part(name)[0];
-    for (const [loc, name, size, type, norm] of [
-      [0, 'position', 3, gl.FLOAT, false],
-      [1, 'normal', 3, gl.BYTE, true],
-      [2, 'uv', 2, gl.UNSIGNED_SHORT, true],
-      [4, 'weights_idle', 4, gl.UNSIGNED_BYTE, true],
-      [6, 'weights_walk', 4, gl.UNSIGNED_BYTE, true],
-    ]) {
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, size, type, norm, name === 'normal' ? 4 : 0, at(name));
-    }
-    for (const [loc, name] of [
-      [3, 'joints_idle'],
-      [5, 'joints_walk'],
-    ]) {
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribIPointer(loc, 4, gl.UNSIGNED_BYTE, 0, at(name));
-    }
-    const [io, il] = model.part('index');
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(model.bytes, io, il / 2), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, inst);
-    this.figureInstances();
-    gl.bindVertexArray(null);
-    // the patch of shade: a quad an instance, on the same instances
-    const shadeVao = gl.createVertexArray();
-    gl.bindVertexArray(shadeVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.corners);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, inst);
-    this.figureInstances();
-    gl.bindVertexArray(null);
-    // the bones: a row a frame, three texels (a matrix's first three rows) a joint
-    const bones = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, bones);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, model.joints * 3, model.bones.length / (model.joints * 12), 0, gl.RGBA, gl.FLOAT, model.bones);
-    for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
-    const { clips, fps, speed } = model;
-    this.figures.set(role, { vao, shadeVao, count: il / 2, tex: this.texture(model.image, this.level.atlas), bones, inst, instances: 0, clips, fps, speed });
-    this.invalidate();
-  }
-
-  /** The instance attributes of a figure (on the bound buffer). */
-  figureInstances() {
-    const gl = this.gl;
-    for (const [loc, off] of [
-      [7, 0],
-      [8, 16],
-    ]) {
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, FIGURE * 4, off);
-      gl.vertexAttribDivisor(loc, 1);
-    }
-  }
-
-  /** A role's figure as the crowd needs it (its clips, fps and pace), null until it is there. */
-  figureModel(role) {
-    return this.figures.get(role) || null;
-  }
-
-  /** The staff's instances by role (`people.js`). */
-  setFigures(groups) {
-    if (!this.ok) return;
-    const gl = this.gl;
-    for (const [role, f] of this.figures) {
-      const data = groups.get(role);
-      f.instances = data ? data.length / FIGURE : 0;
-      if (!data) continue;
-      gl.bindBuffer(gl.ARRAY_BUFFER, f.inst);
-      gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    }
-    this.invalidate();
-  }
-
 
   /** Which buses are drawn as their own models (`bus.js`'s `skinned`); `moved` as for
    * `setBuses`. */
@@ -863,12 +618,12 @@ export class DepotRenderer {
     return { o: a.slice(0, 3), d: unit([b[0] - a[0], b[1] - a[1], b[2] - a[2]]) };
   }
 
-  /** Where the ground is under a point of the canvas, as the camera's (tx, tz); null above
-   * the horizon. */
-  ground(x, y) {
+  /** Where the ground (or a level `at` metres over it) is under a point of the canvas, as the
+   * camera's (tx, tz); null above the horizon. */
+  ground(x, y, at = 0) {
     const { o, d } = this.ray(x, y);
     if (d[1] > -1e-4) return null;
-    const t = -o[1] / d[1];
+    const t = (at - o[1]) / d[1];
     const b = this.bounds || { x0: 0, x1: 0, z0: 0, z1: 0 };
     return [o[0] + d[0] * t - (b.x0 + b.x1) / 2, o[2] + d[2] * t - (b.z0 + b.z1) / 2];
   }
@@ -897,10 +652,11 @@ export class DepotRenderer {
     }
     const gl = this.gl;
     const pal = this.pal;
-    const L = pal.light;
-    // the sun from the west, a little behind: the sides the camera first sees are lit, the
+    // the light of the company's time of day (`setLight`), its sun where the clock has it;
+    // else the sun from the west, a little behind: the sides the camera first sees are lit, the
     // shadows fall towards the street and to the right
-    const sun = unit([-0.78, 0.82, 0.22]);
+    const L = this.light || pal.light;
+    const sun = unit(L.dir || [-0.78, 0.82, 0.22]);
     // (the shadows over the town too, as far as they stay sharp enough: twice the depot)
     const d = this.bounds;
     const w = this.world || d;
@@ -945,12 +701,11 @@ export class DepotRenderer {
       gl.uniform1fv(u['uStrength[0]'], MATERIALS.map((m) => m[2]));
       if (u.uUnder) gl.uniform3fv(u.uUnder, pal.asphalt);
     }
-    for (const prog of [this.yard, this.bus, this.skin, this.people, this.figure]) {
+    for (const prog of [this.yard, this.bus, this.skin]) {
       gl.useProgram(prog.p);
       const u = prog.u;
       gl.uniform1i(u.uShadow, 0);
       if (u.uTex) gl.uniform1i(u.uTex, 1);
-      if (u.uBones) gl.uniform1i(u.uBones, 3);
       gl.uniform3fv(u.uSun, sun);
       gl.uniform3fv(u.uSunCol, L.sun);
       gl.uniform3fv(u.uSky, L.sky.map((v) => v * v));
@@ -964,8 +719,6 @@ export class DepotRenderer {
     }
     this.drawAll(this.yard, this.bus, vp, lightVP, 0, this.skin);
     this.drawDecals(vp);
-    this.drawPeople(vp, lightVP);
-    this.drawFigures(vp, lightVP);
     this.drawOverlays(vp, lightVP);
     this.onFrame?.(vp, this.size.w, this.size.h);
     this.timeFrame();
@@ -986,52 +739,6 @@ export class DepotRenderer {
       this.onSlow = null;
       slow();
     }
-  }
-
-  /** The staff: the shade under them, then the figures, a draw a role. */
-  drawFigures(vp, lightVP) {
-    const list = [...this.figures.values()].filter((f) => f.instances);
-    if (!list.length) return;
-    const gl = this.gl;
-    gl.useProgram(this.shade.p);
-    gl.uniformMatrix4fv(this.shade.u.uVP, false, vp);
-    gl.uniform1f(this.shade.u.uShade, this.pal.dark ? 0.22 : 0.3);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.depthMask(false);
-    for (const f of list) {
-      gl.bindVertexArray(f.shadeVao);
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, f.instances);
-    }
-    gl.depthMask(true);
-    gl.disable(gl.BLEND);
-    gl.useProgram(this.figure.p);
-    gl.uniformMatrix4fv(this.figure.u.uVP, false, vp);
-    gl.uniformMatrix4fv(this.figure.u.uLight, false, lightVP);
-    for (const f of list) {
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, f.tex);
-      gl.activeTexture(gl.TEXTURE3);
-      gl.bindTexture(gl.TEXTURE_2D, f.bones);
-      gl.bindVertexArray(f.vao);
-      gl.drawElementsInstanced(gl.TRIANGLES, f.count, gl.UNSIGNED_SHORT, 0, f.instances);
-    }
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindVertexArray(null);
-  }
-
-  /** The people, not in the sun's shadow map (it is made again only when the yard changes). */
-  drawPeople(vp, lightVP) {
-    if (!this.peopleN || !this.personVao) return;
-    const gl = this.gl;
-    const u = this.people.u;
-    gl.useProgram(this.people.p);
-    gl.uniformMatrix4fv(u.uVP, false, vp);
-    gl.uniformMatrix4fv(u.uLight, false, lightVP);
-    gl.uniform1f(u.uTime, this.time);
-    gl.bindVertexArray(this.personVao);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, this.personCount, this.peopleN);
-    gl.bindVertexArray(null);
   }
 
   /** The marks, multiplied into the ground under them (not on the lowest level's plain one). */
