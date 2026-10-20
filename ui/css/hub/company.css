@@ -1083,6 +1083,9 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-launch .start .weather .co-field { height: 36px; }
 .co-launch .start .when, .co-launch .start .fixed { display: flex; gap: 8px; font-size: 9.6px; line-height: 1.8; margin-top: 12px; }
 .co-launch .start .fixed { color: var(--rf-faint); font-size: 9.2px; }
+/* alone or together, in the company's world (`launch.js`'s Together): two starts side by side */
+.co-launch .start .along { display: flex; gap: 8px; font-size: 9.6px; line-height: 1.6; margin-bottom: 8px; }
+.co-launch .start .together { display: flex; gap: 10px; }
 .co-launch .start .hitch { display: flex; gap: 8px; }
 .co-launch .start .hitch b { font-size: 11.1px; }
 .co-launch .start .hitch p { font-size: 9.6px; margin-top: 2px; line-height: 1.8; }

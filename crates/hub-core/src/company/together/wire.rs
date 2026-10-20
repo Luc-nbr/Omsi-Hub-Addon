@@ -7,7 +7,9 @@
 //! rules goes out.
 //!
 //! What a player asks (`Request::what`): `hello`, `snapshot`, `take` / `release` a duty,
-//! `start` driving it (answered with the duty's start in his own game), `report` its trips
+//! `start` driving it (answered with the duty's start in his own game; with `world`, driven
+//! together in the company's world: `world.rs`), `world` (the game code of the world his game
+//! opened, in `text`), `report` its trips
 //! (`done` at its end; ended early, the AI drives the rest), `take_back` a duty the AI drives
 //! since he left it (from its next trip), `say` a line to everyone, `leave`; with the permission
 //! for it, `assign`
@@ -60,6 +62,8 @@ pub struct Request {
     pub logo: bool,
     /// The control room's message a `msg_reply` answers.
     pub msg: u64,
+    /// `start`: drive the duty together, in the company's world (`world.rs`), not alone.
+    pub world: bool,
 }
 
 /// The company as the friend's page shows it.
@@ -139,6 +143,9 @@ pub struct SnapDuty {
     pub ai: bool,
     pub ai_from: Option<i32>,
     pub back: bool,
+    /// The other players whose duties of the day run at the same time (the boss among them):
+    /// it can be driven together with them (`world.rs`).
+    pub along: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -249,6 +256,22 @@ pub struct Snapshot {
     pub asks: Vec<SnapAsk>,
     /// The control room's messages of the duty the player's game drives, the newest first.
     pub messages: Vec<super::super::messages::Msg>,
+    /// The company's world, while one is open (`world.rs`).
+    pub world: Option<SnapWorld>,
+}
+
+/// The company's world as the players see it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SnapWorld {
+    /// Who opened it, the day it drives and its clock (a minute of the day).
+    pub host: String,
+    pub date: String,
+    pub minute: i32,
+    /// Who drives in it.
+    pub drivers: Vec<String>,
+    /// Its game said its code: it can be joined.
+    pub ready: bool,
 }
 
 /// How a player's game starts on his duty (`duty_launch::Start`, which the boss's launcher works
@@ -272,6 +295,9 @@ pub struct DriveStart {
     /// A relief on the way: where the duty takes the bus over, and where it hands it on.
     pub from_stop: Option<usize>,
     pub to_stop: Option<usize>,
+    /// Driven together (`world.rs`): `host` (his game opens the company's world) or
+    /// `join:<code>` (it joins it, at `time`: the world's clock); empty: alone.
+    pub lan: String,
 }
 
 impl DriveStart {
@@ -296,8 +322,11 @@ impl DriveStart {
             hof: self.hof.clone(),
         };
         let mut d = st.duty(base, "");
-        // (alone, not in a session; the friend has no company of his own to run: his trips go
-        // to the boss's by his launcher)
+        // (alone, or in the company's world; the friend has no company of his own to run: his
+        // trips go to the boss's by his launcher)
+        if !self.lan.trim().is_empty() {
+            d.lan = Some(self.lan.clone());
+        }
         d.company = None;
         d
     }
@@ -319,6 +348,7 @@ impl DriveStart {
             hof: s.hof.clone(),
             from_stop: s.from_stop,
             to_stop: s.to_stop,
+            lan: String::new(),
         }
     }
 }

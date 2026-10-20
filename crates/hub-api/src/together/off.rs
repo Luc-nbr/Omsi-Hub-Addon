@@ -37,6 +37,19 @@ pub fn give_to_guest(_: &mut Session, _: &DayPlan, _: usize, _: usize, _: u32) -
 
 pub fn closing_company(_: &mut Session, _: Option<&str>) {}
 
+/// Driving together needs the boss's computer: nothing to drive along with here.
+pub fn boss_along(_: &mut Session, _: &DutyRef, _: i32, _: i32) -> Option<(Vec<String>, Option<crate::launcher::company::together::wire::SnapWorld>)> {
+    None
+}
+
+pub fn boss_place(_: &str, _: i32) -> Result<crate::launcher::company::together::world::Place, String> {
+    Err(tr("Share the company first: driving together needs its session."))
+}
+
+pub fn boss_world_code(_: &str) {}
+
+pub fn boss_out_of_world() {}
+
 pub fn quit() {}
 
 /// The host's commands and the joiner's (`tg_…`): none here.

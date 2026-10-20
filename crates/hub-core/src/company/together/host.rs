@@ -6,7 +6,9 @@
 //! not use is still refused here.
 //!
 //! The boss opens no world: a player drives his duty in his own game, alone, at his own pace
-//! (`wire::DriveStart`), and his launcher reports the trips as they end.
+//! (`wire::DriveStart`), and his launcher reports the trips as they end - or, with the players
+//! whose duties run at the same time, together in the company's world (`world`): the session keeps
+//! it, who opened it and its clock, and answers each start with how his game opens or joins it.
 
 use super::super::clock;
 use super::super::duty_launch::{self as dl, DutyRef, Hitch};
@@ -16,7 +18,8 @@ use super::super::plan::{BusOf, DayPlan, Who};
 use super::book::{self, ClaimState, Handed, LeftWhy};
 use super::code;
 use super::roles::{Perm, Role};
-use super::wire::{Card, DriveStart, DutyState, Notice, Request, SnapAsk, SnapDuty, SnapLine, SnapMember, SnapPlayer, SnapResult, SnapYou, Snapshot};
+use super::wire::{Card, DriveStart, DutyState, Notice, Request, SnapAsk, SnapDuty, SnapLine, SnapMember, SnapPlayer, SnapResult, SnapWorld, SnapYou, Snapshot};
+use super::world::{self, Place, World};
 use serde_json::{json, Value};
 
 /// A player who has not been heard from for this long is offline (s).
@@ -150,6 +153,8 @@ pub struct HostState {
     pub notices: Vec<Notice>,
     /// The boss ended the session: every message is answered with `closed_answer`.
     pub closed: bool,
+    /// The company's world, while one is open (`world`).
+    pub world: Option<World>,
     next: u64,
 }
 
@@ -173,6 +178,12 @@ pub struct Answered {
 /// An answer that refuses, with what is wrong.
 pub fn refusal(text: &str) -> Value {
     json!({ "ok": false, "error": text })
+}
+
+/// An answer that refuses, with what is wrong and its words' arguments (`args`: `[name, value]`
+/// pairs, filled in after the translation).
+pub fn refusal_with(text: &str, args: Vec<(String, String)>) -> Value {
+    json!({ "ok": false, "error": text, "args": args })
 }
 
 /// A refusal for want of permission `p`.
@@ -368,7 +379,17 @@ impl HostState {
             "start" if !can(Perm::Drive) => Err(not_allowed(Perm::Drive)),
             "start" => match req.duty.as_ref() {
                 None => Err(refusal(book::NO_DUTY)),
-                Some(r) => self.start(c, here, r, guest, &name).map_err(refusal).map(|s| extra = json!({ "start": s })),
+                Some(r) => self.start(c, here, r, guest, &name, req.world).map(|s| extra = json!({ "start": s })),
+            },
+            // (the game code of the company's world his game opened)
+            "world" => match world::opened(&mut self.world, guest, &req.text) {
+                Ok(first) => {
+                    if first {
+                        self.tell(now, world::OPENED, vec![("name".into(), name.clone())]);
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(refusal(e)),
             },
             // (Beta 63: the duty he left, back from the AI at its next trip)
             "take_back" if !can(Perm::Drive) => Err(not_allowed(Perm::Drive)),
@@ -380,6 +401,10 @@ impl HostState {
                 None => Err(refusal(book::NO_DUTY)),
                 Some(r) => book::report(c, p, r, guest, &req.trips, now).map_err(refusal).map(|(taken, refused)| {
                     extra = json!({ "taken": taken, "refused": refused });
+                    // (his game ended: out of the company's world - closed with it, his)
+                    if req.done {
+                        self.out_of_world(guest, now);
+                    }
                     // (his game ended before the duty did: the AI drives the rest - Beta 63)
                     let ai = req.done && self.left_duty(c, here, r, guest, LeftWhy::Quit);
                     if req.done && !ai && c.together.claim_of(r).is_some_and(|x| x.ai_now().is_none()) && book::set_state(c, r, guest, ClaimState::Done).is_ok() {
@@ -588,24 +613,38 @@ impl HostState {
         }
     }
 
-    /// A player starts his duty `r`: its start in his own game, or why not.
-    fn start(&mut self, c: &mut Company, here: &Here, r: &DutyRef, guest: u32, name: &str) -> Result<DriveStart, &'static str> {
-        let x = c.together.claim_of(r).filter(|x| x.guest == guest).ok_or(book::NOT_YOURS)?.clone();
+    /// A player starts his duty `r`: its start in his own game - alone, or `together` in the
+    /// company's world (`world::place`) -, or why not.
+    fn start(&mut self, c: &mut Company, here: &Here, r: &DutyRef, guest: u32, name: &str, together: bool) -> Result<DriveStart, Value> {
+        let x = c.together.claim_of(r).filter(|x| x.guest == guest).ok_or_else(|| refusal(book::NOT_YOURS))?.clone();
         match x.state {
-            ClaimState::Asked => return Err(book::NOT_YOURS),
-            ClaimState::Done => return Err(book::DONE),
+            ClaimState::Asked => return Err(refusal(book::NOT_YOURS)),
+            ClaimState::Done => return Err(refusal(book::DONE)),
             _ => {}
         }
         if x.ai_now().is_some() {
-            return Err(book::AI_DRIVES);
+            return Err(refusal(book::AI_DRIVES));
         }
         // (today's: from the plan as it is now; a closed day's: as it was kept)
-        let st = match here.plan.filter(|p| !x.late && p.date == r.date) {
-            Some(p) => start_of(c, here, p, r)?,
-            None => x.start.clone().ok_or(book::CLOSED_DAY)?,
+        let mut st = match here.plan.filter(|p| !x.late && p.date == r.date) {
+            Some(p) => start_of(c, here, p, r).map_err(refusal)?,
+            None => x.start.clone().ok_or_else(|| refusal(book::CLOSED_DAY))?,
+        };
+        // (together: in the company's world, from his duty's start; alone: out of it)
+        let place = if together {
+            Some(self.place(guest, name, &st.date, st.time, here.now)?)
+        } else {
+            self.out_of_world(guest, here.now);
+            None
         };
         book::keep_start(c, r, &st);
-        book::set_state(c, r, guest, ClaimState::Driving)?;
+        book::set_state(c, r, guest, ClaimState::Driving).map_err(refusal)?;
+        if let Some(pl) = &place {
+            if matches!(pl, Place::Join { .. }) {
+                self.tell(here.now, world::DRIVES_ALONG, vec![("name".into(), name.to_string())]);
+            }
+            world::apply(&mut st, pl);
+        }
         if let Some(o) = self.online.iter_mut().find(|o| o.guest == guest) {
             o.driving = Some(r.clone());
         }
@@ -635,6 +674,21 @@ impl HostState {
         Ok((st, back))
     }
 
+    /// Where player `who` (0: the boss) drives a duty whose game starts on `date` at `minute`
+    /// together (`world::place`): he opens the company's world, or joins it on its clock - or why
+    /// not.
+    pub fn place(&mut self, who: u32, name: &str, date: &str, minute: i32, now: u64) -> Result<Place, Value> {
+        world::place(&mut self.world, who, name, date, clock::moment(date, minute as i64), now).map_err(|(t, a)| refusal_with(t, a))
+    }
+
+    /// Player `who` (0: the boss) drives in the company's world no longer (his game ended, he
+    /// drives alone now, he left): the world closed with him when he opened it, told to everyone.
+    pub fn out_of_world(&mut self, who: u32, now: u64) {
+        if let Some(name) = world::leave(&mut self.world, who) {
+            self.tell(now, world::CLOSED, vec![("name".into(), name)]);
+        }
+    }
+
     /// Player `guest` is gone from the session (`why`): kept, so that what runs of his duties
     /// later is the AI's too (`watch`).
     fn went(&mut self, guest: u32, why: LeftWhy) {
@@ -659,6 +713,7 @@ impl HostState {
     /// Player `guest` left his duty `r` (`why`): the AI drives the rest of it, or all of it, or it
     /// goes back open (`book::hand_to_ai`), told to everyone. Whether the AI took it over now.
     pub fn left_duty(&mut self, c: &mut Company, here: &Here, r: &DutyRef, guest: u32, why: LeftWhy) -> bool {
+        self.out_of_world(guest, here.now);
         if c.together.claim_of(r).is_some_and(|x| x.ai_now().is_some()) {
             return false;
         }
@@ -714,10 +769,66 @@ impl HostState {
             self.left_duty(c, here, r, *g, LeftWhy::Closed);
         }
         c.together.claims.retain(|x| matches!(x.state, ClaimState::Driving | ClaimState::Done) || x.late || !x.ai.is_empty());
+        self.world = None;
         self.tell(here.now, CLOSING, Vec::new());
         self.closed = true;
         c.together != before
     }
+}
+
+/// The company's world as the players see it (None: none is open).
+pub fn world_snap(st: &HostState, now: u64) -> Option<SnapWorld> {
+    st.world.as_ref().map(|w| SnapWorld {
+        host: w.host_name.clone(),
+        date: w.date.clone(),
+        minute: w.clock(now).rem_euclid(clock::DAY) as i32,
+        drivers: w.drivers.iter().map(|d| d.1.clone()).collect(),
+        ready: w.ready(),
+    })
+}
+
+/// The duties of the day `p` the players drive (the boss's own among them: `boss`, number 0):
+/// each with its player's number and name and its times (minutes of the day). Asked for, driven
+/// already or the AI's are not.
+pub fn player_duties(c: &Company, p: &DayPlan, boss: &str) -> Vec<(DutyRef, u32, String, i32, i32)> {
+    let mut out = Vec::new();
+    for (ti, t) in p.tours.iter().enumerate() {
+        if t.tour.unplanned {
+            continue;
+        }
+        for (k, d) in t.duties.iter().enumerate() {
+            let Some(r) = DutyRef::of(p, ti, k) else { continue };
+            let who = match c.together.claim_of(&r) {
+                Some(x) if matches!(x.state, ClaimState::Asked | ClaimState::Done) || x.ai_now().is_some() => None,
+                Some(x) => Some((x.guest, c.together.name_of(x.guest))),
+                None => match d.who {
+                    Some(Who::Player) => Some((0, boss.to_string())),
+                    Some(Who::Guest(g)) => Some((g, c.together.name_of(g))),
+                    _ => None,
+                },
+            };
+            if let Some((g, name)) = who {
+                out.push((r, g, name, d.from, d.to));
+            }
+        }
+    }
+    out
+}
+
+/// The other players whose duties of `list` (`player_duties`) run at the same time as duty `r`
+/// (`from` to `to`): neither its own player nor `viewer` (who asks), each named once.
+pub fn along_of(list: &[(DutyRef, u32, String, i32, i32)], r: &DutyRef, from: i32, to: i32, viewer: Option<u32>) -> Vec<String> {
+    let own = list.iter().find(|x| book::same_duty(&x.0, r)).map(|x| x.1);
+    let mut names: Vec<String> = Vec::new();
+    for (d, g, name, f, t) in list {
+        if d.date != r.date || Some(*g) == own || Some(*g) == viewer || !world::overlap((*f, *t), (from, to)) {
+            continue;
+        }
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names
 }
 
 /// How a player's game starts on duty `r` of the day `p` (planned for a player: not another's).
@@ -826,6 +937,9 @@ pub fn snapshot(c: &Company, here: &Here, st: &HostState, guest: Option<u32>, si
     };
     let now = clock::now(c);
     let colour_of = |line: &str| c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(line)).map(|l| l.colour.clone()).unwrap_or_default();
+    // (the company's world, and who drives at the same time as whom)
+    s.world = world_snap(st, here.now);
+    let players = here.plan.map(|p| player_duties(c, p, &st.boss)).unwrap_or_default();
     if let Some(p) = here.plan {
         for (ti, t) in p.tours.iter().enumerate() {
             if t.tour.unplanned {
@@ -858,6 +972,7 @@ pub fn snapshot(c: &Company, here: &Here, st: &HostState, guest: Option<u32>, si
                     bus: bus.clone(),
                     file: file.clone(),
                     guest: claim.map(|x| x.guest).unwrap_or(0),
+                    along: along_of(&players, &r, d.from, d.to, guest),
                     ..Default::default()
                 };
                 let begun = now >= clock::moment(&p.date, d.from as i64);

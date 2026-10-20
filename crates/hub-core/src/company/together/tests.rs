@@ -942,3 +942,55 @@ fn a_driver_answers_the_control_room_s_messages_to_the_duty_his_game_drives_and_
     });
     assert_eq!(v["perm"].as_str(), Some("drive"), "{v}");
 }
+
+/// "Drive together" (`world`): the boss's game opens the company's world, Jan's duty joins it on
+/// its clock once its code has come; out of it when his game ends, closed with the boss's.
+#[test]
+fn a_duty_driven_together_joins_the_company_s_world_on_its_clock() {
+    use super::world::{self, Place};
+    let mut b = boss();
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let duty = snap(&v).duties[0].duty.clone();
+    assert_eq!(ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    let t = now();
+    let date = b.c.date.clone();
+    // (the boss's own duty's game starts at 05:40: it opens the world)
+    assert_eq!(b.st.place(0, "Luc", &date, 340, t), Ok(Place::Open));
+    let together = |r: &mut Request| {
+        r.duty = Some(duty.clone());
+        r.world = true;
+    };
+    // its code not here yet: Jan waits, his duty still only planned
+    let v = ask(&mut b, "jan", "start", together);
+    assert_eq!((v["error"].as_str(), v["args"][0][1].as_str()), (Some(world::OPENING), Some("Luc")), "{v}");
+    assert_eq!(b.c.together.claim_of(&duty).map(|x| x.state), Some(ClaimState::Planned));
+    assert_eq!(world::opened(&mut b.st.world, 0, "OMSI-LUC1"), Ok(true));
+    let v = ask(&mut b, "jan", "start", together);
+    let start: DriveStart = serde_json::from_value(v["start"].clone()).unwrap();
+    assert_eq!((start.lan.as_str(), start.time), ("join:OMSI-LUC1", 340));
+    let w = snap(&v).world.unwrap();
+    assert_eq!((w.host.as_str(), w.drivers.clone(), w.ready), ("Luc", vec!["Luc".to_string(), "JAN".to_string()], true));
+    assert!(b.st.notices.iter().any(|n| n.text == world::DRIVES_ALONG));
+    // his game ended: out of the world; the boss's ended: closed, told to everyone
+    ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(duty.clone());
+        r.done = true;
+    });
+    let jan = guest_no(&b, "jan");
+    assert!(!b.st.world.as_ref().unwrap().has(jan));
+    b.st.out_of_world(0, t);
+    assert!(b.st.world.is_none());
+    assert!(b.st.notices.iter().any(|n| n.text == world::CLOSED));
+}
+
+/// Who drives at the same time as whom: the other players' duties that overlap, its own player
+/// and the one who asks left out.
+#[test]
+fn a_duty_names_the_players_who_drive_at_the_same_time() {
+    let d = |tour: &str| DutyRef { date: "2024-03-04".into(), line: "Linie5".into(), tour: tour.into(), duty: 0 };
+    let list = vec![(d("1"), 0, "Luc".to_string(), 340, 480), (d("2"), 1, "Jan".to_string(), 400, 600), (d("3"), 2, "Piet".to_string(), 600, 700), (d("4"), 1, "Jan".to_string(), 450, 500)];
+    assert_eq!(host::along_of(&list, &d("1"), 340, 480, None), vec!["Jan".to_string()]);
+    assert_eq!(host::along_of(&list, &d("2"), 400, 600, None), vec!["Luc".to_string()]);
+    // (an open duty, as Piet sees it: Luc and Jan drive then, Piet himself not counted)
+    assert_eq!(host::along_of(&list, &d("9"), 300, 700, Some(2)), vec!["Luc".to_string(), "Jan".to_string()]);
+}

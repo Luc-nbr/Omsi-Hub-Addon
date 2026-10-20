@@ -14,6 +14,9 @@
 //!   his game drives it alone, on the duty's day and time), his trip reports, and - as his role
 //!   allows - giving duties to players, approving requests, managing players and the company's
 //!   own pages.
+//! * Players whose duties run at the same time may drive them together, in one world of the
+//!   company's (`world`): the first to start opens it, the others join it on its clock, each from
+//!   his duty's start. Alone stays the other way to drive a duty.
 //! * A player's role is a preset bundle of permissions the boss ticks on top of (`roles`); the
 //!   boss's side answers on the company itself (`host`), checking every message against them,
 //!   and the company keeps what came of it (`book`): the players with their roles and figures,
@@ -31,6 +34,7 @@ pub mod server;
 #[cfg(test)]
 mod tests;
 pub mod wire;
+pub mod world;
 
 pub use book::{guest_name, guest_on, Together};
 pub use roles::{Perm, Role};

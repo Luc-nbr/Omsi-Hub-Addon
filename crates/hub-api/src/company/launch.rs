@@ -4,6 +4,8 @@
 //! file and the map - what keeps it from being driven, and its start. Only the weather is chosen
 //! here. "Start duty" starts the game with exactly the duty (`co::duty_launch::start`), with the
 //! command line the game-drawn launcher builds: the page's duty with the company's fixed in it.
+//! While the company is shared and players drive at the same time, the boss chooses as they do:
+//! alone, or together in the company's world (`together::boss_place`).
 
 use super::kit::Popup;
 use super::words::{day_label, tr, trf};
@@ -28,6 +30,28 @@ impl DutyLaunch {
     pub fn new(duty: DutyRef, from_tab: usize) -> DutyLaunch {
         DutyLaunch { duty, from_tab, weather: "cycle".into(), trips: Vec::new(), trips_read: None }
     }
+}
+
+/// Alone or together (the company shared, players driving at the same time as the duty, or its
+/// world open on its day): the start card's two starts instead of one. None: alone is all there
+/// is.
+fn together_card(s: &mut Session, sheet: &Sheet) -> Option<Value> {
+    let (along, world) = crate::together::boss_along(s, &sheet.duty, sheet.from, sheet.to)?;
+    let world = world.filter(|w| w.date == sheet.duty.date);
+    if along.is_empty() && world.is_none() {
+        return None;
+    }
+    let with_tip = trf(
+        "Together: in the company's world, on its clock. You can join it from %{early} min before your duty's start until %{late} min after it; the world closes with the game of whoever opened it.",
+        &[("early", &co::together::world::EARLY.to_string()), ("late", &co::together::world::LATE.to_string())],
+    );
+    // (who drives at the same time, the company's world)
+    let said: Vec<String> = [(!along.is_empty()).then(|| crate::together::along_words(&along)), world.as_ref().map(crate::together::world_words)].into_iter().flatten().collect();
+    Some(json!({
+        "alone": tr("Drive alone"), "with": tr("Drive together"),
+        "alone_tip": tr("Single player: the duty in a game of your own, at your own pace."), "with_tip": with_tip,
+        "along": said.join("  ·  "),
+    }))
 }
 
 fn hhmm(m: i32) -> String {
@@ -163,6 +187,8 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
                 "when": trf("The game starts on %{date} at %{time}, %{lead} min before the first departure: the company's clock, not the computer's.", &[("date", &day_label(&date)), ("time", &hhmm(time)), ("lead", &lead.to_string())]),
                 "fixed": tr("Nothing of the duty can be changed here: the planning fixes it. Only the weather is yours to choose; sound, camera and traffic are as in the Settings."),
                 "go": tr("Start duty"),
+                // (alone or together with the players driving at the same time)
+                "together": together_card(s, &sheet),
             })
         }
     };
@@ -212,6 +238,26 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     let base: core::Duty = serde_json::from_value(args.get("base").cloned().unwrap_or(Value::Null)).map_err(|e| format!("base: {e}"))?;
     let weather = s.launch.as_ref().map(|x| x.weather.clone()).unwrap_or_else(|| "cycle".into());
     let mut d = st.duty(base, &weather);
+    // (together: in the company's world - opened by his game, or joined on its clock; alone: out
+    // of it)
+    let together = args.get("together").and_then(Value::as_bool).unwrap_or(false) && together_card(s, &sheet).is_some();
+    let place = if together && !dry {
+        match crate::together::boss_place(&st.date, st.time) {
+            Ok(pl) => Some(pl),
+            Err(e) => return Ok(json!({ "popup": super::popup(s, Popup::new("groups", "Not together yet", e, tr("Wait a moment, or drive the duty alone."), None)) })),
+        }
+    } else {
+        None
+    };
+    if let Some(pl) = &place {
+        d.lan = Some(pl.lan());
+        d.lan_name = Some(c.profile.clone()).filter(|n| !n.trim().is_empty());
+        if let co::together::world::Place::Join { minute, .. } = pl {
+            d.time = hhmm(*minute);
+        }
+    } else if !dry {
+        crate::together::boss_out_of_world();
+    }
     d.display_font = core::busfonts::BusFonts::load().font_for(&st.bus);
     // (the bus options chosen for the bus, as `duty_launch::start` passes them: Omsi-Hub 6/6)
     // (as they were chosen: the livery's own values the bus 3D port's catalogue would leave out)
@@ -231,8 +277,34 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     // (the add-on's plugin told of the company's duty: `addon.rs`)
     let crew = crew_of(s, &c, &sheet);
     super::plugin::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1), plugin_parts(&c, &sheet))), Some(crew), Some(&c.id));
-    let launched = core::launch(&d, p)?;
+    #[cfg(feature = "native")]
+    if place == Some(co::together::world::Place::Open) {
+        std::thread::spawn(omsi_net::tunnel::ensure_cloudflared);
+    }
+    let launched = match core::launch(&d, p) {
+        Ok(l) => l,
+        Err(e) => {
+            if place.is_some() {
+                crate::together::boss_out_of_world();
+            }
+            return Err(e);
+        }
+    };
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
+    // (the world his game opens: its code for the players as it comes; out of it when the game ends)
+    #[cfg(feature = "native")]
+    if let Some(pl) = &place {
+        let opens = *pl == co::together::world::Place::Open;
+        crate::together::watch_world(
+            launched.pid,
+            move |code| {
+                if opens {
+                    crate::together::boss_world_code(code);
+                }
+            },
+            crate::together::boss_out_of_world,
+        );
+    }
     let t = tr("Starting your company's duty…");
     s.say(t, false);
     Ok(json!({ "launched": serde_json::to_value(launched).unwrap_or(Value::Null) }))

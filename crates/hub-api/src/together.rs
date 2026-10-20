@@ -5,7 +5,9 @@
 //! friends join it with the code (`join`: the boss's company in a menu of its own - their role,
 //! their duties with Drive, the open duties to ask for, their figures, the players, the news -
 //! and, as their role allows, the company's own pages relayed to the boss's launcher: `relay`).
-//! Nobody opens a world: each drives his duties in his own game, at his own pace.
+//! Nobody opens a world: each drives his duties in his own game, at his own pace - unless players
+//! whose duties run at the same time drive them together, in the company's world (`world`: the
+//! first one's game opens it, the others' join it on its clock, each bound to his duty's times).
 //!
 //! The commands are `tg_…`; the texts come in the page's language (`lang`), as the company's.
 
@@ -26,12 +28,12 @@ mod rf_tests;
 
 use crate::company::words::{self, tr, trf};
 use crate::launcher::company::duty_launch::DutyRef;
-use crate::launcher::company::together::wire::Notice;
+use crate::launcher::company::together::wire::{Notice, SnapWorld};
 use crate::launcher::company::together::{Perm, Role};
 use crate::{Answer, Platform};
 use serde_json::{json, Value};
 
-pub use host::{closing_company, give_to_guest, online_guests, quit, rail_badge, tile_line};
+pub use host::{boss_along, boss_out_of_world, boss_place, boss_world_code, closing_company, give_to_guest, online_guests, quit, rail_badge, tile_line};
 
 /// The code of the company session hosted now (None: none, or "Play together" switched off).
 pub fn session_code() -> Option<String> {
@@ -98,6 +100,62 @@ pub fn notice_json(n: &Notice) -> Value {
     json!({ "n": n.n, "at": clock_of(n.at), "text": notice_text(n) })
 }
 
+/// A refusal of the boss's launcher in words: its text, its arguments filled in
+/// (`host::refusal_with`).
+pub fn refusal_text(v: &Value) -> String {
+    let args: Vec<(String, String)> = v.get("args").and_then(|a| serde_json::from_value(a.clone()).ok()).unwrap_or_default();
+    let refs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    trf(v.get("error").and_then(Value::as_str).unwrap_or(""), &refs)
+}
+
+/// Who drives at the same time as a duty: "At the same time: Jan, Piet".
+pub fn along_words(names: &[String]) -> String {
+    trf("At the same time: %{names}", &[("names", &names.join(", "))])
+}
+
+/// The company's world in words: who opened it, its clock, who drives in it.
+pub fn world_words(w: &SnapWorld) -> String {
+    let clock = format!("{:02}:{:02}", w.minute / 60, w.minute % 60);
+    if !w.ready {
+        return trf("%{name} is opening the company's world…", &[("name", &w.host)]);
+    }
+    trf("The company's world is open (%{name}), its clock at %{time}: %{drivers} drive in it.", &[("name", &w.host), ("time", &clock), ("drivers", &w.drivers.join(", "))])
+}
+
+/// Keep watch over the game `pid` that opens the company's world (`--lan-host`): its game code,
+/// once the game's status file says it (`lan::local_hosts`), to `told`; `ended` once the game has
+/// ended (the world closed with it). A game that has not said its code in `world::OPENING_FOR` is
+/// given up on (`ended` still comes when it ends).
+#[cfg(feature = "native")]
+pub fn watch_world(pid: u32, told: impl Fn(&str) + Send + 'static, ended: impl FnOnce() + Send + 'static) {
+    use crate::launcher::company::together::world;
+    let watch = move || {
+        let since = std::time::Instant::now();
+        let mut said = false;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if !crate::launcher::list_instances().iter().any(|i| i.pid == pid && i.running) {
+                ended();
+                return;
+            }
+            if said || since.elapsed().as_secs() > world::OPENING_FOR {
+                continue;
+            }
+            // (the status file of this game; one game at a time, so a single one is it)
+            let hosts = crate::lan::local_hosts();
+            let mine = hosts.iter().find(|h| h.get("pid").and_then(Value::as_u64) == Some(pid as u64)).or(if hosts.len() == 1 { hosts.first() } else { None });
+            if let Some(code) = mine.and_then(|h| h.get("code")).and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()) {
+                crate::launcher::log_to_file(&format!("company world: game {pid} opened it ({code})"));
+                told(code);
+                said = true;
+            }
+        }
+    };
+    if let Err(e) = std::thread::Builder::new().name("company world".into()).spawn(watch) {
+        crate::launcher::log_to_file(&format!("company world: not watched: {e}"));
+    }
+}
+
 /// Who drives a duty of a player who left it: "AI (Jan left)" (Beta 63).
 pub fn ai_label(name: &str) -> String {
     trf("AI (%{name} left)", &[("name", name)])
@@ -156,14 +214,20 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::launcher::company::together::{book, client, code, host, roles};
+    use crate::launcher::company::together::{book, client, code, host, roles, world};
 
     /// Every text of "Play together" - the company's side, the launcher's and the page's
     /// (`together.js`, `multiplayer.js`) - in the six languages.
     #[test]
     fn every_together_text_is_translated() {
-        let mut texts: Vec<String> =
-            book::texts().into_iter().chain(host::texts()).chain(roles::texts()).chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED]).map(String::from).collect();
+        let mut texts: Vec<String> = book::texts()
+            .into_iter()
+            .chain(host::texts())
+            .chain(roles::texts())
+            .chain(world::texts())
+            .chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED])
+            .map(String::from)
+            .collect();
         let js = include_str!("../../../ui/js/company/together.js");
         let mp = include_str!("../../../ui/js/company/multiplayer.js");
         // (this file without its tests)

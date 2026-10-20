@@ -68,8 +68,9 @@ export function backToMenu() {
 }
 
 /** Drive a duty: the player's game options, then the boss's launcher's start (`tg_drive`; one the
- * AI drives since he left it, from its next trip: `tg_take_back`). */
-async function driveDuty(d, name = 'tg_drive') {
+ * AI drives since he left it, from its next trip: `tg_take_back`) - alone, or `together` in the
+ * company's world with the players driving at the same time. */
+async function driveDuty(d, name = 'tg_drive', together = false) {
   let base;
   try {
     base = await duty();
@@ -77,8 +78,20 @@ async function driveDuty(d, name = 'tg_drive') {
     toast(e.message, 'error');
     return;
   }
-  await run(name, { duty: d.duty, base });
+  await run(name, { duty: d.duty, base, together });
 }
+
+/** What a duty's button does (`drive`, `drive_together`, `take_back`, `take`, `release`). */
+async function dutyAct(d, a) {
+  if (a.act === 'drive') await driveDuty(d);
+  else if (a.act === 'drive_together') await driveDuty(d, 'tg_drive', true);
+  else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
+  else await run(a.act === 'take' ? 'tg_take' : 'tg_release', { duty: d.duty });
+}
+
+/** Who drives at the same time as the duty, and the company's world while it is open. */
+const Along = ({ d }) =>
+  (d.along || d.world) && html`<span class="tg-along cut"><${Icon} name="groups" size=${14} />${[d.along, d.world].filter(Boolean).join('  ·  ')}</span>`;
 
 /** The duties a player's card is printed of: his own (`company::dutycard::relayed`). */
 const PRINTED = ['mine', 'driving', 'done', 'late'];
@@ -87,16 +100,14 @@ const PRINTED = ['mine', 'driving', 'done', 'late'];
  * words of its duty card's button, for the player's own). */
 function DutyRow({ d, again, print }) {
   const act = async (a) => {
-    if (a.act === 'drive') await driveDuty(d);
-    else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
-    else await run(a.act === 'take' ? 'tg_take' : 'tg_release', { duty: d.duty });
+    await dutyAct(d, a);
     again();
   };
   return html`<div class=${'tg-duty ' + d.key} title=${d.title}>
     <${Chip} number=${d.number} colour=${d.colour} />
-    <div class="what"><b>${d.times}</b><span class="cut">${d.route}</span><span class="dim cut">${d.facts}</span></div>
+    <div class="what"><b>${d.times}</b><span class="cut">${d.route}</span><span class="dim cut">${d.facts}</span><${Along} d=${d} /></div>
     <span class=${'state cut t-' + d.tone}>${d.state}</span>
-    <span class="acts">${print && PRINTED.includes(d.key) && html`<${Btn} icon="print_receipt" title=${print} onClick=${() => openDutyCard(d.duty, { relay: true })} />`}${d.acts.map((a) => html`<${Btn} kind=${a.kind} icon=${a.icon} label=${a.label} onClick=${() => act(a)} />`)}</span>
+    <span class="acts">${print && PRINTED.includes(d.key) && html`<${Btn} icon="print_receipt" title=${print} onClick=${() => openDutyCard(d.duty, { relay: true })} />`}${d.acts.map((a) => html`<${Btn} kind=${a.kind} icon=${a.icon} label=${a.label} title=${a.tip} onClick=${() => act(a)} />`)}</span>
   </div>`;
 }
 
@@ -104,15 +115,13 @@ function DutyRow({ d, again, print }) {
 function NextUp({ d, w, again }) {
   if (!d) return html`<div class="tg-next empty"><${Icon} name="schedule" size=${28} /><span>${w.nothing_next}</span></div>`;
   const act = async (a) => {
-    if (a.act === 'drive') await driveDuty(d);
-    else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
-    else await run('tg_release', { duty: d.duty });
+    await dutyAct(d, a);
     again();
   };
   return html`<div class=${'tg-next ' + d.key}>
     <div class="line"><${Chip} number=${d.number} colour=${d.colour} big=${true} /><div class="when"><b>${d.times}</b><span class="dim">${d.date}</span></div></div>
-    <div class="route"><b class="cut">${d.route}</b><span class="dim cut">${d.title}  ·  ${d.facts}</span><span class=${'cut t-' + d.tone}>${d.state}</span></div>
-    <div class="acts">${d.acts.map((a) => html`<${Btn} kind=${a.kind} big=${a.act === 'drive'} icon=${a.icon} label=${a.label} onClick=${() => act(a)} />`)}</div>
+    <div class="route"><b class="cut">${d.route}</b><span class="dim cut">${d.title}  ·  ${d.facts}</span><span class=${'cut t-' + d.tone}>${d.state}</span><${Along} d=${d} /></div>
+    <div class="acts">${d.acts.map((a) => html`<${Btn} kind=${a.kind} big=${a.act === 'drive' || a.act === 'drive_together'} icon=${a.icon} label=${a.label} title=${a.tip} onClick=${() => act(a)} />`)}</div>
   </div>`;
 }
 

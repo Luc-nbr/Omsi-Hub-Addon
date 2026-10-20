@@ -6,6 +6,9 @@
 //! company, the players and the news - and, as his role allows, the requests to approve, the
 //! duties to give, the players to manage and the company's own pages (relayed: `relay`). Drive
 //! starts his game on the duty, alone, at its day and time: no world of the boss's is needed.
+//! Where other players drive at the same time, he may drive it together with them instead, in the
+//! company's world (`world`): his game opens it (and its code goes to the boss's launcher:
+//! `super::watch_world`) or joins it on its clock.
 //! What he drove for a company is kept in his own history
 //! (`~/.openomsi/together/<driver>-history.json`); his career counts the trips from his own trip
 //! records, as every drive's.
@@ -20,7 +23,7 @@
 //! game's plugin as the boss's launcher writes them to its own (`messages_link`), and what he
 //! answers there or tells control goes back to the boss's (`msg_reply`, `msg_tell`).
 
-use super::{duty_arg, duty_words, notice_json, perm_json, perms_arg, relay, role_json, roles_json, unix_now};
+use super::{along_words, duty_arg, duty_words, notice_json, perm_json, perms_arg, refusal_text, relay, role_json, roles_json, unix_now, world_words};
 use crate::company::words::{day_label, eur, tr, trf};
 use crate::company::{self, TABS};
 use crate::launcher as core;
@@ -28,7 +31,7 @@ use crate::launcher::company::duty_launch::DutyRef;
 use crate::launcher::company::together::client::{self, Ended, Link};
 use crate::launcher::company::together::code::{self, CompanyCode};
 use crate::launcher::company::together::host as th;
-use crate::launcher::company::together::wire::{DriveStart, DutyState, Notice, Request, SnapDuty, SnapResult, Snapshot};
+use crate::launcher::company::together::wire::{DriveStart, DutyState, Notice, Request, SnapDuty, SnapResult, SnapWorld, Snapshot};
 use crate::launcher::company::together::{Perm, Role};
 use crate::{Answer, Platform};
 use hub_game::bridge;
@@ -481,7 +484,7 @@ pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> 
 
 /// A refusal of the boss's launcher in the page's words (with the permission it lacked).
 fn refusal_words(v: &Value) -> String {
-    let error = tr(v.get("error").and_then(Value::as_str).unwrap_or(client::UNREACHED));
+    let error = if v.get("error").is_some() { refusal_text(v) } else { tr(client::UNREACHED) };
     match v.get("perm").and_then(Value::as_str).and_then(Perm::of) {
         Some(p) => format!("{error} ({})", tr(p.label())),
         None => error,
@@ -615,9 +618,11 @@ fn duty_act(what: &str, args: &Value, fill: impl FnOnce(&mut Request)) -> Value 
 }
 
 /// Drive a duty: its start asked of the boss's launcher (`what`: `start`, or `take_back` from the
-/// AI at its next trip), the game started on it - alone, at the duty's day and time.
+/// AI at its next trip), the game started on it - alone, at the duty's day and time, or with
+/// `together` in the company's world (`world`: opened by his game, or joined on its clock).
 fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
     let Some(r) = duty_arg(args) else { return Ok(json!({})) };
+    let together = what == "start" && args.get("together").and_then(Value::as_bool).unwrap_or(false);
     // (one game at a time; the bus planned must be here)
     let (running, installed) = company::with(|s| {
         let file = joined()
@@ -640,7 +645,10 @@ fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
     if !omsi_cfg::missing_original_essentials(std::path::Path::new(&root)).is_empty() {
         return Ok(json!({ "error": tr("A session needs the original OMSI 2.") }));
     }
-    let v = match send_now(what, |q| q.duty = Some(r.clone())) {
+    let v = match send_now(what, |q| {
+        q.duty = Some(r.clone());
+        q.world = together;
+    }) {
         Ok(v) => v,
         Err(e) => return Ok(json!({ "error": e })),
     };
@@ -652,9 +660,37 @@ fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
     let mut d = start.duty(base);
     d.display_font = core::busfonts::BusFonts::load().font_for(&start.bus);
     d.set_vars = crate::content::busoptions::vars_for(&start.bus, &start.paint);
-    core::log_to_file(&format!("company session: {} drives {} {} duty {} for the boss's company", name, start.line, start.tour, r.duty + 1));
+    // (together: the others see him by his name; the world his game opens needs the tunnel for
+    // friends on the internet)
+    let opens = start.lan == "host";
+    if !start.lan.is_empty() {
+        d.lan_name = Some(name.clone());
+    }
+    if opens {
+        std::thread::spawn(omsi_net::tunnel::ensure_cloudflared);
+    }
+    core::log_to_file(&format!(
+        "company session: {} drives {} {} duty {} for the boss's company{}",
+        name,
+        start.line,
+        start.tour,
+        r.duty + 1,
+        if start.lan.is_empty() { String::new() } else { format!(" ({})", start.lan) }
+    ));
     let launched = core::launch(&d, p)?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
+    // (the world his game opened: its code to the boss's launcher as it comes, for the others)
+    if opens {
+        super::watch_world(
+            launched.pid,
+            |code| {
+                if let Err(e) = send_now("world", |q| q.text = code.to_string()) {
+                    core::log_to_file(&format!("company session: the world's code not sent: {e}"));
+                }
+            },
+            || {},
+        );
+    }
     let number = joined()
         .as_ref()
         .and_then(|j| j.snap.as_ref())
@@ -671,20 +707,34 @@ fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
 }
 
 /// A duty's line in the friend's view: what it is, who drives it, what he can do with it (`ask`:
-/// he may drive and ask for duties).
-fn duty_row(d: &SnapDuty, open_claims: bool, ask: bool) -> Value {
+/// he may drive and ask for duties; `world`: the company's world, while one is open).
+fn duty_row(d: &SnapDuty, open_claims: bool, ask: bool, world: Option<&SnapWorld>) -> Value {
     let hhmm = |m: i32| format!("{:02}:{:02}", (m / 60).rem_euclid(24), m.rem_euclid(60));
     let mut facts = vec![trf("%{n} trips", &[("n", &d.trips.to_string())]), format!("{} km", d.km)];
     if !d.bus.is_empty() {
         facts.push(trf("Bus %{bus}", &[("bus", &tr(&d.bus))]));
     }
     let take = if open_claims { tr("Take this duty") } else { tr("Ask for this duty") };
-    let drive = json!({ "label": tr("Drive"), "act": "drive", "kind": "primary", "icon": "play_arrow" });
+    // (others drive at the same time, or the company's world is open on its day: alone or
+    // together, the player's choice)
+    let world = world.filter(|w| w.date == d.duty.date);
+    let along = (!d.along.is_empty() || world.is_some()) && d.state != DutyState::Late;
+    let drive = |acts: &mut Vec<Value>| {
+        if along {
+            acts.push(json!({ "label": tr("Drive alone"), "act": "drive", "kind": "", "icon": "person", "tip": tr("Single player: the duty in a game of your own, at your own pace.") }));
+            acts.push(json!({ "label": tr("Drive together"), "act": "drive_together", "kind": "primary", "icon": "groups", "tip": tr("In the company's world, with the players whose duties run at the same time: bound to your duty's times.") }));
+        } else {
+            acts.push(json!({ "label": tr("Drive"), "act": "drive", "kind": "primary", "icon": "play_arrow" }));
+        }
+    };
+    let mut yours = Vec::new();
+    drive(&mut yours);
+    yours.push(json!({ "label": tr("Give back"), "act": "release", "kind": "" }));
     let (state, tone, acts): (String, &str, Vec<Value>) = match d.state {
         DutyState::Open if ask => (tr("Open"), "accent", vec![json!({ "label": take, "act": "take", "kind": "primary" })]),
         DutyState::Open => (tr("Open"), "accent", Vec::new()),
-        DutyState::Mine => (tr("Yours"), "ok", vec![drive, json!({ "label": tr("Give back"), "act": "release", "kind": "" })]),
-        DutyState::Late => (tr("Yours: the company's day closed, drive it when you can"), "warn", vec![drive, json!({ "label": tr("Give back"), "act": "release", "kind": "" })]),
+        DutyState::Mine => (tr("Yours"), "ok", yours),
+        DutyState::Late => (tr("Yours: the company's day closed, drive it when you can"), "warn", yours),
         DutyState::Asked => (tr("Asked for: waiting for a yes"), "warn", vec![json!({ "label": tr("Withdraw"), "act": "release", "kind": "" })]),
         DutyState::Driving => (tr("You are driving it"), "ok", vec![json!({ "label": tr("Drive again"), "act": "drive", "kind": "", "icon": "replay" })]),
         DutyState::Done => (tr("Driven"), "dim", Vec::new()),
@@ -702,6 +752,8 @@ fn duty_row(d: &SnapDuty, open_claims: bool, ask: bool) -> Value {
         "from": d.from, "date": day_label(&d.duty.date),
         "route": format!("{} → {}", d.first, d.last), "facts": facts.join("  ·  "), "title": duty_words(&d.number, &d.duty),
         "state": state, "tone": tone, "acts": acts, "key": format!("{:?}", d.state).to_lowercase(), "guest": d.guest, "who": d.who,
+        // (who drives at the same time, the company's world)
+        "along": (!d.along.is_empty()).then(|| along_words(&d.along)), "world": world.map(world_words),
     })
 }
 
@@ -749,7 +801,8 @@ fn view() -> Value {
     let you = s.you.clone().unwrap_or_default();
     let can = |p: Perm| you.perms.contains(&p);
     let ask = can(Perm::Drive);
-    let rows = |pick: &dyn Fn(&SnapDuty) -> bool| -> Vec<Value> { s.duties.iter().filter(|d| pick(d)).map(|d| duty_row(d, s.open_claims || can(Perm::Approve), ask)).collect() };
+    let world = s.world.as_ref();
+    let rows = |pick: &dyn Fn(&SnapDuty) -> bool| -> Vec<Value> { s.duties.iter().filter(|d| pick(d)).map(|d| duty_row(d, s.open_claims || can(Perm::Approve), ask, world)).collect() };
     let mine = rows(&|d| matches!(d.state, DutyState::Mine | DutyState::Asked | DutyState::Driving | DutyState::Done | DutyState::Late | DutyState::Ai));
     let open = rows(&|d| d.state == DutyState::Open);
     let rest = rows(&|d| matches!(d.state, DutyState::Player | DutyState::Company | DutyState::Closed));
@@ -759,7 +812,7 @@ fn view() -> Value {
         .iter()
         .filter(|d| matches!(d.state, DutyState::Driving | DutyState::Mine | DutyState::Late) || (d.state == DutyState::Ai && d.back))
         .min_by_key(|d| (d.state != DutyState::Driving, d.state != DutyState::Late, d.from))
-        .map(|d| duty_row(d, s.open_claims, ask));
+        .map(|d| duty_row(d, s.open_claims, ask, world));
     let players: Vec<Value> = s
         .players
         .iter()
@@ -800,7 +853,7 @@ fn view() -> Value {
         .map(|m| json!({ "no": m.no, "name": m.name, "role": role_json(m.role), "perms": m.perms.iter().map(|p| p.key()).collect::<Vec<_>>(), "online": m.online, "banned": m.banned, "duties": m.duties, "stats": super::host::stats_json(&m.stats) }))
         .collect();
     let giveable: Vec<Value> = if can(Perm::Assign) {
-        s.duties.iter().filter(|d| matches!(d.state, DutyState::Open | DutyState::Company | DutyState::Player)).map(|d| duty_row(d, s.open_claims, false)).collect()
+        s.duties.iter().filter(|d| matches!(d.state, DutyState::Open | DutyState::Company | DutyState::Player)).map(|d| duty_row(d, s.open_claims, false, world)).collect()
     } else {
         Vec::new()
     };

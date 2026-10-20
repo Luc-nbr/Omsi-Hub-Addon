@@ -22,8 +22,9 @@ function routeColors() {
 }
 
 /** Start the duty: upstream's duty as the base, the company's duty over it on the Rust side
- * (`launch_start`, as our game-drawn launcher starts it); `dry` only says the command line. */
-export async function startDuty(dry = false) {
+ * (`launch_start`, as our game-drawn launcher starts it); `dry` only says the command line;
+ * `together`: in the company's world, with the players driving at the same time. */
+export async function startDuty(dry = false, together = false) {
   let base;
   try {
     base = await duty();
@@ -31,11 +32,11 @@ export async function startDuty(dry = false) {
     toast(e.message, 'error');
     return null;
   }
-  return act('launch_start', { base, dry });
+  return act('launch_start', { base, dry, together });
 }
 
 /** The RosterFlow button (`rf_button`): solid blue, else grey; its words in capitals. */
-const RfButton = ({ label, solid, onClick, style = '' }) => html`<button type="button" class=${'co-rfbtn' + (solid ? ' solid' : '')} style=${style} onClick=${onClick}>${label}</button>`;
+const RfButton = ({ label, solid, onClick, style = '', title }) => html`<button type="button" class=${'co-rfbtn' + (solid ? ' solid' : '')} style=${style} title=${title} onClick=${onClick}>${label}</button>`;
 
 export function LaunchPage() {
   const v = useView('launch');
@@ -98,6 +99,18 @@ function Row({ r, colour }) {
   </div>`;
 }
 
+/** Alone or together (`launch::together_card`): while the company is shared and players drive
+ * at the same time, two starts - the duty in a game of the boss's own, or in the company's world
+ * with them. */
+function Together({ t }) {
+  const go = (together) => !S.boot?.selftest && startDuty(false, together);
+  return html`<p class="along"><${Icon} name="groups" size=${15} class="ic accent" />${t.along}</p>
+    <div class="together">
+      <${RfButton} label=${t.alone} title=${t.alone_tip} style="flex:1;height:52px" onClick=${() => go(false)} />
+      <${RfButton} label=${t.with} title=${t.with_tip} solid style="flex:1;height:52px" onClick=${() => go(true)} />
+    </div>`;
+}
+
 /** The start (`duty_launch::start_card`): the weather and the start, or why it cannot start. */
 function Start({ s, fix, label }) {
   if (s.blocked) {
@@ -117,6 +130,8 @@ function Start({ s, fix, label }) {
     <p class="when"><${Icon} name="schedule" size=${15} class="ic accent" />${s.when}</p>
     <p class="fixed"><${Icon} name="lock" size=${14} class="ic faint" />${s.fixed}</p>
     <span class="grow"></span>
-    <${RfButton} label=${s.go} solid style="width:100%;height:52px" onClick=${() => !S.boot?.selftest && startDuty(false)} />
+    ${s.together
+      ? html`<${Together} t=${s.together} />`
+      : html`<${RfButton} label=${s.go} solid style="width:100%;height:52px" onClick=${() => !S.boot?.selftest && startDuty(false)} />`}
   </div>`;
 }

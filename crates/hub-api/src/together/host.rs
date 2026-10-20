@@ -3,8 +3,9 @@
 //! whatever page the launcher shows and while the game runs), its code, the players online with
 //! their roles and permissions and what each drives, the duties asked for, the activity - and the
 //! company's pages relayed for the players whose roles allow them (`relay`). The boss opens no
-//! world: each player drives his duties in his own game. The company's "Multiplayer" page
-//! (`multiplayer.js`) is this part's.
+//! world: each player drives his duties in his own game - or, driving together, in the company's
+//! world (`world`), which the boss's own duty may open or join as well (`boss_place`, from the
+//! duty launcher). The company's "Multiplayer" page (`multiplayer.js`) is this part's.
 
 use super::relay;
 use super::{duty_arg, duty_words, notice_json, notice_text, perms_arg, role_json, roles_json, unix_now};
@@ -18,7 +19,8 @@ use crate::launcher::company::together::book::{self, ClaimState};
 use crate::launcher::company::together::code::{self, CompanyCode};
 use crate::launcher::company::together::host::{self as th, Here, HostState};
 use crate::launcher::company::together::server::{Server, TunnelState};
-use crate::launcher::company::together::wire::{DutyState, Request};
+use crate::launcher::company::together::wire::{DutyState, Request, SnapWorld};
+use crate::launcher::company::together::world::{self, Place};
 use crate::launcher::company::together::{Perm, Role};
 use crate::launcher::company::{self as co, Company};
 use crate::Answer;
@@ -97,6 +99,48 @@ pub(super) fn hosting_none() -> bool {
 /// sends it with an invite: `online.rs`).
 pub fn session_code() -> Option<String> {
     hosting().as_ref().map(|h| h.text.clone())
+}
+
+/// "Drive together" for the boss's own duty `r` (the duty launcher, `company/launch.rs`): the
+/// players whose duties run at the same time (`from` to `to`, minutes of the day), and the
+/// company's world as it is now. None: his company is not shared now.
+pub fn boss_along(s: &mut Session, r: &DutyRef, from: i32, to: i32) -> Option<(Vec<String>, Option<SnapWorld>)> {
+    let mut g = hosting();
+    let h = g.as_mut()?;
+    if s.company.as_ref().map(|c| c.id.as_str()) != Some(h.company.as_str()) {
+        return None;
+    }
+    let p = plan_of(s, h);
+    let c = s.company.as_ref()?;
+    let along = p.as_ref().filter(|p| p.date == r.date).map(|p| th::along_of(&th::player_duties(c, p, &h.st.boss), r, from, to, Some(0))).unwrap_or_default();
+    Some((along, th::world_snap(&h.st, unix_now())))
+}
+
+/// Where the boss's own duty, whose game starts on `date` at `minute`, is driven together: his
+/// game opens the company's world, or joins it on its clock - or why not (in words).
+pub fn boss_place(date: &str, minute: i32) -> Result<Place, String> {
+    let mut g = hosting();
+    let h = g.as_mut().ok_or_else(|| tr("Share the company first: driving together needs its session."))?;
+    let boss = h.st.boss.clone();
+    h.st.place(0, &boss, date, minute, unix_now()).map_err(|v| super::refusal_text(&v))
+}
+
+/// The game code of the company's world the boss's game opened (`together::watch_world`).
+pub fn boss_world_code(code: &str) {
+    let mut g = hosting();
+    let Some(h) = g.as_mut() else { return };
+    if world::opened(&mut h.st.world, 0, code) == Ok(true) {
+        let boss = h.st.boss.clone();
+        h.st.tell(unix_now(), world::OPENED, vec![("name".into(), boss)]);
+    }
+}
+
+/// The boss drives in the company's world no longer (his game ended, or he drives alone): the
+/// world closed when it was his.
+pub fn boss_out_of_world() {
+    if let Some(h) = hosting().as_mut() {
+        h.st.out_of_world(0, unix_now());
+    }
 }
 
 /// The page's language kept for the server's threads.

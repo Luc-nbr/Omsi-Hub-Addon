@@ -765,6 +765,12 @@ function launch() {
     start: {
       blocked: false, caps: 'START', weather_label: 'Weather', weather: st.weather, weathers: [['clear', 'Clear'], ['cloudy', 'Cloudy'], ['rain', 'Rain'], ['snow', 'Snow'], ['fog', 'Fog']],
       when: `The game starts at 06:15 on ${dayLabel(c.date)}`, fixed: 'The map, the bus and the time are fixed by the duty', go: 'START THE DUTY',
+      // (shared, Jan and Piet drive at the same time: alone or together - `launch::together_card`)
+      together: {
+        alone: 'Drive alone', with: 'Drive together', along: "At the same time: Jan, Piet  ·  The company's world is open (Jan), its clock at 06:02: Jan drive in it.",
+        alone_tip: 'Single player: the duty in a game of your own, at your own pace.',
+        with_tip: "Together: in the company's world, on its clock. You can join it from 20 min before your duty's start until 5 min after it; the world closes with the game of whoever opened it.",
+      },
     },
   };
 }
