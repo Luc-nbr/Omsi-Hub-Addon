@@ -166,7 +166,7 @@ jobs:
           repo: ${{ inputs.here && github.event.repository.name || 'Omsi-Hub-Releases' }}
           # (the tag is made there from its own main - this repository's commits are not in it; here,
           # from the commit built)
-          commitish: ${{ inputs.here && github.sha || 'main' }}
+          releaseCommitish: ${{ inputs.here && github.sha || 'main' }}
           tauriScript: npx --yes @tauri-apps/cli@2
           tagName: v__VERSION__
           releaseName: Omsi-Hub __VERSION__
