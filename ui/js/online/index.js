@@ -19,16 +19,15 @@ import { html } from '../../vendor/preact-htm.js';
 import { useLang } from '../i18n.js';
 import { OnlineButton, OnlineLayer, openPanel, Panel, useOnline, inviteFriend } from './online.js';
 import { CloudBadge, cloudBeforeOpen, CloudSaves } from './cloud.js';
-import { tr } from './bits.js';
 
 export { OnlineButton, OnlineLayer, openPanel, useOnline, inviteFriend, CloudBadge, cloudBeforeOpen, CloudSaves };
 
-/** The Online page: the account and the friends, inline. */
+/** The Online page: the account and the friends, inline (its title and line are the shell's
+ * sheet's head: here they stood a second time over its corner). */
 export function OnlinePage() {
   useLang();
   const v = useOnline();
   return html`<section class="page ol-page">
-    <header class="page-head"><h1>${tr('Online')}</h1><p class="sub">${tr('Friends, the leaderboard and cloud saves. Optional: everything works offline.')}</p></header>
     <${Panel} v=${v} inline />
   </section>`;
 }

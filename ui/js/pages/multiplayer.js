@@ -48,11 +48,13 @@ function ByCode() {
     setHost(null);
     if (!code.trim()) return setCheck(null);
     const asked = code.trim();
+    // (an answer for a code typed before is not taken: the one typed since may answer first)
+    let live = true;
     const id = setTimeout(() => {
-      call('hub_lan_check', { text: code }).then(setCheck).catch(() => setCheck(null));
-      if (/^OMSI-/i.test(asked)) call('hub_lan_query', { address: asked }).then((h) => setHost({ ...h, code: asked })).catch(() => setHost(null));
+      call('hub_lan_check', { text: code }).then((c) => live && setCheck(c)).catch(() => live && setCheck(null));
+      if (/^OMSI-/i.test(asked)) call('hub_lan_query', { address: asked }).then((h) => live && setHost({ ...h, code: asked })).catch(() => live && setHost(null));
     }, 300);
-    return () => clearTimeout(id);
+    return () => ((live = false), clearTimeout(id));
   }, [code]);
   const join = () => {
     if (!code.trim()) return toast(t('Paste a session code first'), 'error');
@@ -73,7 +75,7 @@ function ByCode() {
         ${session
           ? html`<div class="field"><span class="label">${t('Session code')}</span>
               <div class="row"><code class="input selectable" style="display:flex;align-items:center">${session.code}</code>
-              <${Button} icon="content_copy" title="Copy the code" onClick=${() => navigator.clipboard.writeText(session.code).then(() => toast(t('Session code copied'), 'ok'))} /></div>
+              <${Button} icon="content_copy" title="Copy the code" onClick=${() => navigator.clipboard?.writeText(session.code).then(() => toast(t('Session code copied'), 'ok')).catch(() => {})} /></div>
               <span class="help">${t(session.tunnel ? 'Friends can join from anywhere' : 'Getting ready for friends on the internet...')}</span></div>`
           : html`<p class="dim small">${t(hosting ? 'Start a duty on the Drive page: the code appears here.' : 'Turn on hosting, then start a duty on the Drive page.')}</p>`}
         <div><${Button} icon="directions_bus" label="Go to Drive" onClick=${() => set({ page: 'drive' })} /></div>
@@ -117,6 +119,8 @@ function Servers() {
   const add = () => {
     const a = address.trim();
     if (!a) return toast(t("Type the server's address (an IP, a name or a link)"), 'error');
+    // (not before the list came: saved without it, the servers kept would be lost)
+    if (!list) return;
     if (list.some((x) => x.address === a)) return toast(t('That server is in the list already'), 'error');
     save([...list, { name: name.trim() || a, address: a }]);
     setAddress('');

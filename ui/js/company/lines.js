@@ -4,7 +4,7 @@
 // add; and the dialog that weighs a line's needs against what the company has.
 
 import { S } from '../store.js';
-import { html, useState, setCo, setUi, ui, act, useView, goTab, goKey, handOver, Icon, Btn, Seg, Select, Dialog, Plate, IconBtn, Tag, rgbOf, seen } from './kit.js';
+import { html, useState, setCo, setUi, ui, act, useView, useGone, goTab, goKey, handOver, Icon, Btn, Seg, Select, Dialog, Plate, IconBtn, Tag, rgbOf, seen } from './kit.js';
 import { Bar } from './overview.js';
 
 export function LinesPage() {
@@ -224,11 +224,7 @@ function ToAdd({ a, mine }) {
 export function AddLineDialog({ d }) {
   const v = useView('add_line', { name: d.name });
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
-  if (v.gone) {
-    close();
-    return null;
-  }
+  if (useGone(v, close) || !v) return null;
   const go = async () => {
     const r = await act('add_line', { name: d.name });
     if (r?.done) {

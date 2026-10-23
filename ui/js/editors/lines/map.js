@@ -92,12 +92,21 @@ export function LineMap({ follow = false } = {}) {
   const ptr = useRef({ down: null, moved: 0, at: null });
   // (a frame asked for, the wheel's last turn, the roads to be drawn once it rests)
   const frame = useRef({ raf: 0, zoomedAt: 0, settle: 0 });
+  // (the latest draw: a frame asked for before the page drew anew draws what it shows now)
+  const latest = useRef();
   const v = L.view;
   const m = L.map;
 
   const size = () => [box.current?.clientWidth || 1, box.current?.clientHeight || 1];
   const cam = () => {
-    if (!L.cam && m) L.cam = fit(m, ...size());
+    if (!L.cam && m) {
+      // (a box not laid out yet - or hidden, the window too narrow - is no size to fit the
+      // map to: fitted for now, kept only once the box has its size)
+      const [W, H] = size();
+      const c = fit(m, W, H);
+      if (W < 20 || H < 20) return c;
+      L.cam = c;
+    }
     return L.cam;
   };
   const X = (c, W, x) => W / 2 + (x - c.cx) / c.mpp;
@@ -300,7 +309,7 @@ export function LineMap({ follow = false } = {}) {
   /** A frame drawn when the screen draws next: however many moves and answers came meanwhile,
    * the map is drawn once. */
   const kick = () => {
-    if (!frame.current.raf) frame.current.raf = requestAnimationFrame(() => ((frame.current.raf = 0), draw()));
+    if (!frame.current.raf) frame.current.raf = requestAnimationFrame(() => ((frame.current.raf = 0), latest.current.draw()));
   };
   useEffect(kick);
   /** A line chosen, or its map read: the camera on it once (the box laid out first). */
@@ -318,8 +327,10 @@ export function LineMap({ follow = false } = {}) {
     kick();
   };
   useEffect(followLine);
+  // (the box resized: the latest draw's view and map, not those of the first)
+  latest.current = { draw, followLine };
   useEffect(() => {
-    const ro = new ResizeObserver(() => (followLine(), draw()));
+    const ro = new ResizeObserver(() => (latest.current.followLine(), latest.current.draw()));
     ro.observe(box.current);
     return () => {
       ro.disconnect();

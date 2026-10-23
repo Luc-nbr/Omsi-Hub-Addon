@@ -5,7 +5,7 @@
 // "Deductions for late running" dialog, and the advice list the Operations tab can show too
 // (`late_advice`). Every text comes translated from the Rust side.
 
-import { html, useState, setCo, setUi, goTab, goKey, useView, Icon, Btn, Dialog } from './kit.js';
+import { html, useState, setCo, setUi, goTab, goKey, useView, useGone, Icon, Btn, Dialog } from './kit.js';
 
 // (its own look, beside company.css)
 if (!document.querySelector('link[data-late-css]')) {
@@ -123,7 +123,7 @@ export function LateSection({ v, before }) {
 export function LateDialog() {
   const v = useView('late');
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
+  if (useGone(v, close) || !v) return null;
   return html`<${Dialog} icon="schedule" title=${v.title} w=${900} h=${780} onClose=${close} foot=${html`<span class="rest"></span><${Btn} kind="primary" label=${v.close} onClick=${close} />`}>
     <p class="co-note">${v.span}</p>
     <${Deductions} m=${v.money} />

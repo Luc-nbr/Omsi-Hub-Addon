@@ -900,3 +900,10 @@ _version: 2
   ru: "В %{name} есть несохранённые изменения: сначала сохраните его"
   uk: "У %{name} є незбережені зміни: спершу збережіть його"
   pl: "%{name} ma niezapisane zmiany: najpierw go zapisz"
+"Depot file":
+  nl: "Hof-bestand"
+  de: "Hofdatei"
+  fr: "Fichier de dépôt"
+  ru: "Файл депо"
+  uk: "Файл депо"
+  pl: "Plik zajezdni"

@@ -306,6 +306,34 @@ fn every_drive_writes_the_live_dashboard() {
     assert_eq!((d.stops[1].arrival, d.stops[1].stops), (29_100.0, true));
 }
 
+/// What the bus's IBIS is set to (its scripts' variables) and the way it faces go into the live
+/// dashboard; a game that answers a variable it does not have with an error still gets the file
+/// written, and the rest of the plugin's second goes on.
+#[test]
+fn the_live_dashboard_has_the_bus_s_ibis_and_heading_and_survives_a_variable_s_error() {
+    let dir = installed("dash-ibis");
+    let vars = "local v = { IBIS_LinieKurs = 2301, IBIS_RouteIndex = 0, IBIS_TerminusCode = 105 }
+        omsi.var = function(n) if v[n] == nil then error('no variable ' .. n) end return v[n] end
+        omsi.str = function(n) error('no string variable ' .. n) end";
+    let mut h = Harness::load_with(&dir, GameState { position: Some((1200.0, -340.0, 90.0)), ..game() }, vars).unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    let i = d.ibis.expect("the IBIS");
+    assert_eq!((i.line, i.route_index, i.terminus, i.terminus_name), (Some(2301.0), Some(0.0), Some(105.0), None));
+    assert_eq!(d.bus.heading, Some(90.0));
+
+    // (no variable at all: no IBIS, the file still written every time)
+    let dir = installed("dash-ibis-none");
+    let mut h = Harness::load_with(&dir, game(), "omsi.var = function(n) error('no variable ' .. n) end").unwrap();
+    for _ in 0..3 {
+        h.frame().unwrap();
+    }
+    let d = bridge::read_dash(&dir).expect("data/dash.json");
+    assert!(d.ibis.is_none(), "{d:?}");
+}
+
 /// The panel `id` as the game has it now.
 fn panel(h: &Harness, id: &str) -> serde_json::Value {
     h.state.borrow().panels.get(id).cloned().unwrap_or_else(|| panic!("no panel {id}"))

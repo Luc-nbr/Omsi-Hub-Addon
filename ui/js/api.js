@@ -47,10 +47,82 @@ async function mockBackend() {
   return mock;
 }
 
+// --- what the player waits for ------------------------------------------------------------------
+//
+// A command the player set going - asked within a second of a click or a key, or of the end of
+// another such command (a button's second and third round) - is "waited for": `busy.js` puts up
+// its word while one takes long. What the page asks by itself over and over (the clock, the live
+// dashboard, the update's state, who is online ...) is not.
+
+/** The commands the page asks by itself, again and again (and the line editor's while a map is
+ * read: it says so over the map itself); and those that wait on purpose with a word of their
+ * own on the page: Google's sign-in in the browser (up to five minutes), the livery studio's
+ * saving with its own bar. */
+const QUIET = new Set([
+  'hub_update', 'hub_live', 'hub_game_state', 'hub_lan_hosted', 'co_tick', 'rf_here', 'cs_state',
+  'ol_state', 'ol_presence', 'ol_seen', 'ol_oauth_wait',
+  'tg_status', 'tg_view', 'tg_host_view', 'tg_host_badge',
+  'lak_progress',
+]);
+const QUIET_LE = new Set(['view', 'map_data', 'colour']);
+/** How long after the player's click or key a command counts as theirs (ms). */
+const ANSWERS_WITHIN = 1000;
+
+let lastAct = -1e9;
+if (typeof addEventListener === 'function') {
+  for (const k of ['pointerdown', 'keydown']) addEventListener(k, () => (lastAct = performance.now()), true);
+}
+let waitSeq = 0;
+/** The commands waited for now: id → { cmd, args, at }. */
+const waiting = new Map();
+const waiters = new Set();
+const told = () => waiters.forEach((f) => f(waiting));
+
+/** Listen to the commands waited for (`fn(map)` on every change). Returns the unlisten. */
+export function onWaiting(fn) {
+  waiters.add(fn);
+  return () => waiters.delete(fn);
+}
+
+/** Whether `cmd` is one the page asks by itself (a joined session's command: the one relayed). */
+function quiet(cmd, args) {
+  if (cmd === 'tg_relay' && args?.cmd) return quiet(args.cmd, args.args);
+  return QUIET.has(cmd) || (cmd === 'hub_le' && QUIET_LE.has(args?.op));
+}
+
+function waited(cmd, args, answer) {
+  const now = performance.now();
+  if (quiet(cmd, args) || now - lastAct > ANSWERS_WITHIN) return answer;
+  const id = ++waitSeq;
+  waiting.set(id, { cmd, args, at: now });
+  told();
+  const p = answer.finally(() => {
+    if (!waiting.delete(id)) return;
+    // (the next round of the same press counts as the player's too)
+    lastAct = performance.now();
+    told();
+  });
+  waitIds.set(p, id);
+  return p;
+}
+
+/** The waited-for command of each answer `call` gave (for `waitNoMore`). */
+const waitIds = new WeakMap();
+
+/** The player waits no more for the answer `p` of `call` (a page that went on without it -
+ * the cloud's look before a company opens gives up after a few seconds): its word goes. */
+export function waitNoMore(p) {
+  if (waiting.delete(waitIds.get(p))) told();
+}
+
 /** A command of hub-api (`hub_boot`, `co_state` …); `args` is one object. Rejects with the
  *  command's error text. */
-export async function call(cmd, args = {}) {
-  if (OWN[cmd]) return OWN[cmd](args || {});
+export function call(cmd, args = {}) {
+  if (OWN[cmd]) return Promise.resolve().then(() => OWN[cmd](args || {}));
+  return waited(cmd, args, ask(cmd, args));
+}
+
+async function ask(cmd, args) {
   if (inApp) return tauri.core.invoke('call', { cmd, args }).catch(failed);
   if (web()) return web().call(cmd, args).catch(failed);
   const b = await mockBackend();
@@ -58,7 +130,11 @@ export async function call(cmd, args = {}) {
 }
 
 /** A command that answers bytes: an ArrayBuffer. */
-export async function callBytes(cmd, args = {}) {
+export function callBytes(cmd, args = {}) {
+  return waited(cmd, args, askBytes(cmd, args));
+}
+
+async function askBytes(cmd, args) {
   if (inApp) return tauri.core.invoke('call_bytes', { cmd, args }).catch(failed);
   if (web()) return web().callBytes(cmd, args).catch(failed);
   const b = await mockBackend();

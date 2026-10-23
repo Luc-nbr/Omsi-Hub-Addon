@@ -4,7 +4,7 @@
 // livery, what it is, selling or giving it back, a service, training its drivers), and leasing
 // or renting one of the dealer's buses.
 
-import { html, useEffect, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select } from './kit.js';
+import { html, useEffect, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select, useGone } from './kit.js';
 import { DealerPage } from './dealer.js';
 import { photo, wantPhoto } from '../hub/photos.js';
 
@@ -84,17 +84,17 @@ function Buses({ b }) {
     <div class="co-scroll" ref=${ref} style="flex:1;min-height:0">
       <div style=${`position:relative;height:${Math.ceil(b.buses.length / L.cols) * (L.th + gap)}px`}>
         ${size.w > 0 &&
-        b.buses.map((bus, k) => {
+        // (keyed by the bus: a bus come or gone while a number is typed moved the typing to another)
+        b.buses.flatMap((bus, k) => {
           const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
           const nw = textW(bus.number, 15, 900) + 26;
-          return html`<${BusTile} name=${bus.name} file=${bus.file} paint=${bus.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
+          return [html`<${BusTile} key=${'t' + bus.id} name=${bus.name} file=${bus.file} paint=${bus.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
             over=${bus.advert && html`<span class="ad cut" style=${`max-width:${r.w - nw - 30}px`}>${bus.advert}</span>`}>
             <b class="cut">${bus.name}</b>
             <span class="sub cut">${bus.sub}</span>
             <span class="facts"><span class="cut">${bus.facts}</span><span class="cond" title=${bus.condition.tip}><${Meter} frac=${bus.condition.frac} tone=${bus.condition.tone} /></span></span>
             <span class=${'status t-' + bus.tone}><i class=${'dot-' + bus.tone}></i><span class="cut">${bus.status}</span></span>
-          </${BusTile}>
-          <${FleetNumber} bus=${bus} x=${r.x + 10} y=${r.y + 10} most=${r.w / 2} tip=${b.number_tip} />`;
+          </${BusTile}>`, html`<${FleetNumber} key=${'n' + bus.id} bus=${bus} x=${r.x + 10} y=${r.y + 10} most=${r.w / 2} tip=${b.number_tip} />`];
         })}
       </div>
     </div>
@@ -197,11 +197,7 @@ export function AgeSet({ a, onSet }) {
 export function VehicleDialog({ d }) {
   const v = useView('vehicle', { id: d.id });
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
-  if (v.gone) {
-    close();
-    return null;
-  }
+  if (useGone(v, close) || !v) return null;
   const foot = html`
     <${Btn} kind="danger" label=${v.sell} onClick=${() => setCo({ dialog: { kind: 'confirm', what: 'sell', id: d.id } })} />
     <${Btn} icon="construction" label=${v.service} onClick=${() => act('bus_service', { id: d.id })} />
@@ -247,8 +243,8 @@ export function NewDialog({ d }) {
   const v = useView('new', { file: d.file, livery: d.livery || '', how: d.how || 0, days: d.days || 7 });
   const put = (patch) => setCo({ dialog: { ...d, ...patch } });
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
-  if (v.gone) return null;
+  // (the bus no more at the dealer: closed - left open with nothing drawn, it held the clock)
+  if (useGone(v, close) || !v) return null;
   const take = async () => {
     const r = await act('new_take', { file: d.file, livery: d.livery || '', how: d.how || 0, days: d.days || 7 });
     if (r?.joined != null) {

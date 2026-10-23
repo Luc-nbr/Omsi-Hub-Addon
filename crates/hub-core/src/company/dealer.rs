@@ -394,15 +394,22 @@ pub fn with_age(c: &Company, o: &Offer, typed: &str) -> Option<Offer> {
 /// Set (or with None, take back) the year of first registration the player knows for a used
 /// offer: from then on the offer is that old and priced so, also when it is bought (Luc, Beta
 /// 59: "the registration file ... should be ignored").
-pub fn set_offer_age(c: &mut Company, id: &str, typed: Option<&str>) -> Result<(), &'static str> {
+/// (`file`: the offer's bus - an offer's id is drawn anew when the models on offer change, and
+/// the year typed went to another bus drawn under it.)
+pub fn set_offer_age(c: &mut Company, id: &str, file: &str, typed: Option<&str>) -> Result<(), &'static str> {
     if typed.is_some_and(|t| registrations::typed_date(t, &c.date).is_none()) {
         return Err("Type a year of first registration, as 2015.");
     }
-    c.dealer.typed_ages.retain(|(x, _)| x != id);
+    c.dealer.typed_ages.retain(|x| x.id != id);
     if let Some(t) = typed {
-        c.dealer.typed_ages.push((id.to_string(), t.trim().to_string()));
+        c.dealer.typed_ages.push(TypedAge { id: id.to_string(), file: file.to_string(), year: t.trim().to_string() });
     }
     Ok(())
+}
+
+/// The year typed for offer `o` (its id and its bus).
+fn typed_age<'a>(c: &'a Company, o: &Offer) -> Option<&'a str> {
+    c.dealer.typed_ages.iter().find(|x| x.id == o.id && !x.file.is_empty() && x.file.eq_ignore_ascii_case(&o.listing.bus.file)).map(|x| x.year.as_str())
 }
 
 /// A used bus `ages` years old (the least, the most). None: no such bus.
@@ -546,9 +553,11 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     out
 }
 
-/// What of an offer is sold already.
-fn taken_of(c: &Company, id: &str) -> u32 {
-    c.dealer.taken.iter().filter(|t| t.id == id).map(|t| t.count).sum()
+/// What of an offer is sold already: of that id and that bus (an offer's id is drawn anew when
+/// the models on offer change - another model under it was taken as sold, the bus bought on sale
+/// again).
+fn taken_of(c: &Company, o: &Offer) -> u32 {
+    c.dealer.taken.iter().filter(|t| t.id == o.id && (t.file.is_empty() || t.file.eq_ignore_ascii_case(&o.listing.bus.file))).map(|t| t.count).sum()
 }
 
 fn open_at(o: &Offer, now: &str) -> bool {
@@ -571,10 +580,10 @@ fn gather(c: &Company, listings: &[Listing], now: &str, back: i64, of_day: fn(&C
     for day in (today - back..=today).rev() {
         for mut o in of_day(c, listings, day) {
             // (the player's own year wins over the plate's and the market's)
-            if let Some((_, typed)) = c.dealer.typed_ages.iter().find(|(id, _)| *id == o.id) {
+            if let Some(typed) = typed_age(c, &o) {
                 o = with_age(c, &o, typed).unwrap_or(o);
             }
-            o.count = o.count.saturating_sub(taken_of(c, &o.id));
+            o.count = o.count.saturating_sub(taken_of(c, &o));
             if o.count > 0 && open_at(&o, now) {
                 out.push(o);
             }
@@ -1291,7 +1300,7 @@ pub fn sign(c: &mut Company, k: &Contract, listings: &[Listing], now: &str) -> R
     }
     if let Some(id) = &k.offer {
         let day = id.get(1..).and_then(|s| s.split('-').next()).and_then(|d| d.parse().ok()).unwrap_or(0);
-        c.dealer.taken.push(Taken { id: id.clone(), day, count: k.count });
+        c.dealer.taken.push(Taken { id: id.clone(), day, count: k.count, file: k.listing.bus.file.clone() });
     }
     c.dealer.bought += k.count;
     bought_of(c, &k.listing.maker, k.count, k.new, k.total());
@@ -1389,7 +1398,7 @@ pub fn tick(c: &mut Company, now: &str) -> Vec<Delivered> {
     let today = dates::parse(&day_of(now)).unwrap_or(0);
     let date = day_of(now);
     c.dealer.taken.retain(|t| t.day >= today - 14);
-    c.dealer.typed_ages.retain(|(id, _)| id.get(1..).and_then(|s| s.split('-').next()).and_then(|d| d.parse::<i64>().ok()).is_some_and(|d| d >= today - 14));
+    c.dealer.typed_ages.retain(|TypedAge { id, .. }| id.get(1..).and_then(|s| s.split('-').next()).and_then(|d| d.parse::<i64>().ok()).is_some_and(|d| d >= today - 14));
     c.dealer.talks.retain(|t| t.day == date);
     c.dealer.breaks.retain(|b| !not_after(&b.1, now));
     c.dealer.warranties.retain(|w| dates::between(&date, &w.until) >= 0 && c.fleet.iter().any(|v| v.id == w.vehicle));
@@ -1509,6 +1518,9 @@ pub struct Taken {
     pub id: String,
     pub day: i64,
     pub count: u32,
+    /// The bus's model file (none in saves of before: any model of that id).
+    #[serde(default)]
+    pub file: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1555,7 +1567,35 @@ pub struct DealerState {
     /// The year of first registration the player set himself on a used offer (its id, what he
     /// typed): the offer is priced by it wherever it is shown or bought (`with_age`).
     #[serde(default)]
-    pub typed_ages: Vec<(String, String)>,
+    pub typed_ages: Vec<TypedAge>,
+}
+
+/// A year of first registration the player typed for a used offer: the offer's id, its bus's
+/// model file and the year.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(from = "TypedAgeSaved")]
+pub struct TypedAge {
+    pub id: String,
+    pub file: String,
+    pub year: String,
+}
+
+/// A `TypedAge` as saves have it: before the bus's file was kept with it, an id and a year (no
+/// file: it is not applied any more - which bus it was for is not known).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TypedAgeSaved {
+    Now { id: String, #[serde(default)] file: String, year: String },
+    Before(String, String),
+}
+
+impl From<TypedAgeSaved> for TypedAge {
+    fn from(s: TypedAgeSaved) -> TypedAge {
+        match s {
+            TypedAgeSaved::Now { id, file, year } => TypedAge { id, file, year },
+            TypedAgeSaved::Before(id, year) => TypedAge { id, file: String::new(), year },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1644,10 +1684,21 @@ mod tests {
         let (price_2017, _) = used_price(&c, plated.listing.bus.kind, dates::years_between("2017-05-01", &c.date), plated.km, plated.condition);
         assert!(price_2005 < price_2017 / 2, "{price_2005} {price_2017}");
         // kept with the company: the offer reopened is still of 2005
-        set_offer_age(&mut c, &listed.id, Some("2005")).unwrap();
+        set_offer_age(&mut c, &listed.id, &listed.listing.bus.file, Some("2005")).unwrap();
         let again = offer(&c, &ls, &listed.id, &now).unwrap();
         assert_eq!((again.built.as_str(), again.price, again.age_from), ("2005-07-01", price_2005, AgeFrom::Manual));
-        assert!(set_offer_age(&mut c, &listed.id, Some("soon")).is_err());
+        assert!(set_offer_age(&mut c, &listed.id, &listed.listing.bus.file, Some("soon")).is_err());
+        // (another bus drawn under that id - the models on offer were others: not of 2005; a save
+        // of before, an id and a year, loads and is not applied)
+        let mut other = c.clone();
+        other.dealer.typed_ages[0].file = "Vehicles/Other/other.bus".into();
+        assert_ne!(offer(&other, &ls, &listed.id, &now).unwrap().price, price_2005);
+        let old: Vec<TypedAge> = serde_json::from_value(serde_json::json!([[listed.id.clone(), "2005"]])).unwrap();
+        assert_eq!(old, vec![TypedAge { id: listed.id.clone(), file: String::new(), year: "2005".into() }]);
+        other.dealer.typed_ages = old;
+        assert_ne!(offer(&other, &ls, &listed.id, &now).unwrap().price, price_2005);
+        let back: Vec<TypedAge> = serde_json::from_value(serde_json::to_value(&c.dealer.typed_ages).unwrap()).unwrap();
+        assert_eq!(back, c.dealer.typed_ages);
         assert_eq!(offer(&c, &ls, &listed.id, &now).unwrap().price, price_2005);
         // bought: a bus of 2005, at the 2005 price, worth and sold as one
         let cash = c.cash;
@@ -2023,6 +2074,23 @@ mod tests {
         assert_eq!(c.fleet.len(), before + 3);
         assert_eq!(cash - c.cash, 3 * (one + painting_cost(&c)));
         assert_eq!(c.vehicle(ids[2]).unwrap().livery, "Red");
+    }
+
+    #[test]
+    fn an_offer_sold_is_the_bus_sold_not_another_drawn_under_its_id() {
+        let mut c = company(GameMode::Normal, "2024-03-04");
+        let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel)];
+        let now = now_of(&c);
+        let o = used_market(&c, &ls, &now)[0].clone();
+        let day = o.id.get(1..).and_then(|s| s.split('-').next()).and_then(|d| d.parse().ok()).unwrap();
+        // (another model sold under that id - the models on offer were others then): still on sale
+        c.dealer.taken.push(Taken { id: o.id.clone(), day, count: 1, file: "Vehicles/Other/other.bus".into() });
+        assert!(used_market(&c, &ls, &now).iter().any(|x| x.id == o.id));
+        // this one sold: gone; and a sale of a save of before (no file): gone too
+        c.dealer.taken.push(Taken { id: o.id.clone(), day, count: 1, file: o.listing.bus.file.clone() });
+        assert!(used_market(&c, &ls, &now).iter().all(|x| x.id != o.id));
+        c.dealer.taken = vec![Taken { id: o.id.clone(), day, count: 1, file: String::new() }];
+        assert!(used_market(&c, &ls, &now).iter().all(|x| x.id != o.id));
     }
 
     #[test]

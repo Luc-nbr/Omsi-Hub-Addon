@@ -113,4 +113,83 @@ mod tests {
         assert_eq!(back[0].buttons, wheel.buttons);
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// The texts of a page's source: every string literal that reads as an English text (a
+    /// capital, then small letters) - the tables of names, the labels, what `tr` is given.
+    fn page_texts(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut chars = src.chars().peekable();
+        let mut last = ' ';
+        while let Some(c) = chars.next() {
+            // (comments skipped: their words are no texts, and their quotes would pair wrongly)
+            if c == '/' && last != ':' && chars.peek() == Some(&'/') {
+                for c in chars.by_ref() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                last = '\n';
+                continue;
+            }
+            if c == '/' && chars.peek() == Some(&'*') {
+                let mut prev = ' ';
+                for c in chars.by_ref() {
+                    if prev == '*' && c == '/' {
+                        break;
+                    }
+                    prev = c;
+                }
+                continue;
+            }
+            last = c;
+            if c != '\'' && c != '"' {
+                continue;
+            }
+            let mut t = String::new();
+            while let Some(x) = chars.next() {
+                match x {
+                    '\\' => t.extend(chars.next()),
+                    x if x == c => break,
+                    x => t.push(x),
+                }
+            }
+            if t.chars().next().is_some_and(|f| f.is_ascii_uppercase()) && t.chars().any(|x| x.is_ascii_lowercase()) {
+                out.push(t);
+            }
+        }
+        out
+    }
+
+    /// Every text of the tab "Controllers" (and of the openOMSI tab beside it), and openOMSI's
+    /// settings round the controllers, in the six languages (crates/hub-locales/locales/
+    /// controllers.yml).
+    #[test]
+    fn every_controllers_text_is_translated() {
+        let js = include_str!("../../../ui/js/hub/controllers.js").replace("\r\n", "\n");
+        let addon = include_str!("../../../ui/js/hub/addon.js").replace("\r\n", "\n");
+        let mut texts: Vec<String> = page_texts(&js).into_iter().chain(page_texts(&addon)).filter(|t| t != "Escape").collect();
+        // (a hat's directions, in "Hat 1 up")
+        texts.extend(["up", "right", "down", "left"].map(String::from));
+        for f in hub_game::gamesettings::FIELDS.iter().filter(|f| hub_game::gamesettings::CONTROLLER_GROUPS.contains(&f.group)) {
+            texts.push(f.group.to_string());
+            texts.push(f.label.to_string());
+        }
+        texts.sort();
+        texts.dedup();
+        assert!(texts.len() > 150, "only {} texts found", texts.len());
+        // (the names of things are the same in every language)
+        let names = ["Xbox", "PlayStation 4", "PlayStation 5", "Steam, Steam with Proton, or retail"];
+        let texts: Vec<String> = texts.into_iter().filter(|t| !names.contains(&t.as_str())).collect();
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = hub_locales::texts(lang);
+            for t in &texts {
+                match table.get(t) {
+                    Some(tr) if t.matches("%{").count() == tr.matches("%{").count() => {}
+                    _ => missing.push(format!("{lang}: {t:?}")),
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing or with other holes (crates/hub-locales/locales/controllers.yml):\n{}", missing.len(), missing.join("\n"));
+    }
 }

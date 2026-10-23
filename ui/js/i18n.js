@@ -7,16 +7,22 @@ import { set, useStore } from './store.js';
 
 let table = {};
 let lang = 'en';
+/** The last language asked for: an earlier one's texts that come after it are not taken. */
+let asked = 0;
 
 /** The language's texts loaded (and the page drawn again). */
 export async function setLanguage(next) {
   const l = (next || systemLanguage()).toLowerCase();
+  const me = ++asked;
+  let got;
   try {
-    table = l === 'en' ? {} : await call('hub_texts', { lang: l });
+    got = l === 'en' ? {} : await call('hub_texts', { lang: l });
   } catch (e) {
     console.warn('texts', e);
-    table = {};
+    got = {};
   }
+  if (me !== asked) return;
+  table = got;
   lang = l;
   document.documentElement.lang = l;
   set({ lang: l });

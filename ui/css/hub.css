@@ -799,3 +799,18 @@
 .hub-addon .ok { color: var(--hub-ok); }
 .hub-addon .warn { color: var(--hub-warn); }
 .hub-addon .bad { color: var(--hub-danger); }
+
+/* the word that the app is busy (`busy.js`): a card at the top, over everything, that takes no clicks */
+.hub-busy { position: absolute; z-index: 90; top: calc(var(--hub-edge-in, 16px) + var(--hub-bar-h, 56px) + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 18px 10px 14px; border-radius: 999px; background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-edge); box-shadow: var(--hub-shadow), 0 0 0 3px color-mix(in srgb, var(--hub-accent) 22%, transparent); font-size: 12.5px; font-weight: 600; pointer-events: none; animation: hub-busy-in 0.16s ease-out; }
+.hub-busy .spinner { width: 16px; height: 16px; }
+@keyframes hub-busy-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .hub-busy { animation: none; } }
+
+/* the light or the dark look (`flipLook`, `hub/bar.js`): the new look comes in only through the
+   circle growing from the button, the old one stays whole outside it till the circle gets there.
+   The webview's own quarter-second fade of the whole window is off: it had the old look gone
+   everywhere while the circle was still on its way. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+/* (while the look flips, the page's own colour transitions wait: they faded old colours into new
+   ones inside the circle) */
+.hub-flipping *, .hub-flipping *::before, .hub-flipping *::after { transition: none !important; }

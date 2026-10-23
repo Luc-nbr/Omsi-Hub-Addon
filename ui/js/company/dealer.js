@@ -7,7 +7,7 @@
 
 import { S } from '../store.js';
 import { start } from '../hub/drive.js';
-import { html, useEffect, useRef, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Seg, Chips, Select, Dialog, Meter, Slider, Crumbs, T } from './kit.js';
+import { html, useEffect, useRef, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Seg, Chips, Select, Dialog, Meter, Slider, Crumbs, T, useEscLayer } from './kit.js';
 import { layout, BusTile, PriceRow, Photo, AgeSet } from './fleet.js';
 import { Bar } from './overview.js';
 import { thousands } from '../hub/money.js';
@@ -428,14 +428,23 @@ function AdvertSheet({ v, sheet, close }) {
  * "Signed"; about two seconds, a click skips to its end; with the animations off at once. */
 function Pen({ pen, onDone }) {
   const still = S.settings?.animations === false;
+  // (signed once: the click, the time or Escape - which closed the sheet under the pen, and the
+  // contract was booked on the sheet that came after it)
+  const once = useRef(false);
+  const done = () => {
+    if (once.current) return;
+    once.current = true;
+    onDone();
+  };
+  useEscLayer(done, true);
   useEffect(() => {
-    const t = setTimeout(onDone, still ? 250 : 2000);
+    const t = setTimeout(done, still ? 250 : 2000);
     return () => clearTimeout(t);
   }, []);
   const W = 460;
   const H = 108;
   const strokes = pen.strokes || [];
-  return html`<div class="co-scrim co-pen" onMouseDown=${onDone}>
+  return html`<div class="co-scrim co-pen" onMouseDown=${done}>
     <div class="paper">
       <b>${pen.title}</b>
       <div class="line">

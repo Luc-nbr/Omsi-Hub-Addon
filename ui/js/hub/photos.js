@@ -131,5 +131,10 @@ export function wantPhoto(file, paint) {
 
 /** Forget what is known of a bus's photos (its livery was saved anew): asked again. */
 export function forgetPhotos(file) {
-  for (const k of [...photos.keys()]) if (k.startsWith(`${file}|`)) photos.delete(k);
+  for (const k of [...photos.keys()]) {
+    if (!k.startsWith(`${file}|`)) continue;
+    // (its picture's memory given back - a minute on: a tile may show it still)
+    photos.get(k).p?.then((u) => typeof u === 'string' && u.startsWith('blob:') && setTimeout(() => URL.revokeObjectURL(u), 60000)).catch(() => {});
+    photos.delete(k);
+  }
 }

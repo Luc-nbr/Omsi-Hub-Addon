@@ -1294,7 +1294,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
   --co-side-line: rgba(255, 255, 255, 0.08);
   position: absolute; left: 0; top: 0; bottom: 0; width: var(--co-side-w); z-index: 12; display: flex; flex-direction: column;
   background: var(--co-side-bg); color: var(--co-side-ink); border-right: 1px solid var(--co-side-line);
-  animation: co-side-in 0.22s cubic-bezier(0.22, 0.8, 0.3, 1);
+  animation: co-side-in 0.22s cubic-bezier(0.22, 0.8, 0.3, 1); transform-origin: left center;
 }
 :root.hub[data-theme="light"] .co-side {
   --co-side-bg: color-mix(in srgb, var(--hub-text) 93%, var(--hub-accent));
@@ -1306,7 +1306,9 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
   --co-side-line: rgba(255, 255, 255, 0.1);
   --hub-logo-ink: var(--hub-panel);
 }
-@keyframes co-side-in { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* (it grows from its edge rather than sliding in from beyond it: nothing of it lies outside the
+   window while it comes - nor in a window that draws no frames, where it stays as it began) */
+@keyframes co-side-in { from { transform: scaleX(0.94); opacity: 0; } to { transform: none; opacity: 1; } }
 .co-side-brand { flex: none; height: 60px; display: flex; align-items: center; padding: 0 20px; }
 .co-side-brand .hub-logo { height: 32px; width: auto; display: block; }
 .co-side-busmark { width: 34px; height: 34px; display: block; }
@@ -1496,3 +1498,7 @@ button.co-top-crumb:hover { background: var(--hub-hover); color: var(--hub-text)
 .co-crew-when { flex: none; font-size: var(--co-note); opacity: 0.6; }
 .co-crew-state { flex: none; font-size: var(--co-note); font-weight: 700; }
 .co-crew-none { font-size: var(--co-note); opacity: 0.55; padding: 4px 0; }
+
+/* a page of the company whose view could not be read: what went wrong over it, and "Try again" */
+.co-more-failed { position: absolute; left: 0; right: 0; top: 0; z-index: 6; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--hub-r); background: var(--hub-panel); box-shadow: inset 0 0 0 1px rgb(var(--co-danger-fill)); color: var(--hub-text); font-size: var(--co-rows); }
+.co-more-failed > .hub-icon { color: var(--co-danger-text, rgb(var(--co-danger-fill))); flex: none; }

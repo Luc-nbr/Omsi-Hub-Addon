@@ -115,9 +115,9 @@ impl<K: Keyring> SecretStore for Kept<K> {
     }
     fn clear(&self) {
         self.memory.clear();
-        if !self.in_memory() {
-            self.keyring.delete();
-        }
+        // (also after falling back to memory: a session an earlier run kept there must not come
+        // back at the next start)
+        self.keyring.delete();
     }
     fn lasting(&self) -> bool {
         !self.in_memory()

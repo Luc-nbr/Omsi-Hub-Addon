@@ -77,6 +77,17 @@ fn a_map_is_read_and_a_new_line_routed_between_two_of_its_stops() {
     // (the road from the first stop to the second: about 400 m)
     let m = leg["length"].as_f64().unwrap();
     assert!((350.0..=450.0).contains(&m), "{m} m");
+    // a leg or a way back the page asks for that is not there: nothing happens (no panic)
+    let v = le("drag_new", json!({ "k": 7, "at": [0.0, 0.0] }));
+    assert_eq!(v["line"]["directions"][0]["stops"].as_array().map(Vec::len), Some(2), "{v}");
+    le("use_similar", json!({}));
+    le("dir", json!({ "d": 1 }));
+    le("use_similar", json!({}));
+    le("dir", json!({ "d": 0 }));
+    // the self-check's line left unsaved and forgotten: the map's lines read again on opening
+    le("leave", json!({ "forget": true }));
+    let v = le("open", json!({ "maps": maps, "root": "", "date": "1989-05-30", "choice_map": "maps/Linedorf/global.cfg", "company": "", "line": null, "new_days": null, "map_line": "" }));
+    assert_eq!((v["rows"].as_array().map(Vec::len), v["dirty"].as_bool()), (Some(0), Some(false)), "{v}");
     le("leave", json!({}));
     let _ = std::fs::remove_dir_all(&base);
 }

@@ -18,7 +18,7 @@
 // company does not run grey with their line, the other players' buses with their names. A switch
 // in the panel hides the traffic.
 
-import { html, useEffect, useRef, useState, useSize, Btn, Plate, Meter, IconBtn, Icon, rgbOf, inkOn, setCo, goTab, tr } from './kit.js';
+import { html, useEffect, useRef, useState, useSize, Btn, Plate, Meter, IconBtn, Icon, rgbOf, inkOn, setCo, goTab, tr, escTaken } from './kit.js';
 import { useMore, actMore, TextIn, box } from './more.js';
 import { Photo } from './fleet.js';
 import { cmd } from './kit.js';
@@ -132,8 +132,14 @@ function useRoads(v) {
       if (map !== read.data) setMap(read.data);
       return;
     }
-    if (read?.key === key && read.busy) return;
-    read = { key, busy: true, data: null };
+    // (a page drawn anew while the read is on its way waits for it too: the answer went to the
+    // page drawn before, and this one said "Reading the map…" until it was opened again)
+    if (read?.key === key && read.busy) {
+      read.wait.push(setMap);
+      return;
+    }
+    const wait = [setMap];
+    read = { key, busy: true, data: null, wait };
     cmd('co_more_map')
       .then((d) => {
         if (read?.key !== key) return;
@@ -142,11 +148,11 @@ function useRoads(v) {
           return;
         }
         read = { key, busy: false, data: d };
-        setMap(d);
+        wait.forEach((f) => f(d));
       })
       .catch((e) => {
         read = { key, busy: false, data: { error: e.message } };
-        setMap(read.data);
+        wait.forEach((f) => f(read.data));
       });
   }, [v?.reading, v?.built, S.co.shell?.clock?.date]);
   return map;
@@ -605,7 +611,7 @@ function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   useEffect(() => {
     if (!pick) return undefined;
     const k = (e) => {
-      if (e.key !== 'Escape' || S.co.dialog || S.co.popup) return;
+      if (e.key !== 'Escape' || escTaken()) return;
       e.stopImmediatePropagation();
       choose(null);
     };

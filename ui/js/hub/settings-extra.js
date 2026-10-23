@@ -38,6 +38,9 @@ export const SETTINGS_TABS = [
           { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
           // (the stops on the maps as the bus stop signs of a country: `stopsigns.js`)
           { type: 'select', key: 'stop_style', label: 'Bus stop signs', options: STOP_SIGNS },
+          // (the live dashboard's speeds and distances: kept, and read by it, but there was no
+          // place to choose them)
+          { type: 'select', key: 'units', label: 'Units', options: [['metric', 'Metric (km/h, km)'], ['imperial', 'Imperial (mph, miles)']] },
           // (the bus company's pages round a sidebar, or found with the command palette: `company/shell.js`)
           { type: 'select', key: 'company_layout', label: 'Company layout', options: [['sidebar', 'Sidebar'], ['palette', 'Command palette']] },
           { type: 'button', label: 'Start the tour', icon: 'route', patch: () => (import('./hub.js').then((h) => (h.go('drive', 'mode'), import('./tour.js').then((m) => setTimeout(() => m.startTour(), 300)))), {}) },

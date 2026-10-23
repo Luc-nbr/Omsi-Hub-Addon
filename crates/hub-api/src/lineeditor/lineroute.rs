@@ -458,6 +458,16 @@ pub fn turn_dead_ends(net: &mut Network) -> usize {
         if into.is_empty() || onto.is_empty() {
             continue;
         }
+        // (the way the other way round there already as a path of its own - a junction whose
+        // exit leads into a one-way street: its lane is a dead end by right, and a twin of it
+        // would be saved as a path driven backwards where the map has a proper one)
+        let back = |j: usize| {
+            let m = &net.lanes[j];
+            (m.end() - l.start()).truncate().length() <= TURN_JOIN && wrap_deg(m.end_heading() - (l.start_heading() + 180.0)).abs() <= TURN_HEADING
+        };
+        if starts_at(net, l.end(), l.end_heading() + 180.0, i).into_iter().any(back) {
+            continue;
+        }
         let pts: Vec<DVec3> = l.points.iter().rev().copied().collect();
         let mut t = omsi_sim::traffic::LaneBuilder::polyline(pts, l.kind, l.width);
         (t.key, t.source, t.reversed, t.name) = (l.key, l.source, !l.reversed, l.name.clone());
@@ -580,6 +590,15 @@ mod tests {
         assert!((way.length - 280.0).abs() < 2.0, "{}", way.length);
         // (saved as the junction's path, driven the other way)
         assert!(r.steps(&way).iter().any(|s| s.id == 30 && s.reversed));
+        // a junction with its westbound path as well (31): the eastbound one leads nowhere by
+        // right, and is not turned
+        let mut both = Network { lanes: lanes(), ..Default::default() };
+        both.lanes.push(lane(line(150.0, 130.0), 31, 2));
+        both.link(1.5);
+        assert_eq!(turn_dead_ends(&mut both), 0);
+        let r = router(both);
+        let way = r.route(&r.anchors(DVec2::new(290.0, 5.0), true), &r.anchors(DVec2::new(10.0, 5.0), true), 5000.0).expect("the way straight on");
+        assert!(r.steps(&way).iter().any(|s| s.id == 31 && !s.reversed) && !r.steps(&way).iter().any(|s| s.id == 30));
     }
 
     #[test]

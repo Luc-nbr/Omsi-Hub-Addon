@@ -20,6 +20,7 @@ import { TourOverlay } from './tour.js';
 import { OnlineLayer } from './online.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
 import { useUpdates, UpdateDialog, UpdatedNotice } from '../update.js';
+import { BusyCard } from './busy.js';
 import { GameEndDialogs } from './gameend.js';
 // (the live dashboard while a drive runs, and the way back to it)
 import { DriveDash, LivePill, dashShown } from './dash.js';
@@ -154,7 +155,7 @@ export function HubShell({ pages, Toasts }) {
   useUpdates();
   // (the update's dialog and its notice over whatever is drawn, and the word on a game that
   // ended on an error)
-  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} /><${LivePill} />`;
+  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} /><${LivePill} /><${BusyCard} />`;
   // (a drive runs: its live dashboard is the window's - still, in the background - until the
   // driver goes back to the launcher)
   if (!s.boot?.selftest && dashShown(s)) {

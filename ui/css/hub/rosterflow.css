@@ -242,6 +242,10 @@
 .rf-title.fit3 .rf-tab > span, .rf-title.fit4 .rf-tab > span { max-width: 0; overflow: hidden; }
 .rf-title.fit4 .rf-brand .names { display: none; }
 .rf-title.fit4 .rf-day { width: 132px; }
+/* (six icons since Play together's: closer together at the narrowest, or the last ran into undo in a
+   window of 776 px) */
+.rf-title.fit4 .rf-icons { gap: 2px; margin-left: 6px; }
+.rf-title.fit4 .rf-icons > .rf-ibtn { width: 28px; }
 .rf-title .undo { display: flex; align-items: center; gap: 4px; margin-right: 11px; flex: none; }
 /* (company multiplayer: who else is in RosterFlow, and a player's planning seen read-only) */
 .rf-title .rf-here { display: flex; align-items: center; margin-right: 10px; flex: none; }
@@ -301,6 +305,9 @@
 .rf-fchip button { position: absolute; right: 2px; top: 2px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
 .rf-fchip button:hover { color: var(--rf-err); }
 .rf-stackpill { height: 26px; display: inline-flex; align-items: center; padding: 0 10px; margin-right: 14px; border-radius: 3px; background: color-mix(in srgb, var(--rf-err) 22%, transparent); font-size: 10px; font-weight: 700; white-space: nowrap; }
+/* (it gives way first in a narrow window, cut with an ellipsis: the toolbar's last button stayed past
+   the end) */
+.rf-toolbar .rf-stackpill { display: inline-block; min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 26px; }
 .rf-toolbar .opt { display: flex; height: 32px; }
 .rf-gear { width: 36px; height: 32px; display: flex; align-items: center; justify-content: center; color: #fff; background: color-mix(in srgb, var(--rf-accent) 88%, #000); }
 .rf-gear:hover { background: color-mix(in srgb, var(--rf-accent) 90%, #fff); }

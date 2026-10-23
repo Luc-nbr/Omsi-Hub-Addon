@@ -59,12 +59,16 @@ async function pictureOf(bus, text, key) {
 
 /** A preview drawn (or nothing while it is not). */
 function Preview({ bus, text, k, drawn, big }) {
-  const [p, setP] = useState(pictures.get(`${bus}|${text}|${k}`) || null);
+  // (the picture of this font, never the one shown before it: the field and the big sign stay
+  // the same element while another font is chosen)
+  const id = `${bus}|${text}|${k}`;
+  const [, redraw] = useState(0);
+  const p = pictures.get(id) || null;
   useEffect(() => {
     let gone = false;
-    if (drawn && !p) pictureOf(bus, text, k).then((x) => !gone && setP(x)).catch(() => {});
+    if (drawn && !pictures.has(id)) pictureOf(bus, text, k).then(() => !gone && redraw((n) => n + 1)).catch(() => {});
     return () => (gone = true);
-  }, [bus, text, k, drawn]);
+  }, [id, drawn]);
   if (!p) return big ? html`<span class="wait">${tr('Drawing the sign…')}</span>` : html`<span class="pic none"></span>`;
   return html`<img class=${big ? 'big' : 'pic'} src=${p.url} style=${big ? `aspect-ratio:${p.w}/${p.h}` : ''} />`;
 }
@@ -90,23 +94,36 @@ export function DisplayFont({ bus, text }) {
   const [, redraw] = useState(0);
   const key = `${bus}|${text}|${source ?? ''}`;
   const timer = useRef(0);
-  const load = () =>
-    call('hub_more_font_view', { bus, text, ...(source != null ? { source } : {}) })
+  // (the view asked for now: an answer for another bus or text that comes late is kept for it,
+  // but neither stops nor takes over the asking again of this one)
+  const live = useRef(null);
+  const load = () => {
+    const k = key;
+    return call('hub_more_font_view', { bus, text, ...(source != null ? { source } : {}) })
       .then((r) => {
-        views.set(key, r);
+        views.set(k, r);
         redraw((n) => n + 1);
+        if (live.current !== k) return;
         // (asked again while the bus is read, or previews are still drawn)
         const waiting = r.reading || r.faces_reading || (r.options || []).some((o) => !o.drawn);
         clearTimeout(timer.current);
         if (waiting) timer.current = setTimeout(load, r.reading ? 500 : 700);
       })
       .catch(() => {});
+  };
   useEffect(() => {
+    live.current = key;
     load();
-    return () => clearTimeout(timer.current);
+    return () => {
+      live.current = null;
+      clearTimeout(timer.current);
+    };
   }, [key]);
   const r = views.get(key);
-  const set = (args) => call('hub_more_font_set', { bus, ...args }).then(load);
+  const set = (args) =>
+    call('hub_more_font_set', { bus, ...args })
+      .then(load)
+      .catch((e) => setNote([e?.message || String(e), true]));
   const add = async () => {
     const a = await call('hub_more_font_add', { bus, title: tr('Add a display font'), filter: tr('Fonts (.oft, .ttf, .otf, .ttc)') }).catch((e) => ({ error: e.message }));
     if (!a) return;

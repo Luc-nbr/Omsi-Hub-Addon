@@ -813,8 +813,12 @@ pub fn apply(c: &mut Company, src: Day, dst: Day, every_week: bool, w: What) -> 
         c.planning.flow.days.dates.retain(|d| d.date != dst.date.trim());
         gc(c);
         plan::weekday_of(dst.date)
-    } else {
+    } else if w.vehicles && w.drivers {
         own_slot(c, dst.date)
+    } else {
+        // (half of it - the buses or the duties - onto the plan the date runs, the other half
+        // kept: onto an empty plan of its own, the half not copied was gone)
+        rows_slot(c, dst.date, false)
     };
     if to_slot == from_slot {
         return Copied { slot: to_slot, same_plan: true, ..Default::default() };

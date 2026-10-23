@@ -418,9 +418,12 @@ function Tour({ p, size }) {
   // (its own redraw can come once the tour is over: the last stop is drawn as nothing then)
   const kept = useRef(null);
   if (S.rf.tut.tour) kept.current = S.rf.tut.tour;
-  const t = kept.current;
+  // (a stop past the plan's end - stops left out meanwhile as their part was not drawn, so that
+  // the one asked for is gone: the plan's last one, not a page that throws "stop is not
+  // iterable")
+  const t = { ...kept.current, at: Math.max(0, Math.min(kept.current.at, kept.current.plan.length - 1)) };
   const [, redraw] = useState(0);
-  const stop = STOPS[t.plan[t.at]];
+  const stop = STOPS[t.plan[t.at]] || STOPS[STOPS.length - 1];
   const [chapter, title, text, target, view, screen] = stop;
   // (RosterFlow where the stop needs it: its tab, the timeplan's screen)
   useEffect(() => {

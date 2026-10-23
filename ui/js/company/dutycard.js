@@ -15,7 +15,7 @@ import { render } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
 import { language } from '../i18n.js';
 import { toast } from '../store.js';
-import { html, useEffect, useRef, useState, tr, cmd, Icon, Btn, Seg, Switch } from './kit.js';
+import { html, useEffect, useRef, useState, tr, cmd, Icon, Btn, Seg, Switch, useEscLayer } from './kit.js';
 
 // (its look, and the company's for the buttons, loaded with it)
 for (const href of ['css/hub/company.css', 'css/hub/company-dutycard.css']) {
@@ -287,13 +287,10 @@ function DutyCardDialog({ duty, relay, onClose }) {
     const tick = () => setPrinted(new Date().toLocaleString(language(), { dateStyle: 'short', timeStyle: 'short' }));
     tick();
     const t = setInterval(tick, 15000);
-    const k = (e) => e.key === 'Escape' && (e.stopPropagation(), onClose());
-    addEventListener('keydown', k);
-    return () => {
-      clearInterval(t);
-      removeEventListener('keydown', k);
-    };
+    return () => clearInterval(t);
   }, []);
+  // (a layer over the page: Escape closes the card, not the page or the duty launcher under it)
+  useEscLayer(onClose);
   const w = v?.words || {};
   const ready = v && !v.error && !v.reading && v.pieces;
   const save = async () => {

@@ -117,7 +117,9 @@ pub fn duty_extras(args: &Value) -> Answer {
 }
 
 fn extras(_bus: &str, date: &str, minutes: i32, lead: i64, font: Option<String>) -> Value {
-    let (date, time) = hub_core::lead_start(date, minutes.rem_euclid(24 * 60), lead);
+    // (a night tour's departure past midnight - 24:30 - starts on the next day: wrapped to the
+    // day's 00:30 it started a day early)
+    let (date, time) = hub_core::lead_start(date, minutes, lead);
     json!({ "date": date, "time": format!("{:02}:{:02}", time / 60, time % 60), "lead": lead, "display_font": font })
 }
 
@@ -185,5 +187,8 @@ mod tests {
         assert_eq!(extras("b", "1989-05-30", 8 * 60 + 15, 5, None), json!({ "date": "1989-05-30", "time": "08:10", "lead": 5, "display_font": null }));
         let v = extras("b", "1989-05-30", 3, 10, Some("Matrix".into()));
         assert_eq!((v["date"].as_str(), v["time"].as_str(), v["display_font"].as_str()), (Some("1989-05-29"), Some("23:53"), Some("Matrix")));
+        // (a departure past midnight of the service day: the next day's early hours)
+        let v = extras("b", "1989-05-30", 24 * 60 + 30, 5, None);
+        assert_eq!((v["date"].as_str(), v["time"].as_str()), (Some("1989-05-31"), Some("00:25")));
     }
 }

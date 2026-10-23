@@ -98,7 +98,7 @@ export function AddonPanel() {
         <span class="grow"><${Switch}
           checked=${plugin && (plugin.state === 'on' || plugin.state === 'outdated')}
           label="Omsi-Hub plugin in this openOMSI"
-          onChange=${(on) => run('addon_enable', { on })}
+          onChange=${(on) => !busy && run('addon_enable', { on })}
         /></span>
         ${plugin?.state === 'outdated' && html`<${Button} icon="download" label="Update the plugin" disabled=${busy} onClick=${() => run('addon_enable', { on: true })} />`}
       </div>

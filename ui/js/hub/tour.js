@@ -402,8 +402,10 @@ export function TourOverlay() {
   useEffect(() => {
     if (!t || t.closing) return;
     let raf = 0;
-    let waited = 0;
-    const tick = () => {
+    // (since when the part is not drawn: a time, not frames - a 144 Hz screen draws 45 frames
+    // in a third of a second)
+    let missing = 0;
+    const tick = (now) => {
       const tt = T();
       if (!tt || tt.closing) return;
       const st = byId[tt.plan[tt.at]];
@@ -412,14 +414,15 @@ export function TourOverlay() {
       } else {
         const r = part(st[4]);
         if (r) {
-          waited = 0;
+          missing = 0;
           const g = stage();
           const rect = { x: (r.left - g.x) / g.s, y: (r.top - g.y) / g.s, w: (r.right - r.left) / g.s, h: (r.bottom - r.top) / g.s };
           const old = tt.rect;
           if (tt.shown !== st[0] || !old || Math.abs(old.x - rect.x) + Math.abs(old.y - rect.y) + Math.abs(old.w - rect.w) + Math.abs(old.h - rect.h) > 1) put({ shown: st[0], rect });
-        } else if (++waited > 45) {
+        } else if (!missing) missing = now;
+        else if (now - missing > 750) {
           // (not drawn after three quarters of a second: the stop is left out)
-          waited = 0;
+          missing = 0;
           leaveOut();
         }
       }

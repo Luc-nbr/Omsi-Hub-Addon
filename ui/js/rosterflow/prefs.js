@@ -326,7 +326,7 @@ function DutyTypes({ types, set, v }) {
         <button type="button" title=${tr('Earlier in the order: the first type a duty fits is its type')} onClick=${() => n > 0 && set(types.map((x, k) => (k === n - 1 ? types[n] : k === n ? types[n - 1] : x)))}><${Icon} name="arrow_upward" size=${17} /></button>
         <button type="button" class="del" onClick=${() => set(types.filter((_, k) => k !== n))}><${Icon} name="delete" size=${17} /></button></div>
       <div class="grid">
-        <span class="cap">${tr('Start').toUpperCase()}</span><span class="two"><${Stepper} value=${t.start_from} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_from: x })} /><${Stepper} value=${t.start_to} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_to: x })} /></span>
+        <span class="cap">${tr('Start time').toUpperCase()}</span><span class="two"><${Stepper} value=${t.start_from} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_from: x })} /><${Stepper} value=${t.start_to} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_to: x })} /></span>
         <span class="cap">${tr('End by').toUpperCase()}</span><${Stepper} value=${t.end_by} step=${15} min=${0} max=${2879} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { end_by: x })} />
         <span class="cap">${tr('Length at most').toUpperCase()}</span><${Stepper} value=${t.max_length} step=${15} min=${60} max=${1440} fmt=${hm} style="width:110px" onChange=${(x) => put(n, { max_length: x })} />
         <span class="cap" title=${tr('A shorter duty is not of this type (0:00: no least length).')}>${tr('Length at least').toUpperCase()}</span><${Stepper} value=${t.min_length || 0} step=${15} min=${0} max=${1440} fmt=${hm} style="width:110px" onChange=${(x) => put(n, { min_length: x })} />
@@ -357,10 +357,12 @@ function Interlining({ pr, put }) {
 
 export function PrefsWindow() {
   const e = S.rf.prefs;
+  // (read when it opens, and again whenever what was read is gone - the window opened anew over
+  // itself)
   useEffect(() => {
     if (e.v) return;
-    rfCmd('rf_view', { view: 'prefs', day: S.rf.day }).then((v) => setRf({ prefs: { ...S.rf.prefs, v, prefs: v.prefs } })).catch(() => setRf({ prefs: null }));
-  }, []);
+    rfCmd('rf_view', { view: 'prefs', day: S.rf.day }).then((v) => S.rf.prefs && !S.rf.prefs.v && setRf({ prefs: { ...S.rf.prefs, v, prefs: v.prefs } })).catch(() => setRf({ prefs: null }));
+  }, [!!e.v]);
   useLive(e.prefs, e.saves || 0);
   if (!e.v) return html`<div class="rf-over rf-prefs"></div>`;
   const v = e.v;
@@ -372,6 +374,9 @@ export function PrefsWindow() {
   const live = e.live;
   const save = async (close) => {
     const r = await rfAct('prefs', { prefs: pr });
+    // (not saved - refused, or the command failed: the window stays with what was set in it, said
+    // in the corner, rather than closed and the changes lost)
+    if (!r || r.say?.error) return;
     // (what the changed rules break now: over the Gantt, with Optimise offered)
     setRf({ ruleOffer: r?.offer || null });
     if (close) setRf({ prefs: null });

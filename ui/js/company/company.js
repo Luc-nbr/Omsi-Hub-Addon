@@ -9,13 +9,13 @@
 // it runs fast, less often else (`tickEvery`) - with `co_tick`, which answers with the bar's and
 // the strip's shell.
 
-import { useRef, useState } from '../../vendor/preact-htm.js';
+import { useLayoutEffect, useRef, useState } from '../../vendor/preact-htm.js';
 import { S, useStore, set } from '../store.js';
 import { call } from '../api.js';
 import { contrast } from '../hub/theme.js';
 import { dark } from '../hub/theme.js';
 import { flipLook } from '../hub/bar.js';
-import { html, useEffect, tr, HOME, HANDED, CASUAL, setCo, freshCo, cmd, act, takeShell, goTab, handOver, Icon, Mark, ModePill, Btn, Guard } from './kit.js';
+import { html, useEffect, tr, HOME, HANDED, CASUAL, setCo, freshCo, cmd, act, takeShell, goTab, handOver, Icon, Mark, ModePill, Btn, Guard, escTaken } from './kit.js';
 import { Chooser, Wizard, readCompanies } from './chooser.js';
 import { Overlays, modalOpen } from './dialogs.js';
 import { HomePage } from './home.js';
@@ -245,7 +245,7 @@ export function CompanyScreen() {
   // the page or a field is being typed in (`escape_home`)
   useEffect(() => {
     const k = (e) => {
-      if (e.key !== 'Escape' || modalOpen() || S.co.cmdk || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
+      if (e.key !== 'Escape' || modalOpen() || escTaken() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
       // (RosterFlow has its own Escape: Omsi-Hub 4/6)
       if (S.rf?.open && S.co.tab === 5) return;
       const el = document.activeElement;
@@ -315,7 +315,7 @@ export function CompanyScreen() {
   if (rosterflow) {
     return html`<div class="co" data-tab="5" ref=${screen}>
       <${Guard}><${RosterFlowPage} /></${Guard}>
-      <${Guard}><${Overlays} founding=${false} /></${Guard}>
+      <${Guard} key=${overKey(c)}><${Overlays} founding=${false} /></${Guard}>
       ${c.remote && html`<${SessionWatch} />`}
       ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
     </div>`;
@@ -326,11 +326,16 @@ export function CompanyScreen() {
   return html`<div class=${'co' + (shelled ? ' ' + shellClass(narrow) : '')} data-tab=${open ? c.tab : ''} ref=${screen}>
     ${shelled ? html`<${Guard}><${Shell} narrow=${narrow} /></${Guard}>` : html`<${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>`}
     <${Guard}>${body}</${Guard}>
-    ${read && html`<${Guard}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
+    ${read && html`<${Guard} key=${overKey(c)}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
     ${c.remote && html`<${SessionWatch} />`}
     ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
   </div>`;
 }
+
+/** What lies over the pages now: a dialog that failed to draw takes only itself with it - the
+ * guard round them drawn anew with the next one (it kept the failure, and no dialog nor popup
+ * showed again until the company was entered anew). */
+const overKey = (c) => `${c.dialog?.kind || ''}|${c.shell?.reports ? 1 : 0}|${c.shell?.asking ? 1 : 0}|${c.shell?.sheet ? 1 : 0}|${c.shell?.away ? 1 : 0}`;
 
 /** The page of the tab open (`company::pages`). */
 function Page() {
@@ -388,7 +393,8 @@ function Bar({ open, choosing, read }) {
   // `company::status` leave out what has no room; all back when the window changes)
   const ref = useRef();
   const [fit, setFit] = useState({ now: true, n: 3 });
-  useEffect(() => {
+  // (measured before it is shown, step after step at once: `shell.js`'s bar)
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el || el.scrollWidth <= el.clientWidth + 1) return;
     if (fit.now && open && !sh?.casual) setFit({ ...fit, now: false });
@@ -399,6 +405,8 @@ function Bar({ open, choosing, read }) {
     addEventListener('resize', again);
     return () => removeEventListener('resize', again);
   }, []);
+  // (and when the Launcher size changed: no window's resize says it)
+  useEffect(() => setFit({ now: true, n: 3 }), [S.settings?.launcher_scale]);
   return html`<header class="co-bar" ref=${ref}>
     ${open
       ? html`<span title=${sh.home} style="display:contents"><${Mark} mark=${sh.mark} size=${44} /><span class="name cut" title=${sh.home}>${sh.name}</span></span>
@@ -460,7 +468,7 @@ function Clock({ now = true }) {
     <span class="play" style="gap:8px">
       ${speeds.map(([label, speed, w], i) => html`<${Btn} kind=${Math.abs(k.speed - speed) < 1e-6 ? 'primary' : 'ghost'} label=${label} style=${`width:${w}px;padding:0`} title=${playTip(speed, i)} onClick=${() => play(speed)} />`)}
     </span>
-    <${Btn} label="+1 h" style="width:70px;padding:0" title=${tr("Simulate one hour of the company's time")} onClick=${() => act('hour')} />
+    <${Btn} label=${tr('+1 h')} style="width:70px;padding:0" title=${tr("Simulate one hour of the company's time")} onClick=${() => act('hour')} />
     <${Btn} kind="primary" class="co-tomorrow" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
     <${Btn} class="sq" icon="schedule" style="width:42px" title=${tr("More steps, the clock's speed and the dispatcher")} onClick=${() => !sh.cover && setCo({ dialog: { kind: 'time' } })} />
   </span>`;

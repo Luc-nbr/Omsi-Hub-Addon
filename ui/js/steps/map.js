@@ -67,7 +67,8 @@ export function MapStep() {
   const m = curMap();
   const ql = q.trim().toLowerCase();
   const maps = (s.maps || []).filter((x) => !ql || name(x).toLowerCase().includes(ql) || x.file.toLowerCase().includes(ql)).sort((a, b) => name(a).localeCompare(name(b)));
-  const pick = (file) => file !== c.map && choose({ map: file, entry: -1, start_trip: null, free_entry: -1 });
+  // (another map: the stop, the line and the route a free drive starts from were the map before's)
+  const pick = (file) => file !== c.map && choose({ map: file, entry: -1, start_trip: null, free_entry: -1, free_stop: '', free_line: '', free_route: '' });
   const keepView = (v) => {
     setView(v);
     try {

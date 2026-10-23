@@ -18,6 +18,9 @@ export async function selftest(check, errors) {
     const before = errors.length;
     if (patch) setCo(patch);
     await sleep(ms);
+    // (a page not drawn yet waited for a while more: in a window that draws no frames - the
+    // browser's hidden pane - its view comes later than the sleep)
+    for (let k = 0; k < 20 && S.co.shell?.open && !S.co.chooser && !S.co.wizard && !$('.co-body')?.firstElementChild; k++) await sleep(150);
     globalThis.hubProbe?.(`company, ${what}`);
     return errors.length === before ? null : `${what}: ${errors.slice(before).join('; ')}`;
   };
@@ -78,7 +81,9 @@ export async function selftest(check, errors) {
     // (Beta 54: the hiring's job advert - its button there, with what it costs or why not)
     setUi('people', { tab: 1, hire_role: 0 });
     e = await shown('the hiring', { tab: 2 });
-    const ad = $('.co-hirebar > .co-btn') || $('.co-hirenone .co-btn');
+    const advert = () => $('.co-hirebar > .co-btn') || $('.co-hirenone .co-btn');
+    for (let k = 0; k < 15 && !e && !advert(); k++) await sleep(200);
+    const ad = advert();
     check('company: the job advert for new applicants', !e && !!ad, e || (ad ? `${ad.textContent.trim()}: ${ad.title}` : 'no button'));
     setUi('people', { tab: 0 });
   }
@@ -88,7 +93,11 @@ export async function selftest(check, errors) {
   // the dialogs: the settings, the clock's steps
   for (const kind of ['settings', 'time', 'vehicles']) {
     e = await shown(kind, { tab: HOME, dialog: { kind } }, kind === 'vehicles' ? 2500 : 900);
-    check(`company: the ${kind} dialog`, !e && !!$('.co-dialog') && (kind !== 'vehicles' || $$('.vh-row').length > 0), e || `${$('.co-dialog h2')?.textContent || ''}${kind === 'vehicles' ? `: ${$$('.vh-row').length} rows, ${$('.vh-count')?.textContent || ''}` : ''}`);
+    // (its view waited for a while more, as the pages': in a window that draws no frames it comes
+    // after the sleep)
+    for (let k = 0; k < 20 && !e && (!$('.co-dialog') || (kind === 'vehicles' && !$$('.vh-row').length)); k++) await sleep(150);
+    const why = $('.co-dialog') ? '' : `no dialog (open: ${S.co.dialog?.kind || 'none'}, over it: ${['cover', 'away', 'reports', 'asking', 'sheet'].filter((x) => S.co.shell?.[x]).join(', ') || 'nothing'})`;
+    check(`company: the ${kind} dialog`, !e && !!$('.co-dialog') && (kind !== 'vehicles' || $$('.vh-row').length > 0), e || why || `${$('.co-dialog h2')?.textContent || ''}${kind === 'vehicles' ? `: ${$$('.vh-row').length} rows, ${$('.vh-count')?.textContent || ''}` : ''}`);
   }
   setCo({ dialog: null });
 

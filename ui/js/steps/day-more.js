@@ -63,14 +63,20 @@ export function CustomWeather() {
     if (r?.custom && w !== wrote.current) setF(r.custom);
   }, [r, w]);
   const v = f || r?.custom;
+  // (a slider dragged writes many times: only the last write's answer is the weather chosen)
+  const asked = useRef(0);
   const change = (k, x) => {
     const nf = { ...v, [k]: x };
     setF(nf);
-    call('hub_more_weather_write', { custom: nf }).then((a) => {
-      wrote.current = a.weather;
-      reads.set(a.weather, { custom: a.custom, as_custom: null, fresh: reads.get(w)?.fresh });
-      choose({ weather: a.weather });
-    });
+    const n = ++asked.current;
+    call('hub_more_weather_write', { custom: nf })
+      .then((a) => {
+        if (n !== asked.current) return;
+        wrote.current = a.weather;
+        reads.set(a.weather, { custom: a.custom, as_custom: null, fresh: reads.get(w)?.fresh });
+        choose({ weather: a.weather });
+      })
+      .catch(() => {});
   };
   const slider = (k, label, min, max, step, format) => html`<${Slider} label=${label} value=${v[k]} min=${min} max=${max} step=${step} format=${format} onChange=${(x) => change(k, x)} />`;
   const pct = (x) => `${Math.round(x * 100)} %`;

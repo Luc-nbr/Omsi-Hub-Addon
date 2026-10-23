@@ -123,6 +123,13 @@ _version: 2
   pl: "Woli zostać przy swojej służbie."
   ru: "Коллега предпочитает оставить свою смену."
   uk: "Колега воліє залишити свою зміну."
+"Only duties of the roster can be swapped.":
+  de: "Nur Dienste des Dienstplans können getauscht werden."
+  fr: "Seuls les services du roulement peuvent être échangés."
+  nl: "Alleen diensten van het rooster kunnen worden geruild."
+  pl: "Zamieniać można tylko służby z grafiku."
+  ru: "Обменивать можно только смены из графика."
+  uk: "Обмінювати можна лише зміни з графіка."
 "%{name} swaps with you: you drive %{theirs}, they drive %{mine}":
   de: "%{name} tauscht mit dir: du fährst %{theirs}, dafür wird %{mine} übernommen"
   fr: "%{name} échange avec vous : vous assurez %{theirs}, en échange de %{mine}"

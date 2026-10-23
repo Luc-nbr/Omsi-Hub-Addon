@@ -5,7 +5,7 @@
 // ticket prices, and the ledger with its filters and search - and the fare dialog with what each
 // price does to passengers and fares.
 
-import { html, useState, setCo, setUi, ui, act, useView, textW, Icon, Btn, Select, Dialog, Plate, Slider, seen } from './kit.js';
+import { html, useState, setCo, setUi, ui, act, useView, useGone, textW, Icon, Btn, Select, Dialog, Plate, Slider, seen } from './kit.js';
 import { Card, Kpi, Kpis, Empty, HBars, Track, Tabs, Chip } from './pages-a.js';
 
 export function MoneyPage() {
@@ -140,11 +140,7 @@ export function FareDialog({ d }) {
   const [fare, setFare] = useState(d.fare ?? null);
   const v = useView('fare', { line: d.line, fare });
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
-  if (v.gone) {
-    close();
-    return null;
-  }
+  if (useGone(v, close) || !v) return null;
   const set = async () => {
     const r = await act('set_fare', { line: d.line, fare: v.fare, casual: !!d.casual });
     if (r?.done) close();
@@ -207,7 +203,7 @@ function Curves({ c, v }) {
 export function FleetValueDialog() {
   const v = useView('fleet_value', {});
   const close = () => setCo({ dialog: null });
-  if (!v) return null;
+  if (useGone(v, close) || !v) return null;
   const cols = 'grid-template-columns:minmax(0,1.1fr) 70px repeat(3,minmax(0,1fr));gap:12px;align-items:center';
   const cell = (x, k) => html`<span class="cut" style=${k ? 'text-align:right' : ''}>${x}</span>`;
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${v.close} onClick=${close} />`;

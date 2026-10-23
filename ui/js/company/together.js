@@ -10,7 +10,7 @@
 
 import { S, set, toast } from '../store.js';
 import { duty } from '../hub/drive.js';
-import { html, useEffect, useState, tr, setCo, cmd, freshCo, goTab, Icon, Mark, Btn } from './kit.js';
+import { html, useEffect, useRef, useState, tr, setCo, cmd, freshCo, goTab, Icon, Mark, Btn } from './kit.js';
 import { togetherOn, blockedLabel } from './gate.js';
 import { usePoll, run, Chip, Face, RoleBadge, Stats, RoleEditor, MultiplayerDialog } from './multiplayer.js';
 import { SessionEnded } from './session.js';
@@ -130,11 +130,14 @@ function JoinCode({ v, ask }) {
   const w = v.words || {};
   const [code, setCode] = useState('');
   const [check, setCheck] = useState(null);
+  const last = useRef('');
   const back = () => setCo({ chooser: 'mode' });
   const typed = (t) => {
     setCode(t);
+    last.current = t;
+    // (the answer for the code typed last only: an older one coming after it said the wrong)
     cmd('tg_check', { code: t })
-      .then(setCheck)
+      .then((r) => last.current === t && setCheck(r))
       .catch(() => {});
   };
   const join = async () => {
@@ -235,8 +238,9 @@ function MyCrew({ mine }) {
 function GiveRow({ d, v, again }) {
   const w = v.words;
   const players = v.members.filter((m) => !m.banned);
-  const [who, setWho] = useState(0);
-  const p = players[Math.min(who, players.length - 1)];
+  // (the player chosen by who it is: the list asked again, another took that place)
+  const [who, setWho] = useState(null);
+  const p = players.find((m) => String(m.no) === who) || players[0];
   const go = async (name, args) => {
     await run(name, args);
     again();
@@ -245,8 +249,8 @@ function GiveRow({ d, v, again }) {
     <${Chip} number=${d.number} colour=${d.colour} />
     <div class="what"><b>${d.times}</b><span class="cut">${d.route}</span><span class="dim cut">${d.state}</span></div>
     ${players.length > 0 &&
-    html`<span class="co-select"><select class="co-field" value=${String(who)} onChange=${(e) => setWho(Number(e.currentTarget.value))}>
-      ${players.map((m, k) => html`<option value=${String(k)}>${m.name}</option>`)}
+    html`<span class="co-select"><select class="co-field" value=${String(p?.no)} onChange=${(e) => setWho(e.currentTarget.value)}>
+      ${players.map((m) => html`<option value=${String(m.no)}>${m.name}</option>`)}
     </select><${Icon} name="expand_more" size=${20} /></span>`}
     <span class="acts">
       ${p && html`<${Btn} kind="primary" icon="sync_alt" label=${w.give} onClick=${() => go('tg_assign', { duty: d.duty, guest: p.no })} />`}

@@ -272,8 +272,9 @@ pub fn demolish(c: &mut Company, id: u32) -> Result<(), &'static str> {
         return Err("Building work is under way on it.");
     }
     let level = c.site.level(area);
+    // (one module of an area of several: a wash lane too - all of them went with one, `wanted`)
     let after = match area {
-        Area::Parking | Area::Workshop => level.saturating_sub(1),
+        Area::Parking | Area::Workshop | Area::Wash => level.saturating_sub(1),
         _ => 0,
     };
     if area == Area::Workshop && depot::bays_used(c, &c.date) > after as usize {

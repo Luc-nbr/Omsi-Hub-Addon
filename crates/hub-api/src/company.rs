@@ -667,8 +667,10 @@ fn work(s: &mut Session) {
             let (map, date) = key;
             let result = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
-            // (read before the timetable was written again: the read asked for since is on its way)
-            if revision != s.timetable {
+            // (read before the timetable was written again: the read asked for since is on its way;
+            // and one for a day or map no more asked for - a slow read of yesterday coming after
+            // today's kept yesterday's lines, and today's were never asked for again)
+            if revision != s.timetable || s.today_asked.as_ref() != Some(&(map.clone(), date.clone())) {
                 return;
             }
             let (lines, error) = match result {

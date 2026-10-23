@@ -615,9 +615,9 @@ function Pass({ name, account }) {
   const known = w.personnel?.name === name ? w.personnel.p : undefined;
   useEffect(() => {
     if (known !== undefined) return;
-    call('hub_profile_personnel', { name, make: false })
-      .then((p) => put({ personnel: { name, p } }))
-      .catch(() => put({ personnel: { name, p: null } }));
+    // (not over the numbers `createDriver` made meanwhile: this look may answer after them)
+    const tell = (p) => W()?.personnel?.name !== name && put({ personnel: { name, p } });
+    call('hub_profile_personnel', { name, make: false }).then(tell, () => tell(null));
   }, [name, known]);
   const level = s.profile && String(s.profile.name || '').toLowerCase() === name.toLowerCase() ? s.profile.level || 1 : 1;
   return html`<div>
@@ -699,7 +699,9 @@ export function Welcome() {
       if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
       const st = W()?.step;
       if (st === 'language' || st === 'animations' || st === 'signs') next();
-      else if (st === 'ready') finish('start');
+      // (a tile with the keyboard on it is what Enter presses: "Take the tour" started the
+      // launcher instead)
+      else if (st === 'ready' && document.activeElement?.tagName !== 'BUTTON') finish('start');
     };
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);

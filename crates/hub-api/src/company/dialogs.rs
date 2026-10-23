@@ -726,6 +726,7 @@ fn cannot_text(c: &Company, p: &DayPlan, x: &pl::Cannot) -> String {
         N::NotEmployed => tr("Not employed then"),
         N::Ill { until } => trf("Ill until %{date}", &[("date", &day_label(until))]),
         N::Holiday { until } => trf("On holiday until %{date}", &[("date", &day_label(until))]),
+        N::Training { until } => trf("On a course until %{date}", &[("date", &day_label(until))]),
         N::WeekDone { days } => trf("Worked %{n} days this week already", &[("n", &days.to_string())]),
         N::Lacks(l) => super::people::lack_text(c, l),
         N::OnDuty { key, from, to } => {

@@ -251,7 +251,9 @@ pub fn brief(s: &Session, live: &Live, model: &mut Option<((String, u32, u64, u6
     // the connections at the stops ahead
     let mut connections = Vec::new();
     for (_, call, dep) in calls.iter().skip(next).take(CONNECTIONS_AHEAD) {
-        if call.at - (live.clock + live.delay.max(0.0)) > CONNECTIONS_MINUTES * 60.0 {
+        // (when the bus gets there: its time and the delay it runs with - the delay taken off, a bus
+        // ten minutes late listed connections forty minutes ahead)
+        if call.at + live.delay.max(0.0) - live.clock > CONNECTIONS_MINUTES * 60.0 {
             break;
         }
         for k in line.connections.iter().filter(|k| k.at(&call.name)) {
@@ -260,7 +262,7 @@ pub fn brief(s: &Session, live: &Live, model: &mut Option<((String, u32, u64, u6
                 continue;
             }
             let late = ot::late_of(c, &date, &line.name, k);
-            let due = (k.time + late) as f64 * 60.0;
+            let due = k.due_near(at, late);
             let mut row = json!({ "stop": call.name, "what": k.what, "time": hhmm(k.time as f64 * 60.0), "late": late, "max_hold": k.max_hold, "onward": k.onward });
             if k.onward {
                 match ot::onward(call.at + live.delay, due) {

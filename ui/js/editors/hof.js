@@ -324,7 +324,8 @@ export function DepotDialog({ onOpen }) {
     if (!shown) return;
     const k = (e) => {
       if (e.key === 'Escape') answer('later');
-      else if (e.key === 'Enter') answer(a.add ? 'add' : 'open');
+      // (Enter on a button of its own is that button's: "Not now" must not add the file)
+      else if (e.key === 'Enter' && !e.target?.closest?.('button')) answer(a.add ? 'add' : 'open');
     };
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
@@ -342,8 +343,15 @@ export function DepotDialog({ onOpen }) {
       const row = m.rows[a.picks[k]];
       if (row) select(row);
     } else if (what === 'add') {
-      if (await add(m)) done();
-      else redraw();
+      // (pressed twice while the first is written: once)
+      if (V.busy) return;
+      V.busy = true;
+      try {
+        if (await add(m)) done();
+        else redraw();
+      } finally {
+        V.busy = false;
+      }
     } else {
       done();
       onOpen?.();

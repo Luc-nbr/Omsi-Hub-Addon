@@ -647,6 +647,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
 pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(String, network::PlannedTrip)], trips: &[TripRun]) -> DayReport {
     // (only what is planned runs: a line not in service books nothing)
     let tours = network::in_service_only(tours);
+    // (the day's change of reputation from its start: the fares' answer below was left out of it)
+    let rep0 = c.reputation;
     // (the passengers answer the fares: `fares`)
     super::fares::day(c);
     let r = economy::rules_for(c);
@@ -1175,6 +1177,13 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // 7. the people tonight: the drivers paid their hours of duty (`pay`), then their night
     let paid = super::pay::day(c, &date, &pieces);
     (report.paid_hours, report.overtime_hours, report.guaranteed_hours, report.driver_wages) = (paid.hours, paid.overtime, paid.guaranteed, paid.cost);
+    // (the new year's holidays before the night takes the ones beginning tomorrow from them: given
+    // after it, a holiday from the 1st of January cost no day)
+    if date.ends_with("-12-31") {
+        for e in c.staff.iter_mut() {
+            e.holiday_left = staff::HOLIDAYS;
+        }
+    }
     report.staff = staff::after_day(c, &worked, &mut rng);
     // (the day's handover notes go, what the crew asked for that is over: `crew::night`)
     super::crew::night(c, &date);
@@ -1214,11 +1223,6 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         }
         c.price_index *= 1.0 + r.inflation / 12.0;
         c.contract_index *= 1.0 + r.indexation / 12.0;
-        if date.ends_with("-12-31") {
-            for e in c.staff.iter_mut() {
-                e.holiday_left = staff::HOLIDAYS;
-            }
-        }
         report.notes.push(Note::Month { month: month.clone(), result: c.month(&month).result() });
     } else {
         // a leased bus that goes back before the month's end: its part of the month (the
@@ -1246,7 +1250,6 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
 
     // 9. reputation and punctuality
     let punctuality = (timed > 0).then(|| on_time as f64 / timed as f64 * 100.0);
-    let rep0 = c.reputation;
     if let Some(p) = punctuality {
         c.punctuality = c.punctuality * 0.85 + p * 0.15;
     }

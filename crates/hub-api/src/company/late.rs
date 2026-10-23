@@ -312,8 +312,19 @@ pub fn punct_rows(all: &Lateness) -> (Vec<lt::Punct>, Vec<lt::Punct>, Vec<lt::Pu
     let timed: Vec<&lt::Punct> = all.hours.iter().filter(|p| p.timed > 0).collect();
     let hour = |p: &lt::Punct| p.key.parse::<i32>().unwrap_or(0);
     let mut hours: Vec<lt::Punct> = Vec::new();
-    if let (Some(a), Some(z)) = (timed.iter().map(|p| hour(p)).min(), timed.iter().map(|p| hour(p)).max()) {
-        for h in a..=z {
+    // (the service's day from its first hour on: the hours after midnight - keyed 00, 01 ... -
+    // after the evening's, the day starting after the longest hour without a trip; from 00 up,
+    // a service till 00:30 was 00, empty 01 to 04, then 05 on)
+    let mut hs: Vec<i32> = timed.iter().map(|p| hour(p)).collect();
+    hs.sort_unstable();
+    hs.dedup();
+    if !hs.is_empty() {
+        let n = hs.len();
+        let gap = |i: usize| if i + 1 < n { hs[i + 1] - hs[i] } else { hs[0] + 24 - hs[i] };
+        let last = (0..n).max_by_key(|&i| (gap(i), i)).unwrap_or(n - 1);
+        let a = hs[(last + 1) % n];
+        let z = if hs[last] < a { hs[last] + 24 } else { hs[last] };
+        for h in (a..=z).map(|h| h.rem_euclid(24)) {
             hours.push(timed.iter().find(|p| hour(p) == h).map(|p| (*p).clone()).unwrap_or_else(|| lt::Punct { key: format!("{h:02}"), ..Default::default() }));
         }
     }

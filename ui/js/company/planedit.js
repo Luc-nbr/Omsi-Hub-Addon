@@ -9,7 +9,7 @@
 // day a line in service changes, save and close. The line and its changes are the Rust side's
 // (`company_more/plan_edit.rs`): this keeps how it is looked at.
 
-import { html, useEffect, useRef, useState, setUi, Plate, Seg, Switch, Slider, Btn, IconBtn } from './kit.js';
+import { html, useEffect, useRef, useState, setUi, Plate, Seg, Switch, Slider, Btn, IconBtn, escTaken, tr } from './kit.js';
 import { useMore, actMore } from './more.js';
 import { TimeSpin } from '../editors/kit.js';
 
@@ -88,7 +88,8 @@ export function PlanEdit({ W, H }) {
   useEffect(() => {
     const k = (e) => {
       const el = document.activeElement;
-      if (!v || v.none || drag || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      // (a dialog or popup over the sheet has its keys first)
+      if (!v || v.none || drag || escTaken() || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       const sel = v.sel;
       if (e.key === 'Escape') {
         e.stopImmediatePropagation();
@@ -258,7 +259,7 @@ export function PlanEdit({ W, H }) {
           ${hot && !hot.near && v.editable && !drag && html`<i class="guide" style=${`left:${ax.xOf(hot.m) - ax.x - 1}px;background:${colour}`}></i><span class="add" style=${`left:${ax.xOf(hot.m) - ax.x - 26}px;color:${colour}`}>+ ${hm(hot.m)}</span>`}
         </div>`;
       })}
-      ${drag?.moved && html`<span class="pe-dragtag" style=${`left:${ax.xOf(drag.shown) - ax.x}px;top:${20 + drag.pick.dir * LANE_H - 22}px`}>${hm(drag.shown)}${drag.shown !== drag.dep0 ? `  (${drag.shown > drag.dep0 ? '+' : '−'}${Math.abs(drag.shown - drag.dep0)} min)` : ''}</span>`}
+      ${drag?.moved && html`<span class="pe-dragtag" style=${`left:${ax.xOf(drag.shown) - ax.x}px;top:${20 + drag.pick.dir * LANE_H - 22}px`}>${hm(drag.shown)}${drag.shown !== drag.dep0 ? `  (${drag.shown > drag.dep0 ? '+' : '−'}${tr('%{n} min', { n: Math.abs(drag.shown - drag.dep0) })})` : ''}</span>`}
     </div>
     ${v.lanes.map((lane, k) => html`<div class="pe-lanehead" style=${`left:${x}px;top:${headY + 20 + k * LANE_H}px;width:${LABEL_W - 8}px`}>
       <i style=${`background:${laneColour(k)}`}></i><span class="word cut">${lane.word.toUpperCase()}</span><b class="cut">${lane.to}</b><span class="count cut">${lane.count}</span></div>`)}
@@ -353,7 +354,7 @@ function Pattern({ p }) {
   return html`<div class="pe-pattern">
     ${p.two ? html`<div class="pe-caps">${p.caps}</div>` : html`<div class="capsrow"><span class="pe-caps">${p.caps}</span>${runs}</div>`}
     ${p.two && html`<${Seg} value=${p.pdir} options=${p.dirs.map((d, k) => [k, d])} onChange=${(d) => actMore('pe_pdir', { pdir: d })} style="height:32px;margin-bottom:8px" />`}
-    ${p.run != null && html`<${Slider} label=${p.run_label} value=${Math.round(p.run)} min=${1} max=${Math.max(240, Math.round(p.run))} format=${(x) => `${Math.round(x)} min`} onRelease=${(t) => actMore('pe_run', { pdir: p.pdir, total: t })} />`}
+    ${p.run != null && html`<${Slider} label=${p.run_label} value=${Math.round(p.run)} min=${1} max=${Math.max(240, Math.round(p.run))} format=${(x) => tr('%{n} min', { n: Math.round(x) })} onRelease=${(t) => actMore('pe_run', { pdir: p.pdir, total: t })} />`}
     ${p.follows != null && html`<${Switch} checked=${p.follows} label=${p.follow_label} onChange=${(on) => actMore('pe_follow', { follows: on })} />`}
     ${p.follow_note && html`<p class="dim">${p.follow_note}</p>`}
     ${!p.follow_note &&
@@ -364,18 +365,18 @@ function Pattern({ p }) {
         ${!pat.bands.length
           ? html`<div class="two"><span class="lab">${p.first_label}</span><span class="lab">${p.last_label}</span>
               <${TimeSpin} minutes=${pat.first} h=${34} onChange=${(m) => set({ first: m }, 'pe-first')} /><${TimeSpin} minutes=${pat.last} h=${34} onChange=${(m) => set({ last: m }, 'pe-last')} /></div>
-            <${Slider} label=${p.every_label} value=${pat.headway} min=${3} max=${120} format=${(x) => `${Math.round(x)} min`} onRelease=${(x) => set({ headway: x }, 'pe-every')} />`
+            <${Slider} label=${p.every_label} value=${pat.headway} min=${3} max=${120} format=${(x) => tr('%{n} min', { n: Math.round(x) })} onRelease=${(x) => set({ headway: x }, 'pe-every')} />`
           : html`${pat.bands.map((b, i) => html`<div class="band">
                 <${TimeSpin} minutes=${b.from} h=${32} onChange=${(m) => band(i, { from: m })} /><span>–</span>
                 <${TimeSpin} minutes=${b.to >= p.day_end ? 0 : b.to} end h=${32} onChange=${(m) => band(i, { to: m === 0 ? p.day_end : m })} />
                 <${IconBtn} icon="close" title=${p.band_x} size=${14} onClick=${() => set({ bands: pat.bands.filter((_, k) => k !== i) }, 'pe-band-x')} />
-                <${Slider} label=${p.every_label} value=${b.headway} min=${3} max=${60} format=${(x) => `${Math.round(x)} min`} onRelease=${(x) => band(i, { headway: x })} style="grid-column:1 / -1" />
+                <${Slider} label=${p.every_label} value=${b.headway} min=${3} max=${60} format=${(x) => tr('%{n} min', { n: Math.round(x) })} onRelease=${(x) => band(i, { headway: x })} style="grid-column:1 / -1" />
               </div>`)}
               <${Btn} kind="ghost" icon="add" label=${p.add_band} style="width:100%;height:30px" onClick=${() => {
                 const from = Math.min(p.day_end - 60, Math.max(0, ...pat.bands.map((b) => b.to)));
                 set({ bands: [...pat.bands, { from, to: Math.min(p.day_end, from + 120), headway: 30, size: null }] }, 'pe-band-add');
               }} />`}
-        <${Slider} label=${p.stands_label} value=${pat.layover} min=${0} max=${30} format=${(x) => `${Math.round(x)} min`} onRelease=${(x) => set({ layover: x }, 'pe-layover')} />
+        <${Slider} label=${p.stands_label} value=${pat.layover} min=${0} max=${30} format=${(x) => tr('%{n} min', { n: Math.round(x) })} onRelease=${(x) => set({ layover: x }, 'pe-layover')} />
         ${p.table_note && html`<p class="dim">${p.table_note}</p>`}`}`}
   </div>`;
 }

@@ -74,7 +74,12 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         }
         "de_open" => {
             let key = str_arg(args, "key");
-            if !s.open.as_ref().is_some_and(|o| o.key.eq_ignore_ascii_case(key.trim())) {
+            let same = s.open.as_ref().is_some_and(|o| o.key.eq_ignore_ascii_case(key.trim()));
+            // (the file open clicked again: its changes stay, not read over from the disk)
+            if same && s.open.as_ref().is_some_and(|o| o.dirty) {
+                return Ok(view_of(&s));
+            }
+            if !same {
                 unsaved(&s)?;
             }
             s.open = Some(open(&dir, &key)?);
@@ -149,9 +154,10 @@ fn show(s: &mut State, dir: &Path, key: &str) -> Answer {
     let mut error = None;
     let mut changed = None;
     let same = s.open.as_ref().is_some_and(|o| !key.trim().is_empty() && o.key.eq_ignore_ascii_case(key.trim()));
+    // (a file gone elsewhere closes - but not with changes not saved: saving writes it again)
     if same {
         let o = s.open.as_ref().expect("open");
-        if !o.path.is_file() {
+        if !o.path.is_file() && !o.dirty {
             s.open = None;
         } else if o.dirty {
             if stamp(&o.path) != o.stamp {
@@ -166,7 +172,7 @@ fn show(s: &mut State, dir: &Path, key: &str) -> Answer {
             Err(e) => error = Some(e),
         }
     } else if let Some(o) = &s.open {
-        if !o.path.is_file() {
+        if !o.path.is_file() && !o.dirty {
             s.open = None;
         } else if !o.dirty {
             s.open = open(dir, &o.key.clone()).ok();
@@ -414,7 +420,7 @@ pub fn edit(doc: &mut Doc, op: &str, args: &Value) -> Result<Option<usize>, Stri
             let i = at(nt, index(args, "i")?)?;
             let mut t = h.termini[i].clone();
             let marked = doc.specials.contains(&t.code);
-            t.code = doc.free_code(t.code + 1);
+            t.code = doc.free_code(t.code.saturating_add(1));
             t.texture_id = format!("{} 2", t.texture_id.trim());
             t.terminus_stop = (!t.all_exit).then(|| t.texture_id.clone());
             if marked {
@@ -596,6 +602,51 @@ mod tests {
         ed(&mut d, "map", json!({ "value": " Grundorf " }));
         assert_eq!((d.hof.name.as_str(), d.map.as_str()), ("Mine", "Grundorf"));
         assert!(edit(&mut d, "nope", &json!({})).unwrap_err().contains("nope"));
+    }
+
+    const SPECIALS_OF_OMSI: [&str; 6] = ["Betriebsfahrt", "Leerfahrt", "Dienstfahrt", "Nicht einsteigen", "Sonderfahrt", "Schulbus"];
+
+    /// Every text of the depot editor, the bus's depot files, the Timetable page and the editor's
+    /// tiles - the pages' and the depot file's problems - in the six languages.
+    #[test]
+    fn every_depot_and_timetable_editor_text_is_translated() {
+        use crate::online::{texts_in, untranslated};
+        let pages = [
+            include_str!("../../../ui/js/editors/depots.js"),
+            include_str!("../../../ui/js/editors/hof.js"),
+            include_str!("../../../ui/js/editors/timetable.js"),
+            include_str!("../../../ui/js/editors/hub.js"),
+            include_str!("../../../ui/js/editors/index.js"),
+        ];
+        let mut texts: Vec<String> = Vec::new();
+        for js in pages {
+            for lead in ["tr('", "tr(\"", "label=\"", "title=\"", "placeholder=\"", "status('", "status(\""] {
+                let end = if lead.ends_with('\'') { '\'' } else { '"' };
+                texts.extend(texts_in(js, lead, end));
+            }
+            // (the words chosen in a template: `label=${on ? 'Press again' : 'Delete'}`)
+            for lead in ["? '", ": '", "['"] {
+                texts.extend(texts_in(js, lead, '\'').into_iter().filter(|t| t.starts_with(|c: char| c.is_uppercase()) && !t.contains("${")));
+            }
+        }
+        // (what resetting a map's timetable says, `ttstore::RESET_*`)
+        texts.extend([hub_core::ttstore::RESET_COPY, hub_core::ttstore::RESET_BACK, hub_core::ttstore::RESET_NONE].map(String::from));
+        texts.extend(["one tour", "%{n} tours", "Empty, laid out as OMSI's own", "A copy of the map's: %{hof}", "A copy of %{bus}'s: %{file}", "A copy of mine: %{name}"].map(String::from));
+        let own = include_str!("depot.rs").replace("\r\n", "\n");
+        let own = own.split("#[cfg(test)]").next().unwrap_or("").to_string();
+        let said = texts_in(&own, "Err(\"", '"').into_iter().chain(texts_in(&own, "format!(\"", '"'));
+        texts.extend(said.filter(|t| t.contains("%{{") || !t.contains('{')).map(|t| t.split('|').next().unwrap_or("").replace("{{", "{").replace("}}", "}")));
+        // (what the Timetable page's changes say when they cannot be made)
+        let tt = include_str!("timetable.rs").replace("\r\n", "\n");
+        let tt = tt.split("#[cfg(test)]").next().unwrap_or("").to_string();
+        texts.extend(["ok_or(\"", "Err(\""].into_iter().flat_map(|lead| texts_in(&tt, lead, '"')).filter(|t| !t.contains('{')));
+        texts.retain(|t| !t.contains("${") && !t.starts_with("unknown") && !t.starts_with("no ") && !t.starts_with("a line's name"));
+        // (OMSI's own names of the usual special trips, and the editors' names in the page list)
+        texts.retain(|t| !SPECIALS_OF_OMSI.contains(&t.as_str()) && t != "Livery");
+        texts.sort();
+        texts.dedup();
+        let missing = untranslated(&texts);
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
     }
 
     #[test]

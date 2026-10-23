@@ -467,7 +467,8 @@ pub fn delete(name: &str) -> Result<(), String> {
     // (the driver chosen is gone: the next one on the list, as the step chooses it)
     if crate::launcher::driver().eq_ignore_ascii_case(name) {
         let mut s = Settings::load();
-        match list().into_iter().next() {
+        // (not the deleted one: the list still names the driver the settings choose)
+        match list().into_iter().find(|n| !n.eq_ignore_ascii_case(name)) {
             Some(n) => s.other.insert("driver".into(), Value::String(n)),
             None => s.other.remove("driver"),
         };
@@ -545,6 +546,8 @@ pub fn board_stats(name: &str) -> Option<hub_online::Stats> {
 
 /// The settings' key of the driver the account belongs to.
 const ACCOUNT_KEY: &str = "account_driver";
+/// The settings' key of the account (its user id) that driver belongs to.
+const ACCOUNT_USER_KEY: &str = "account_user";
 
 /// The driver the account on this computer belongs to, when one is signed in.
 pub fn account_driver() -> Option<String> {
@@ -567,11 +570,24 @@ fn online_for(account: Option<&str>, chosen: Option<&str>) -> bool {
 
 /// Signed in with the display name `name`: the first time, the driver of that name is the
 /// account's - made (a personnel file of OMSI's in the content folder) when there is none, and
-/// chosen. Answers whether the link was made now.
-pub fn link_account(name: &str) -> bool {
+/// chosen. Answers whether the link was made now. `user`: the account's user id - another
+/// account than the one linked (a session that ended by itself never unlinked it) gets its own
+/// driver, not the other account's.
+pub fn link_account(name: &str, user: &str) -> bool {
     let Ok(name) = plain(name) else { return false };
     if account_driver().is_some() {
-        return false;
+        let mut s = Settings::load();
+        let linked = s.other.get(ACCOUNT_USER_KEY).and_then(Value::as_str).unwrap_or("").to_string();
+        if linked == user || user.is_empty() {
+            return false;
+        }
+        if linked.is_empty() {
+            // (linked before the user id was kept: this account's, as it was)
+            s.other.insert(ACCOUNT_USER_KEY.into(), Value::String(user.to_string()));
+            let _ = s.save();
+            return false;
+        }
+        unlink_account();
     }
     let known = list().iter().any(|n| n.eq_ignore_ascii_case(name));
     if !known && create(name, "").is_err() {
@@ -581,6 +597,9 @@ pub fn link_account(name: &str) -> bool {
     let real = list().into_iter().find(|n| n.eq_ignore_ascii_case(name)).unwrap_or_else(|| name.to_string());
     let mut s = Settings::load();
     s.other.insert(ACCOUNT_KEY.into(), Value::String(real.clone()));
+    if !user.is_empty() {
+        s.other.insert(ACCOUNT_USER_KEY.into(), Value::String(user.to_string()));
+    }
     s.other.insert("driver".into(), Value::String(real));
     s.save().is_ok()
 }
@@ -588,7 +607,8 @@ pub fn link_account(name: &str) -> bool {
 /// Signed out (or the account deleted): no driver is the account's any more.
 pub fn unlink_account() {
     let mut s = Settings::load();
-    if s.other.remove(ACCOUNT_KEY).is_some() {
+    let had = s.other.remove(ACCOUNT_KEY).is_some();
+    if s.other.remove(ACCOUNT_USER_KEY).is_some() || had {
         let _ = s.save();
     }
 }

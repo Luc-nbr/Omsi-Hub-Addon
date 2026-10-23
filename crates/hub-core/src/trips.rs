@@ -316,12 +316,13 @@ pub fn bus_lead(v: Option<i64>) -> i64 {
 }
 
 /// The start of a duty whose first departure is at `minutes` on `date`, `lead` minutes
-/// before it: the time and the date (the day before when that is before midnight).
+/// before it: the time and the date (the day before when that is before midnight, the day after
+/// for a departure of a night's tour past it - 24:30 and on - which started the game at "24:20").
 pub fn lead_start(date: &str, minutes: i32, lead: i64) -> (String, i32) {
     let t = minutes - lead.clamp(0, 60) as i32;
-    if t >= 0 {
+    if (0..24 * 60).contains(&t) {
         (date.to_string(), t)
     } else {
-        (company::dates::add(date, -1), t + 24 * 60)
+        (company::dates::add(date, t.div_euclid(24 * 60) as i64), t.rem_euclid(24 * 60))
     }
 }

@@ -247,7 +247,7 @@ impl Connection {
     /// Whether the bus at its stop at `at` (seconds of the day, as planned: its departure, or
     /// for an onward connection its arrival) is the one it is for.
     pub fn protects(&self, at: f64) -> bool {
-        let due = self.time as f64 * 60.0;
+        let due = self.due_near(at, 0);
         if self.onward {
             at <= due && due <= at + CATCH as f64 * 60.0
         } else {
@@ -257,6 +257,15 @@ impl Connection {
 
     pub fn at(&self, stop: &str) -> bool {
         same(&self.stop, stop)
+    }
+
+    /// Its time (`late` minutes later), in seconds, on the run of days of a bus at its stop at
+    /// `at`: a trip past midnight - 24:10, as the timetable has it - meets the 00:15 train (the
+    /// connection's time is of the day, 0 to 24 h: it never matched a trip after midnight).
+    pub fn due_near(&self, at: f64, late: i32) -> f64 {
+        let day = 86_400.0;
+        let due = (self.time + late) as f64 * 60.0;
+        due + ((at - due) / day).round() * day
     }
 }
 
@@ -351,7 +360,7 @@ pub fn model_hold(c: &Company, date: &str, line: &str, x: &PlannedTrip, delay: f
     let dep = x.dep as f64 * 60.0;
     let mut out: Option<(String, String, f64)> = None;
     for k in l.connections.iter().filter(|k| !k.onward && k.max_hold > 0 && k.at(&x.from) && k.protects(dep)) {
-        let due = (k.time + late_of(c, date, line, k)) as f64 * 60.0;
+        let due = k.due_near(dep, late_of(c, date, line, k));
         if let Hold::Wait { secs, .. } = hold(dep, dep + delay * 60.0, due, k.max_hold as f64 * 60.0) {
             if out.as_ref().is_none_or(|o| secs / 60.0 > o.2) {
                 out = Some((k.stop.clone(), k.what.clone(), secs / 60.0));
@@ -440,7 +449,9 @@ pub fn add_diversion(c: &mut Company, d: Diversion) -> Result<u64, &'static str>
     c.ontime.diversions.retain(|x| dates::parse(x.last()).is_some_and(|l| l + KEPT_DAYS >= today));
     c.ontime.next_id += 1;
     let id = c.ontime.next_id;
-    c.ontime.diversions.push(Diversion { id, from: d.from.trim().to_string(), until: until.to_string(), lines: d.lines, closed, via: d.via.trim().to_string(), note: d.note.trim().to_string() });
+    // (its days as the company writes dates: they are compared as words)
+    let until = dates::parse(until).map(dates::fmt).unwrap_or_default();
+    c.ontime.diversions.push(Diversion { id, from: dates::fmt(from), until, lines: d.lines, closed, via: d.via.trim().to_string(), note: d.note.trim().to_string() });
     Ok(id)
 }
 

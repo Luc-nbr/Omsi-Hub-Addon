@@ -119,8 +119,9 @@ pub struct LineEditorView {
     /// and the map's stops as the line editor offers them.
     router: Option<(usize, Router)>,
     stops: Vec<StopRef>,
-    /// Each direction's legs as drawn (world points), and for which line they were made.
-    shapes: [Vec<Vec<DVec2>>; 2],
+    /// Each direction's legs as drawn (world points) - a line of the map's may have more than
+    /// two -, and for which line they were made.
+    shapes: Vec<Vec<Vec<DVec2>>>,
     shapes_for: Option<u64>,
     /// The directions changed before the map's roads were read (line, direction): routed
     /// once they are.
@@ -131,6 +132,9 @@ pub struct LineEditorView {
     /// "Automatic" was pressed once on a way back of the player's own (`back_mode`): pressed
     /// again, it is made anew from the outbound.
     back_armed: bool,
+    /// Another map was chosen while the line had unsaved changes (that map's place in the
+    /// list): chosen again, the changes go and it is read.
+    switch_armed: Option<usize>,
     /// Working for a bus company (its Lines page opened the editor).
     company: Option<ForCompany>,
     /// What the company's buttons asked for (done after the panels).
@@ -512,6 +516,9 @@ impl LineEditorView {
         let Some(id) = self.sel else { return };
         let Some(l) = self.reg.lines.iter_mut().find(|l| l.id == id) else { return };
         if let Some(d) = l.directions.get_mut(dir) {
+            if self.shapes.len() <= dir {
+                self.shapes.resize(dir + 1, Vec::new());
+            }
             self.shapes[dir] = match self.router.as_ref() {
                 Some((_, router)) => route_direction(router, d),
                 // (the map's roads not read yet: its legs straight for now, routed once they
@@ -819,8 +826,14 @@ fn make_back(v: &mut LineEditorView, follow: bool) -> bool {
             })
             .collect();
     }
-    line.directions.truncate(1);
-    line.directions.push(back);
+    // (a line of the map's with more trips than two keeps the others: the way back alone is
+    // made anew)
+    if line.directions.len() > 2 {
+        line.directions[1] = back;
+    } else {
+        line.directions.truncate(1);
+        line.directions.push(back);
+    }
     if v.dir == 1 {
         v.sel_stop = None;
     }
@@ -833,7 +846,7 @@ fn make_back(v: &mut LineEditorView, follow: bool) -> bool {
 /// one made by the player and made anew from the outbound goes, which the first press says
 /// (`armed`: pressed before). A line of the map's keeps its way back as the map has it.
 fn back_mode(v: &mut LineEditorView, auto: bool, armed: bool, status: &mut Option<(String, bool)>) {
-    let Some(line) = v.line().filter(|l| !l.is_map_line()) else { return };
+    let Some(line) = v.line().filter(|l| !l.is_map_line() && !l.directions.is_empty()) else { return };
     let mode = if auto { BackRoute::Auto } else { BackRoute::Manual };
     let has = line.directions.len() > 1;
     if has && line.back_route == mode {
@@ -903,13 +916,13 @@ fn take_out(d: &mut Direction, i: usize) {
 /// across the road, routed (`make_back`).
 fn reverse(v: &mut LineEditorView, status: &mut Option<(String, bool)>) {
     let Some(line) = v.line() else { return };
-    if line.directions[0].stops.len() < 2 {
+    if line.directions.first().is_none_or(|d| d.stops.len() < 2) {
         *status = Some(("Give the outbound direction its stops first".into(), true));
         return;
     }
     make_back(v, false);
     (v.dir, v.sel_stop) = (1, None);
-    let bad = v.line().map(|x| x.directions[1].legs.iter().filter(|g| !g.ok).count()).unwrap_or(0);
+    let bad = v.line().and_then(|x| x.directions.get(1)).map(|d| d.legs.iter().filter(|g| !g.ok).count()).unwrap_or(0);
     *status = Some(if bad > 0 {
         (crate::lineeditor::ui::tr("The way back is made; %{n} leg(s) have no way over the roads (red): drag them, or change a stop").replace("%{n}", &bad.to_string()), true)
     } else {

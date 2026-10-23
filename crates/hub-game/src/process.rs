@@ -16,6 +16,9 @@ pub struct Game {
     child: Child,
     pub exe: PathBuf,
     started: Instant,
+    /// Ended by the app ([`Game::stop`]): its end has no exit code of its own (Windows gives a
+    /// killed program the code 1, which is no error of the game's).
+    stopped: bool,
 }
 
 /// How a game ended.
@@ -143,7 +146,7 @@ impl Game {
     /// Any program started as the game (the tests start a harmless one).
     pub fn spawn(mut cmd: Command, exe: &Path) -> std::io::Result<Game> {
         let child = cmd.spawn()?;
-        Ok(Game { child, exe: exe.to_path_buf(), started: Instant::now() })
+        Ok(Game { child, exe: exe.to_path_buf(), started: Instant::now(), stopped: false })
     }
 
     pub fn pid(&self) -> u32 {
@@ -153,7 +156,7 @@ impl Game {
     /// Whether it ended, without waiting.
     pub fn poll(&mut self) -> Option<Ended> {
         match self.child.try_wait() {
-            Ok(Some(status)) => Some(Ended { code: status.code(), seconds: self.started.elapsed().as_secs_f64() }),
+            Ok(Some(status)) => Some(Ended { code: status.code().filter(|_| !self.stopped), seconds: self.started.elapsed().as_secs_f64() }),
             Ok(None) => None,
             Err(_) => Some(Ended { code: None, seconds: self.started.elapsed().as_secs_f64() }),
         }
@@ -161,14 +164,18 @@ impl Game {
 
     /// Wait for its end.
     pub fn wait(mut self) -> Ended {
-        let code = self.child.wait().ok().and_then(|s| s.code());
+        let code = self.child.wait().ok().and_then(|s| s.code()).filter(|_| !self.stopped);
         Ended { code, seconds: self.started.elapsed().as_secs_f64() }
     }
 
-    /// End it (the player asked to, or the app quits).
+    /// End it (the player asked to, or the app quits): no exit code then, as for a signal.
     pub fn stop(&mut self) -> Ended {
+        // (one that ended by itself before keeps its own code)
+        if matches!(self.child.try_wait(), Ok(None)) {
+            self.stopped = true;
+        }
         let _ = self.child.kill();
-        let code = self.child.wait().ok().and_then(|s| s.code());
+        let code = self.child.wait().ok().and_then(|s| s.code()).filter(|_| !self.stopped);
         Ended { code, seconds: self.started.elapsed().as_secs_f64() }
     }
 
@@ -314,6 +321,20 @@ mod tests {
         let ended = rx.recv().unwrap();
         assert_eq!(ended.code, Some(0));
         assert!(ended.seconds >= 0.0);
+    }
+
+    /// A game the app ends has no exit code of its own: not the error a killed program's code
+    /// (1 on Windows) would make of it in the page (`gameend.js`).
+    #[test]
+    fn a_game_the_app_ended_says_no_exit_code() {
+        // (`rustc -` reads its program from stdin: it waits while stdin stays open)
+        let mut cmd = Command::new("rustc");
+        cmd.arg("-").stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        let mut game = Game::spawn(cmd, Path::new("rustc")).unwrap();
+        assert!(game.poll().is_none(), "it runs");
+        let ended = game.stop();
+        assert_eq!(ended.code, None);
+        assert_eq!(game.poll().map(|e| e.code), Some(None), "the bridge's loop hears it ended so too");
     }
 
     #[cfg(unix)]

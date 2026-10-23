@@ -232,7 +232,10 @@ pub fn act(s: &mut Session, args: &Value) -> Result<Value, String> {
                 "uk" => VehicleMode::Uk,
                 "europe" => VehicleMode::Europe,
                 "map" => {
-                    let map = s.company.as_ref().map(|c| c.map.clone()).unwrap_or_else(|| str_of("map"));
+                    // (the founding wizard's map in the wizard - its `choice` - not the company open
+                    // behind it: founding on a UK map from a German company chose Europe's)
+                    let wizard = args.get("choice").is_some_and(|v| !v.is_null());
+                    let map = s.company.as_ref().filter(|_| !wizard).map(|c| c.map.clone()).unwrap_or_else(|| str_of("map"));
                     VehicleMode::of_region(region_of_map(s, &map))
                 }
                 _ => VehicleMode::All,

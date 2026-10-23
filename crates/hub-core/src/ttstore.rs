@@ -92,12 +92,13 @@ pub fn ttdata_dir(content: &Path, map_dir: &Path, map_folder: &str) -> Result<Pa
 
 /// The map's own timetable back: the launcher's copy of its `TTData` deleted, or (a map
 /// unpacked in the content folder) every file saved over put back from its `.orig`.
-/// Returns what was done.
-pub fn reset_timetable(content: &Path, map_dir: &Path, map_folder: &str) -> Result<String, String> {
+/// Returns what was done: the copy removed (None), or how many files were put back - the page
+/// words it (its texts translated, `RESET_*`).
+pub fn reset_timetable(content: &Path, map_dir: &Path, map_folder: &str) -> Result<Option<usize>, String> {
     let copy = copy_dir(content, map_folder);
     if copy.join(COPY_MARK).is_file() {
         std::fs::remove_dir_all(&copy).map_err(|e| e.to_string())?;
-        return Ok(format!("The timetable of {map_folder} is the map's own again (the edited copy was removed)"));
+        return Ok(None);
     }
     let own = crate::paths::resolve_path(map_dir, "TTData");
     let mut restored = 0;
@@ -114,11 +115,17 @@ pub fn reset_timetable(content: &Path, map_dir: &Path, map_folder: &str) -> Resu
         let _ = std::fs::remove_file(own.join(crate::lines::MAP_MANIFEST));
     }
     if restored > 0 {
-        Ok(format!("{restored} line(s) of {map_folder} put back as they were"))
+        Ok(Some(restored))
     } else {
-        Err(format!("The timetable of {map_folder} has not been changed here"))
+        Err(RESET_NONE.to_string())
     }
 }
+
+/// What resetting a map's timetable did, as the page says it (`%{map}` the map's folder, `%{n}`
+/// the files put back), and why it did nothing.
+pub const RESET_COPY: &str = "The timetable of %{map} is the map's own again (the edited copy was removed)";
+pub const RESET_BACK: &str = "%{n} line(s) of %{map} put back as they were";
+pub const RESET_NONE: &str = "The timetable of this map has not been changed here";
 
 // --- what the line editor adds to a map's StnLinks.cfg and Busstops.cfg --------------------
 //

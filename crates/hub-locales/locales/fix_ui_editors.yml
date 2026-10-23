@@ -31,3 +31,10 @@ _version: 2
   ru: "Файла депо %{name} больше нет"
   uk: "Файлу депо %{name} більше немає"
   pl: "Pliku zajezdni %{name} już nie ma"
+"The line's changes are not saved: choose the map again to leave them":
+  nl: "De wijzigingen aan de lijn zijn niet opgeslagen: kies de kaart nog eens om ze achter te laten"
+  de: "Die Änderungen an der Linie sind nicht gespeichert: wähle die Karte noch einmal, um sie zu verwerfen"
+  fr: "Les modifications de la ligne ne sont pas enregistrées : choisissez à nouveau la carte pour les abandonner"
+  ru: "Изменения линии не сохранены: выберите карту ещё раз, чтобы отказаться от них"
+  uk: "Зміни лінії не збережено: виберіть карту ще раз, щоб відмовитися від них"
+  pl: "Zmiany linii nie są zapisane: wybierz mapę jeszcze raz, aby je porzucić"

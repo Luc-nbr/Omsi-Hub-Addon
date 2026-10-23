@@ -46,12 +46,20 @@ local function bus()
   return b
 end
 
+-- a script variable of the bus (nil where the bus has none: a game that says so with an error
+-- must not stop the file being written)
+local function var(get, name)
+  local ok, v = pcall(get, name)
+  if ok then return v end
+  return nil
+end
+
 -- what the bus's IBIS is set to (its scripts' variables; nil on a bus without them)
 local function ibis()
   if not fn(omsi, "var") then return nil end
-  local i = { line = num(omsi.var("IBIS_LinieKurs")), route_index = num(omsi.var("IBIS_RouteIndex")), terminus = num(omsi.var("IBIS_TerminusCode")) }
+  local i = { line = num(var(omsi.var, "IBIS_LinieKurs")), route_index = num(var(omsi.var, "IBIS_RouteIndex")), terminus = num(var(omsi.var, "IBIS_TerminusCode")) }
   if fn(omsi, "str") then
-    local n = omsi.str("IBIS_terminus_name")
+    local n = var(omsi.str, "IBIS_terminus_name")
     if type(n) == "string" and n ~= "" then i.terminus_name = n end
   end
   if i.line == nil and i.route_index == nil and i.terminus == nil then return nil end
@@ -67,12 +75,17 @@ local function duty()
     trip_name = d.trip_name or "", delay = num(d.delay) or 0, at_stop = d.at_stop == true,
   }
   local stops = {}
-  for _, s in ipairs(fn(omsi.duty, "stops") and omsi.duty.stops() or {}) do
-    stops[#stops + 1] = { name = s.name or "", arrival = num(s.arrival or s.arr) or 0, departure = num(s.departure or s.dep) or 0, stops = s.stops ~= false }
+  local list = fn(omsi.duty, "stops") and omsi.duty.stops() or nil
+  for _, s in ipairs(type(list) == "table" and list or {}) do
+    if type(s) == "table" then
+      stops[#stops + 1] = { name = s.name or "", arrival = num(s.arrival or s.arr) or 0, departure = num(s.departure or s.dep) or 0, stops = s.stops ~= false }
+    end
   end
-  out.next = d.next_stop and math.max((tonumber(d.next_stop.number) or 1) - 1, 0) or #stops
-  if fn(omsi.duty, "trips") then
-    local t = omsi.duty.trips()[d.trip]
+  out.next = type(d.next_stop) == "table" and math.max((tonumber(d.next_stop.number) or 1) - 1, 0) or #stops
+  -- (the duty's trips: none while the game has not read them - no list to look into then)
+  local trips = fn(omsi.duty, "trips") and omsi.duty.trips() or nil
+  if type(trips) == "table" and out.trip > 0 then
+    local t = trips[out.trip]
     if type(t) == "table" then
       out.number, out.terminus = t.line or "", t.terminus or ""
       out.departure, out.arrival = num(t.departure), num(t.arrival)
@@ -112,7 +125,10 @@ function M.tick(dt)
   wait = wait - (dt or 1)
   if wait > 0 then return end
   wait = EVERY
-  omsi.files.write(M.FILE, json.encode(M.view()))
+  -- (a view that fails - an API of the game that answers otherwise - is left out this time:
+  -- the rest of main.lua's second, the company's messages, goes on)
+  local ok, view = pcall(M.view)
+  if ok then omsi.files.write(M.FILE, json.encode(view)) end
 end
 
 return M

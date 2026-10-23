@@ -70,6 +70,11 @@ class Studio {
     this.net = undefined;
     this.brushes.clear();
     this.atlasKeys = '';
+    // (every object of the lost context made anew: kept, they drew and picked nothing)
+    this.scratch = this.strokeBuf = this.atlas = this.opsTex = this.pickFb = this.blankArray = undefined;
+    this.overridden = [];
+    this.builtScene = undefined;
+    this.dirty = true;
     if (this.prep) this.state = 'waiting';
   }
 
@@ -748,6 +753,7 @@ class Studio {
     const t0 = performance.now();
     const ops = this.operations();
     if (ops.waiting) this.dirty = true;
+    if (ops.list.length > S.MAX_OPS) ops.list.length = S.MAX_OPS;
     this.uploadOps(ops.list);
     this.brushPaint(ops.brushes);
     const P = this.p;
@@ -874,6 +880,8 @@ class Studio {
     // meanwhile, stretched)
     const raster = (key, make, id) => {
       const r = this.rasters.get(key);
+      // (a picture that could not be had is not asked for again every frame)
+      if (this.failedKeys?.has(key)) return undefined;
       if (r) {
         need.set(key, make);
         this.lastOf.set(id, key);
@@ -970,7 +978,8 @@ class Studio {
       if (this.rasters.size > 100) this.rasters.delete(this.rasters.keys().next().value);
     } catch (x) {
       this.post({ kind: 'lakNote', viewer: this.viewer, text: String(x?.message || x) });
-      this.rasters.set(key, make.decal ? { fill: undefined, outline: undefined } : undefined);
+      if (make.decal) this.rasters.set(key, { fill: undefined, outline: undefined });
+      else (this.failedKeys ??= new Set()).add(key);
     } finally {
       this.fetching.delete(key);
       this.dirty = true;

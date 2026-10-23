@@ -81,6 +81,9 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
   const [fallback, setFallback] = useState(false);
   const [why, setWhy] = useState('');
   const overClock = useRef();
+  // (the graphics context lost: the engine makes it anew and draws again - the view comes back
+  // with its next frame, not "No preview" for good)
+  const lost = useRef(false);
 
   // sign on with the renderer
   useEffect(() => {
@@ -94,6 +97,11 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
       },
       frame: () => {
         stats.frames++;
+        if (lost.current) {
+          lost.current = false;
+          setShown(true);
+          setState((x) => (x === 'failed' ? 'ok' : x));
+        }
       },
       state: (s) => {
         stats.state = s;
@@ -105,6 +113,11 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
       },
       error: (e) => {
         stats.error = e;
+        if (e.reason === 'context-lost') {
+          lost.current = true;
+          setShown(false);
+          return;
+        }
         setWhy(e.detail || e.reason);
         setState('failed');
       },
@@ -119,6 +132,8 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
     });
     const el = host.current;
     const fit = () => {
+      // (no canvas without WebGL2: the picture is shown instead)
+      if (!canvas.current) return;
       const r = el.getBoundingClientRect();
       const m = drawSize(r.width, r.height, light);
       if (canvas.current.width !== m.w || canvas.current.height !== m.h) Object.assign(canvas.current, { width: m.w, height: m.h });
@@ -142,6 +157,8 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
       ro.disconnect();
       dprWatch?.removeEventListener('change', onDpr);
       clearTimeout(overClock.current);
+      // (an answer still on its way loads nothing into an engine that has moved on)
+      cur.current.ask++;
       h.gone();
     };
   }, []);
@@ -162,7 +179,10 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
       setShown(false);
       setTakeOver(false);
       setState('loading');
+      // (the engine leaves the old bus's seat too, and the old bus's photo goes)
       setView('outside');
+      h.view('outside');
+      setPic(null);
       photo(bus, paint).then((u) => c.ask === ask && setPic(u));
     }
     (async () => {
@@ -170,11 +190,17 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
         if (sameBus) {
           const args = { bus, paint: paint || '' };
           if (options) args.options = options;
-          const r = await call('b3d_look', args);
+          const r = await call('b3d_look', args).catch(() => null);
           if (c.ask !== ask) return;
-          if (r.pack !== c.manifest.pack) throw new Error('changed');
-          h.look(r.look, t0);
-          return;
+          if (r && r.pack === c.manifest.pack) {
+            h.look(r.look, t0);
+            return;
+          }
+          // (the bus changed on disk meanwhile, or its look could not be had: opened anew)
+          c.manifest = null;
+          setShown(false);
+          setTakeOver(false);
+          setState('loading');
         }
         const r = await open(bus, paint, options);
         if (c.ask !== ask) return;
@@ -186,12 +212,6 @@ export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', tu
         h.load(r.manifest, r.look, r.cache ? 'cache' : 'new', t0);
       } catch (x) {
         if (c.ask !== ask) return;
-        if (sameBus) {
-          // (the bus changed on disk meanwhile: opened anew)
-          c.manifest = null;
-          c.bus = '';
-          return;
-        }
         setWhy(x.message || String(x));
         setState('failed');
       }

@@ -84,6 +84,12 @@ fn a_bus_waits_for_its_connection_at_the_most_its_hold() {
     assert!(k.protects(dep) && k.protects(462.0 * 60.0) && !k.protects(475.0 * 60.0) && !k.protects(461.0 * 60.0));
     let on = Connection { onward: true, time: 470, ..k.clone() };
     assert!(on.protects(463.0 * 60.0) && !on.protects(471.0 * 60.0) && !on.protects(459.0 * 60.0));
+    // past midnight: a trip at 24:14 (as the timetable runs on) waits for the 00:15 train, one at
+    // 23:59 for the 00:01
+    let night = Connection { time: 15, ..k.clone() };
+    assert!(night.protects((24.0 * 60.0 + 14.0) * 60.0) && !night.protects(14.0 * 60.0 * 60.0));
+    assert_eq!(night.due_near((24.0 * 60.0 + 14.0) * 60.0, 2), (24.0 * 60.0 + 17.0) * 60.0);
+    assert!(Connection { time: 1, ..k.clone() }.protects((23.0 * 60.0 + 59.0) * 60.0));
     // the passengers changing to line 12 at 7:46
     assert_eq!(onward(463.0 * 60.0, 466.0 * 60.0), Onward::Made { secs: 120.0 });
     assert_eq!(onward(464.5 * 60.0, 466.0 * 60.0), Onward::Tight { secs: 30.0 });

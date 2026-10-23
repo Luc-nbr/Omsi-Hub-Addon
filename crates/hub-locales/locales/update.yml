@@ -57,6 +57,20 @@ _version: 2
   pl: "Pobierz z GitHub"
   ru: "Скачать с GitHub"
   uk: "Завантажити з GitHub"
+"GitHub answered %{code}":
+  de: "GitHub antwortete %{code}"
+  fr: "GitHub a répondu %{code}"
+  nl: "GitHub antwoordde %{code}"
+  pl: "GitHub odpowiedział %{code}"
+  ru: "GitHub ответил %{code}"
+  uk: "GitHub відповів %{code}"
+"GitHub's answer could not be read":
+  de: "Die Antwort von GitHub konnte nicht gelesen werden"
+  fr: "La réponse de GitHub n'a pas pu être lue"
+  nl: "Het antwoord van GitHub kon niet worden gelezen"
+  pl: "Nie udało się odczytać odpowiedzi GitHub"
+  ru: "Не удалось прочитать ответ GitHub"
+  uk: "Не вдалося прочитати відповідь GitHub"
 "GitHub could not be reached. Are you online?":
   de: "GitHub ist nicht erreichbar. Bist du online?"
   fr: "Impossible de joindre GitHub. Êtes-vous connecté ?"

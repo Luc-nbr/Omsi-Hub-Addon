@@ -348,6 +348,10 @@ void main() {
 
 /** The number of texels of the operations' table per operation. */
 export const OP_TEXELS = 10;
+/** The most operations the paint draws (a row of `uOps` each, far below WebGL 2's 2048 rows at
+ * least). It was 256: a livery with many decals - each with its outline and its mirror copy
+ * up to four - lost the rest in the studio, while the save painted them all. */
+export const MAX_OPS = 1024;
 
 /**
  * The layers painted into a texture (paint::composite), per texel of the laknet, in linear light
@@ -482,7 +486,7 @@ void main() {
   // the bus frame: x right, y forward, z up
   float len = max(uMax.z - uMin.z, 0.5);
   float height = max(uMax.y - uMin.y, 0.5);
-  for (int j = 0; j < 256; j++) {
+  for (int j = 0; j < 1024; j++) {
     if (j >= uOpCount) break;
     vec4 h = op(j, 0);
     int kind = int(h.x + 0.5);

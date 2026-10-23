@@ -134,6 +134,9 @@ export function LakStudio() {
     const keyUp = (e) => alive && key(me, e, false);
     addEventListener('keydown', keyDown);
     addEventListener('keyup', keyUp);
+    // (a save left running - or waiting for the game to close - when the studio was last left:
+    // asked once, so that it is finished and its end taken; Rust moves it on only when asked)
+    me.probeSave = true;
     const poll = setInterval(() => alive && pollSave(me), 400);
     return () => {
       alive = false;
@@ -659,6 +662,8 @@ function controls(me) {
 
 async function down(me, ndc, e) {
   me.lastNdc = ndc;
+  // (the button held: a click let go before the hit was found ends there)
+  me.pressed = true;
   const making = me.making;
   if (making === 'brush') {
     const hit = await pickAt(me, ndc);
@@ -813,6 +818,7 @@ function moveTo(me, d, hit) {
 }
 
 function up(me, ndc, e) {
+  me.pressed = false;
   const d = me.drag;
   me.drag = null;
   if (d?.kind === 'brush') {
@@ -841,6 +847,13 @@ function brushDown(me, hit) {
   me.brushLayer = id;
   me.selected = id;
   me.drag = { kind: 'brush', id };
+  // (a quick click: the button was let go while the hit was looked for - the dot is a step of
+  // its own, not the start of a drag that never ends)
+  if (!me.pressed) {
+    me.drag = null;
+    settle(me);
+    touched(me);
+  }
 }
 
 function brushTo(me, d, hit) {
@@ -882,7 +895,10 @@ async function penClick(me, ndc) {
 // ------------------------------------------------------------ the keys
 function key(me, e, isDown) {
   const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  // (not what a field or an open dropdown takes: typing in a dropdown's list - its Backspace -
+  // removed the layer chosen)
+  if (e.defaultPrevented) return;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest?.('.ed-drop'))) return;
   if (e.key === 'o' || e.key === 'O') {
     if (isDown !== me.beforeOn) before(me, isDown);
     return;
@@ -955,26 +971,35 @@ async function save(me) {
 }
 
 async function pollSave(me) {
-  if (!me.saving) return;
-  const r = await call('lak_progress').catch((x) => ({ error: x.message }));
+  if (!me.saving && !me.probeSave) return;
+  me.probeSave = false;
+  const r = await call('lak_progress').catch((x) => ({ error: x.message, failed: true }));
   if (r.busy) {
     me.saving = { text: r.text, f: r.f };
     me.tick();
     return;
   }
+  // (nothing was running - or the look itself failed: not a save's failure to say)
+  if (!me.saving && !r.done && (!r.error || r.failed)) return;
   me.saving = null;
   if (r.error) say(me, r.error, true);
   else if (r.done) {
-    me.project = r.done.project;
-    me.name = r.done.project.naam;
+    // (only what the save changed: the project as it was when Save was pressed would undo what
+    // was painted while it ran; and a save of another project changes nothing of this one)
+    const d = r.done.project;
+    if (d.id === me.project?.id) {
+      Object.assign(me.project, { geplaatst: d.geplaatst, bewaard: d.bewaard, naam: d.naam, ookOp: d.ookOp });
+      me.name = d.naam;
+      if (me.dirtyAt) keepNow(me, false);
+    }
     say(me, r.done.text);
-    forgetPhotos(me.project.bus);
+    forgetPhotos(d.bus);
     const o = me.open;
     // the bus step's livery: the new one (its list read again with it)
-    const v = (S.vehicles || []).find((x) => x.file === me.project.bus);
+    const v = (S.vehicles || []).find((x) => x.file === d.bus);
     if (v && !(v.paints || []).some((x) => x.toLowerCase() === r.done.name.toLowerCase())) set({ vehicles: S.vehicles.map((x) => (x === v ? { ...v, paints: [...(v.paints || []), r.done.name] } : x)) });
-    if (S.choice?.bus === me.project.bus && !me.company) choose({ paint: r.done.name });
-    if (r.done.company) o.onCompanyChanged?.(r.done.company);
+    if (S.choice?.bus === d.bus && !me.company) choose({ paint: r.done.name });
+    if (r.done.company) o?.onCompanyChanged?.(r.done.company);
     cost(me);
   }
   me.tick();

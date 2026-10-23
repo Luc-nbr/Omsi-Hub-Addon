@@ -135,7 +135,8 @@ function useBoard() {
         } else if (v.board) setRf({ data: v, rev: v.rev });
         else setRf({ data: { head: v.head, reading: v.reading }, rev: '' });
       })
-      .catch((e) => !gone && setRf({ data: { head: S.rf.data?.head, reading: e.message }, rev: '' }))
+      // (`failed`: the read went wrong - said as such, with Try again - not one still under way)
+      .catch((e) => !gone && setRf({ data: { head: S.rf.data?.head, reading: e.message, failed: true }, rev: '' }))
       .finally(() => !gone && readDone('board', n));
     return () => {
       gone = true;
@@ -187,6 +188,10 @@ export function RosterFlowPage() {
       if (tutEscape()) return;
       const x = S.rf;
       if (x.intro) return setRf({ intro: null });
+      // (the preferences or a window of the title bar over the tab: closed before what the tab
+      // holds - not the Timeplan's "changes not saved" said, or the Routes' changes held, with
+      // the window still open over it)
+      if (x.prefs || x.panel) return letGo();
       if (x.view === TIMEPLAN && tpEscape()) return;
       if (x.view === ROUTES && rtEscape()) return;
       if (x.view === ROSTER && rosterEscape()) return;
@@ -205,7 +210,7 @@ export function RosterFlowPage() {
   return html`<div class=${'rf' + (p.light ? ' light' : ' dark')} ref=${ref}>
     <${TitleBar} />
     <div class="rf-body" key=${'v' + (studio ? 's' : r.view)}>${body}
-      ${!studio && html`<div class="rf-layer">${r.data?.board && html`<${TitleWindows} data=${r.data} drivers=${false} size=${{ w: size.w, h: size.h - 48 }} />`}${r.prefs && html`<${PrefsWindow} />`}</div>`}
+      ${!studio && html`<div class="rf-layer"><${TitleWindows} data=${r.data || {}} drivers=${false} size=${{ w: size.w, h: size.h - 48 }} />${r.prefs && html`<${PrefsWindow} />`}</div>`}
     </div>
     ${r.intro && html`<${Opening} p=${p} since=${r.intro} onDone=${() => setRf({ intro: null })} />`}
     <${Tutorial} p=${p} size=${size} />
@@ -295,7 +300,7 @@ function TitleBar() {
     <span class="rf-brand"><${Mark} size=${30} /><span class="names"><${Wordmark} size=${17} /><small>${tr(SUBTITLE)}</small></span></span>
     <i class="sep"></i>
     <span class="rf-icons" data-rf="rf-menu">
-      <${IconBtn} icon="tune" title="Preferences: the rules the duties are checked against and Optimise works to" onClick=${() => setRf({ prefs: { item: 'signing', search: '', inUse: false } })} />
+      <${IconBtn} icon="tune" title="Preferences: the rules the duties are checked against and Optimise works to" onClick=${() => setRf({ prefs: r.prefs ? null : { item: 'signing', search: '', inUse: false } })} />
       <${IconBtn} icon="description" title="Print the bus graph or the duty graph as a PDF file" onClick=${() => toggle('print')} />
       <${IconBtn} icon="search" title="Go to a vehicle or a duty by its ID (G)" onClick=${() => toggle({ kind: 'goto', text: '' })} />
       <${IconBtn} icon="settings" title="Optimisation settings" onClick=${() => toggle('optimise')} />

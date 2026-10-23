@@ -12,7 +12,8 @@
 // With the RosterFlow add-on on, the planning is RosterFlow's (phase 4): handed to our game-drawn
 // launcher until then, or drawn by `window.omsiHubRosterFlow` when that is there.
 
-import { html, useEffect, useRef, useState, ui, setUi, setCo, useSize, textW, Icon, Btn, Seg, Switch, Dialog, HOME, handOver, tr } from './kit.js';
+import { html, useEffect, useRef, useState, ui, setUi, setCo, useSize, textW, Icon, Btn, Seg, Switch, Dialog, HOME, handOver, tr, escTaken, useGone } from './kit.js';
+import { useLayoutEffect } from '../../vendor/preact-htm.js';
 import { useMore, actMore, TextIn, box, rosterFlowPage } from './more.js';
 import { dark } from '../hub/theme.js';
 import { PlanEdit } from './planedit.js';
@@ -138,7 +139,8 @@ export function PlanningPage() {
   // Escape lets go of what is in hand first (`holds_choice`), before the start screen
   useEffect(() => {
     const k = (e) => {
-      if (e.key !== 'Escape') return;
+      // (a dialog or popup over the page closes first)
+      if (e.key !== 'Escape' || escTaken()) return;
       const s = ui('planning', st0);
       if (s.service || s.edit) return;
       if (s.arm || s.sel) {
@@ -190,7 +192,9 @@ function useDrag(v, st) {
   const [d, setD] = useState(null);
   const live = useRef(null);
   live.current = { v, st };
-  useEffect(() => {
+  // (taken at once, not after the frame: a quick tap let go before the listeners were there, and
+  // the press stayed in hand - the chip following the mouse, the next click a drop)
+  useLayoutEffect(() => {
     if (!d) return undefined;
     const move = (e) => {
       const moved = Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 6;
@@ -219,11 +223,14 @@ function useDrag(v, st) {
         else if (t.dataset.bus) actMore('plan_give_bus', { date, ti, bus: Number(t.dataset.bus) });
       }
     };
+    const cancel = () => setD(null);
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
+    addEventListener('pointercancel', cancel);
     return () => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', cancel);
     };
   }, [d && d.x0, d && d.y0]);
   const q = pal();
@@ -320,9 +327,16 @@ function Gantt({ v, st, r, drag }) {
   const q = pal();
   const g = v.gantt;
   const ref = useRef(null);
+  // (the rows' pitch as they are drawn: the least one scrolled short of a line far down)
+  const drawn = useRef(ROW_MIN);
   // a line to show (from the Lines page): unfolded, and its group scrolled into view once
   useEffect(() => {
-    if (!st.focus || !g.groups) return;
+    if (!st.focus) return;
+    // (no lines that day: the wish forgotten, not kept for another day)
+    if (!g.groups) {
+      setUi('planning', { focus: null });
+      return;
+    }
     let y = 0;
     for (const gr of g.groups) {
       if (gr.name.toLowerCase() === st.focus.toLowerCase()) {
@@ -330,7 +344,7 @@ function Gantt({ v, st, r, drag }) {
         if (ref.current) ref.current.scrollTop = Math.max(0, y - 40);
         break;
       }
-      y += HEAD + (gr.folded ? 0 : gr.tours.length * ROW_MIN);
+      y += HEAD + (gr.folded ? 0 : gr.tours.length * drawn.current);
     }
     setUi('planning', { focus: null });
   }, [st.focus, !!g.groups]);
@@ -351,6 +365,7 @@ function Gantt({ v, st, r, drag }) {
   const rowsH = Math.max(0, r.h - AXIS);
   const shown = g.groups.filter((x) => !x.folded).reduce((n, x) => n + x.tours.length, 0);
   const pitch = rowPitch(rowsH - 8 - g.groups.length * HEAD, shown);
+  drawn.current = pitch;
   const date = v.date;
   const tap = (t, k) => {
     // (tapped twice: the line's timetable, that tour marked)
@@ -704,11 +719,8 @@ function ServiceDialog({ s }) {
   const v = useMore('service', s);
   const set = (patch) => setUi('planning', { service: { ...s, ...patch } });
   const close = () => setUi('planning', { service: null });
-  if (!v || v.error) return null;
-  if (v.gone) {
-    close();
-    return null;
-  }
+  // (gone or failed: closed - left set, the page's Escape waited for it until the page was left)
+  if (useGone(v, close) || !v) return null;
   const go = async () => {
     const r = await actMore('plan_start', s);
     if (r?.done) close();

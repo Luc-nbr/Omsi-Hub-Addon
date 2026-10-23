@@ -160,7 +160,8 @@ export async function selftest(check, errors) {
   // a narrow window (RosterFlow made narrower in place: 1180 to 776 px, what the smallest window
   // leaves at a Launcher size of 125 % and 150 %): the title bar one row of 48 px whose parts
   // neither overlap nor run over its end, the menu's icons and undo, redo and the history all
-  // there, and the toolbar's (and the Timeplan's bar's) parts side by side
+  // there (six since Play together's), and the toolbar's (and the Timeplan's bar's) parts side by
+  // side
   const rf = $('.rf');
   for (const [view, name] of [[VEHICLES, 'Vehicles'], [ROSTER, 'Roster'], [TIMEPLAN, 'Timeplan']]) {
     setRf({ view, card: null, menu: null, panel: null });
@@ -172,7 +173,7 @@ export async function selftest(check, errors) {
       const wrong = [
         ...(bar?.offsetHeight === 48 ? [] : [`${bar?.offsetHeight} px high`]),
         ...inARow(bar, ['rf-icons', 'undo']),
-        ...($$('.rf-title .rf-icons .rf-ibtn').length === 5 && $$('.rf-title .undo .rf-ibtn').length === 3 ? [] : ['icons missing']),
+        ...($$('.rf-title .rf-icons .rf-ibtn').length === 6 && $$('.rf-title .undo .rf-ibtn').length === 3 ? [] : ['icons missing']),
         ...(view === VEHICLES ? inARow($('.rf-toolbar'), []).map((x) => `toolbar: ${x}`) : []),
         ...(view === TIMEPLAN && $('.tp-bar') ? inARow($('.tp-bar'), ['tp-sides']).map((x) => `Timeplan's bar: ${x}`) : []),
       ];

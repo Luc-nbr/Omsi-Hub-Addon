@@ -509,15 +509,56 @@ export function IconBtn({ icon, title, onClick, size = 18, style }) {
   return html`<button type="button" class="co-iconbtn" title=${title} style=${style} onClick=${onClick}><${Icon} name=${icon} size=${size} /></button>`;
 }
 
+/** The layers over a page that Escape closes (the dialogs, the popup, the duty card), the last
+ * opened on top: Escape closes only the top one, and a page's own Escape waits while one is open
+ * (`escTaken`) - one Escape closed both a popup and the dialog under it, or the page behind. */
+const layers = [];
+
+/** The layer Escape is for: the last opened - the popup over every dialog (`over`), whenever its
+ * dialog's view came. */
+const topLayer = () => [...layers].reverse().find((l) => l.over) || layers[layers.length - 1];
+
+/** A layer over the page: Escape closes it (`onClose`, when it may be closed) while it is the top
+ * one; one that may not be closed still keeps Escape from what lies under it. */
+export function useEscLayer(onClose, over = false) {
+  const fn = useRef(onClose);
+  fn.current = onClose;
+  useEffect(() => {
+    const me = { over };
+    layers.push(me);
+    const k = (e) => {
+      if (e.key !== 'Escape' || topLayer() !== me) return;
+      e.stopPropagation();
+      fn.current?.();
+    };
+    addEventListener('keydown', k);
+    return () => {
+      layers.splice(layers.indexOf(me), 1);
+      removeEventListener('keydown', k);
+    };
+  }, []);
+}
+
+/** Something lies over the page that has Escape first: a dialog or the popup (the company's or a
+ * page's own), the command palette. */
+export const escTaken = () => layers.length > 0 || !!(S.co?.dialog || S.co?.popup || S.co?.cmdk);
+
+/** A dialog whose view is gone (its bus sold, its line given up) or failed closes itself (what
+ * failed said) - not left open with nothing drawn, holding the clock as an open dialog does. */
+export function useGone(v, close) {
+  const gone = !!v && (!!v.gone || !!v.error);
+  useEffect(() => {
+    if (!gone) return;
+    if (v.error) toast(v.error, 'error');
+    close();
+  }, [gone]);
+  return gone;
+}
+
 /** A dialog's frame (`kit::frame`): its icon and title, the cross that closes it, the body,
  * and the foot's buttons; Escape closes it (when it may be closed). */
-export function Dialog({ icon, title, w = 560, h, onClose, foot, children, bodyStyle = '', class: cls = '' }) {
-  useEffect(() => {
-    if (!onClose) return undefined;
-    const k = (e) => e.key === 'Escape' && (e.stopPropagation(), onClose());
-    addEventListener('keydown', k);
-    return () => removeEventListener('keydown', k);
-  }, [onClose]);
+export function Dialog({ icon, title, w = 560, h, onClose, foot, children, bodyStyle = '', class: cls = '', over = false }) {
+  useEscLayer(onClose, over);
   return html`<div class="co-scrim" onMouseDown=${(e) => e.stopPropagation()}>
     <div class=${'co-dialog ' + cls} style=${`width:${w}px;${h ? `height:${h}px;` : ''}`}>
       <div class="head"><${Icon} name=${icon} size=${24} /><h2 title=${title}>${title}</h2>
@@ -532,14 +573,21 @@ export function Dialog({ icon, title, w = 560, h, onClose, foot, children, bodyS
 export function Popup({ p, onClose }) {
   const close = onClose || (() => setCo({ popup: null }));
   useEffect(() => {
-    const k = (e) => e.key === 'Enter' && close();
-    addEventListener('keydown', k);
-    return () => removeEventListener('keydown', k);
+    // (taken before the button the player last clicked: Enter on it pressed it again, and the
+    // popup came straight back)
+    const k = (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    };
+    addEventListener('keydown', k, true);
+    return () => removeEventListener('keydown', k, true);
   }, []);
   const foot = p.go
     ? html`<span class="rest"></span><${Btn} label=${tr('OK')} onClick=${close} /><${Btn} kind="primary" icon=${p.go.icon} label=${p.go.label} onClick=${() => goKey(p.go.to)} />`
     : html`<span class="rest"></span><${Btn} kind="primary" label=${tr('OK')} onClick=${close} />`;
-  return html`<${Dialog} icon=${p.icon} title=${p.title} w=${560} onClose=${close} foot=${foot}>
+  return html`<${Dialog} icon=${p.icon} title=${p.title} w=${560} onClose=${close} foot=${foot} over=${true}>
     <p class="co-para">${p.text}</p>
     ${p.unlock && html`<div class="co-unlock" style="margin-top:16px"><${Icon} name="key" size=${18} />${p.unlock}</div>`}
   </${Dialog}>`;
@@ -569,6 +617,9 @@ export function useSize() {
     ro.current = new ResizeObserver(() => requestAnimationFrame(measure));
     ro.current.observe(el);
     measure();
+    // (a page drawn anew is put in the document only after its ref is given: measured again once
+    // it is there - without waiting for a frame, which a window not drawn never has)
+    queueMicrotask(() => el.isConnected && measure());
   }, []);
   useEffect(() => () => ro.current?.disconnect(), []);
   return [ref, size];

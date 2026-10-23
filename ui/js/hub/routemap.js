@@ -41,7 +41,16 @@ function onRoute(d) {
 function load(map, date, trip, read) {
   const key = `${map}|${date}|${trip}`;
   // Omsi-Hub: `read` reads the map another way (the company's duty: every trip's route at once)
-  if (!cache.has(key)) cache.set(key, (read ? read() : call('hub_route_map', { map, date, trip })).then((d) => onRoute({ roads: [], route: [], stops: [], entries: [], ...d }), (e) => ({ error: e.message })));
+  if (!cache.has(key)) {
+    cache.set(
+      key,
+      (read ? read() : call('hub_route_map', { map, date, trip })).then(
+        (d) => onRoute({ roads: [], route: [], stops: [], entries: [], ...d }),
+        // Omsi-Hub: a map that could not be read is read again the next time it is shown
+        (e) => (cache.delete(key), { error: e?.message || String(e) }),
+      ),
+    );
+  }
   return cache.get(key);
 }
 
@@ -63,12 +72,17 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
     if (!frame.current.raf) frame.current.raf = requestAnimationFrame(() => ((frame.current.raf = 0), latest.current()));
   };
 
+  // Omsi-Hub: the map and day the picture shows - another map chosen, the one before stays dimmed
+  // under "Reading the map…" until its roads are in, and its entry points take no click
+  const [shown, setShown] = useState('');
+  const stale = !!data && shown !== `${map}|${date}`;
   useEffect(() => {
     if (!map) return;
     let alive = true;
     load(map, date, trip, read).then((d) => {
       if (!alive) return;
       setData(d);
+      setShown(`${map}|${date}`);
       view.current = null;
     });
     return () => (alive = false);
@@ -78,7 +92,9 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
   const draw = () => {
     const c = cv.current;
     const d = data;
-    if (!c || !d || d.error) return;
+    if (!c || !d) return;
+    // (a map that could not be read: nothing of the one before under its words)
+    if (d.error) return void c.getContext('2d').clearRect(0, 0, c.width, c.height);
     // (times the Launcher size the stage is scaled by, so the canvas stays sharp)
     const dpr = (window.devicePixelRatio || 1) * stageScale();
     const W = box.current.clientWidth;
@@ -200,7 +216,8 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
   };
   const latest = useRef(draw);
   latest.current = draw;
-  useEffect(draw, [data, hover, entry, signs, stops.map((x) => `${x.time} ${x.name}`).join('|')]);
+  // (the colours too: the look switched between day and night draws the map in the new ones)
+  useEffect(draw, [data, hover, entry, signs, stops.map((x) => `${x.time} ${x.name}`).join('|'), (colors || []).join('|')]);
   useEffect(() => {
     const redraw = () => latest.current();
     const ro = new ResizeObserver(redraw);
@@ -233,7 +250,7 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
   const entryAt = ([px, py]) => {
     const d = data;
     const v = view.current;
-    if (!d?.entries || !v) return -1;
+    if (!d?.entries || !v || stale) return -1;
     const W = box.current.clientWidth;
     const H = box.current.clientHeight;
     let best = -1;
@@ -291,9 +308,9 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
         frame.current.zoomedAt = performance.now();
         kick();
       }}>
-    <canvas ref=${cv}></canvas>
-    ${!data && html`<div class="state"><${Spinner} /> ${t('Reading the map…')}</div>`}
-    ${data?.error && html`<div class="state">${data.error}</div>`}
-    ${data && !data.error && html`<div class="legend">${t('%{roads} roads | %{stops} stops | %{entries} entry points', { roads: data.roads.length, stops: data.stops.length, entries: data.entries.length })}</div>`}
+    <canvas ref=${cv} style=${stale ? 'opacity:0.35' : ''}></canvas>
+    ${(!data || stale) && html`<div class="state"><${Spinner} /> ${t('Reading the map…')}</div>`}
+    ${data?.error && !stale && html`<div class="state">${data.error}</div>`}
+    ${data && !data.error && !stale && html`<div class="legend">${t('%{roads} roads | %{stops} stops | %{entries} entry points', { roads: data.roads.length, stops: data.stops.length, entries: data.entries.length })}</div>`}
   </div>`;
 }

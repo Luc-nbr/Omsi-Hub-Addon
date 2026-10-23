@@ -240,7 +240,9 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             let cents = money_cents(number("euros").unwrap_or(0.0));
             match apply(s, |c| sb::set_balance(c, cents)) {
                 Ok(_) => {
-                    let t = trf("The balance is %{amount} now.", &[("amount", &eur(cents))]);
+                    // (the balance as it is now: one typed past the most is held at it)
+                    let now = s.company.as_ref().map_or(cents, |c| c.cash);
+                    let t = trf("The balance is %{amount} now.", &[("amount", &eur(now))]);
                     s.say(t, false);
                     Ok(json!({}))
                 }
@@ -258,10 +260,13 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             r
         }
         "sandbox_reset" => {
-            let r = done(apply(s, sb::reset));
-            s.say(tr("Every setting is back to the career's."), false);
+            // (said only when it was done: a career company is refused, its popup alone)
+            let r = apply(s, sb::reset);
+            if r.is_ok() {
+                s.say(tr("Every setting is back to the career's."), false);
+            }
             s.plan = None;
-            r
+            done(r)
         }
         _ => return None,
     })

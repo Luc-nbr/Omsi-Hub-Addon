@@ -19,10 +19,15 @@ const MAP = 'maps/Grundorf/global.cfg';
 const companies = [
   { id: 'grundorf-bus', name: 'Grundorf Bus', short: 'GB', colours: ['#f28c28', '#283593'], map: MAP, map_name: 'Grundorf', depot: 'Betriebshof Grundorf', mode: 'normal', cash: 18734500, trophies: 14, reputation: 63.4, date: '2026-10-19', minute: 7 * 60 + 42, played: 12 },
   { id: 'ruhrau-verkehr', name: 'Ruhrau Verkehr', short: 'RV', colours: ['#43a047', '#f5f5f5'], map: 'maps/Ruhrau/global.cfg', map_name: 'Ruhrau', depot: 'Betriebshof Ruhrau', mode: 'casual', cash: 4210000, trophies: 3, reputation: 48, date: '2026-05-02', minute: 9 * 60, played: 60 * 26 },
+  // (a third with the RosterFlow add-on on, so that the browser's self-check has RosterFlow to
+  // look at: its Planning page is RosterFlow's - `mock/rosterflow.js` - on Grundorf's lines)
+  { id: 'grundorf-linien', name: 'Grundorf Linien', short: 'GL', colours: ['#1e88e5', '#f5f5f5'], map: MAP, map_name: 'Grundorf', depot: 'Betriebshof Grundorf', mode: 'realistic', cash: 26450000, trophies: 21, reputation: 71.2, date: '2026-10-19', minute: 6 * 60 + 15, played: 60 * 3, rosterflow: true },
 ];
 
-const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', rosterflow: false, realtime: false, friendsJoin: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
+const st = { open: null, gen: 1, speed: 0, until: 16 * 60, dispatcher: true, minor: false, launch: null, notices: [], weather: 'clear', realtime: false, friendsJoin: false, read: new Set([3, 4, 5]), gone: new Set(), feeds: [] };
 const co = () => companies.find((c) => c.id === st.open) || null;
+/** Whether the company open has the RosterFlow add-on on (each company its own, as the game's). */
+const rosterflowOn = () => !!co()?.rosterflow;
 const bump = () => (st.gen += 1);
 const say = (text, error = false) => st.notices.push({ text, error });
 
@@ -784,7 +789,7 @@ function settings(a) {
     title: 'Company settings', mark_caps: 'THE MARK', mark: markOf(c), logo_text: 'No logo picture: the short name is the mark.', choose_logo: 'Choose a logo picture', remove_logo: null,
     country: wizard({}).country, mode_caps: 'GAME MODE', modes, mode: c.mode, mode_info: 'Switch at any time: nothing is lost.',
     company_mode: null,
-    addons: c.mode === 'casual' ? null : { caps: 'ADD-ONS', on: st.rosterflow, label: 'RosterFlow, the professional scheduling studio', note: 'The Planning page becomes RosterFlow: duties, blocks, the timetable and the drivers\' days.' },
+    addons: c.mode === 'casual' ? null : { caps: 'ADD-ONS', on: rosterflowOn(), label: 'RosterFlow, the professional scheduling studio', note: 'The Planning page becomes RosterFlow: duties, blocks, the timetable and the drivers\' days.' },
     buying: { caps: 'BUYING BUSES', mode: 1, modes: ['Simple', 'By contract'], say: 'Haggle with the dealer, agree on extras and sign a contract; new buses are delivered.' },
     currency: { caps: 'CURRENCY', value: 0, codes: ['EUR', 'GBP', 'PLN'], options: ['Euro (€)', 'Pound (£)', 'Złoty (zł)'], say: 'Money is shown in this currency.' },
     vehicles: null,
@@ -858,7 +863,7 @@ function career() {
 // --- the more pages (`co_more_view`) -----------------------------------------------------------
 
 function planning(a) {
-  if (st.rosterflow) return { rosterflow: true };
+  if (rosterflowOn()) return { rosterflow: true };
   const c = co();
   const day = Math.min(Number(a.day) || 0, 6);
   const date = addDays(c.date, day);
@@ -957,7 +962,7 @@ function moreAct(a) {
       break;
     case 'plan_timetable':
       // (RosterFlow on: its Timeplan takes the line; else the planning's own sheet)
-      if (st.rosterflow) return { hand_over: `timetable=${a.line}` };
+      if (rosterflowOn()) return { hand_over: `timetable=${a.line}` };
       sheet = lineOf(a.line) ? { line: a.line, tour: a.tour || null, date: a.date || co().date, sel: null } : null;
       return { plan_edit: !!sheet };
     default:
@@ -1130,6 +1135,35 @@ function reputation(a) {
 
 const lateAdvice = () => ({ list: [] });
 
+/** The finances' deductions for late running (`late::finance_view`): the days kept, by tier and
+ * cause, and each trip with a deduction. */
+function late() {
+  const c = co();
+  const trip = (k, date, line, tour, dep, minutes, amount, cause, bus, driver) => ({
+    line: `Linie${line}`, number: line, tour, block: `${line}/${tour}`, block_id: `B|Linie${line}|${tour}`, duty: 0, duty_text: 'Duty 1', dep, arr: dep + 38, time: `${hhmm(dep)}–${hhmm(dep + 38)}`, trip: `${line}_${k}`,
+    place: `Line ${line}  ·  block ${line}/${tour}  ·  Duty 1  ·  trip ${line}_${k}`, bus: { id: bus, text: `Bus ${BUSES.find((b) => b.id === bus)?.number || bus}` }, driver: { id: driver, text: staffOf(driver)?.name || 'Agency driver' }, bus_caps: 'Bus', driver_caps: 'Driver',
+    dropped: false, minutes, label: `+${minutes}`, tone: minutes >= 15 ? 'danger' : 'warn', head: `${hhmm(dep)} trip ${minutes} min late`, chain: [cause, ...(minutes >= 10 ? ['before that: the layover at the Bahnhof was too short to take it up'] : [])],
+    deduction: `${minutes >= 15 ? 40 : 18} % of the trip's value deducted`, lost: minutes >= 15 ? '12 passengers lost' : null, date: dayLabel(addDays(c.date, -date)), amount,
+  });
+  return {
+    title: 'Deductions for late running', span: `The last 7 days closed, from ${dayLabel(addDays(c.date, -7))}`, close: 'Close',
+    money: {
+      caps: 'Deductions for late running', total: '€214',
+      tiers: [{ label: '5 to 9 minutes', trips: '6 trips', amount: '€58', tone: 'warn' }, { label: '10 to 19 minutes', trips: '3 trips', amount: '€96', tone: 'danger' }, { label: '20 minutes and more', trips: '1 trips', amount: '€60', tone: 'danger' }],
+      causes: [{ label: 'Traffic', trips: '5 trips', amount: '€112' }, { label: 'The driver', trips: '3 trips', amount: '€64' }, { label: 'The bus', trips: '2 trips', amount: '€38' }],
+      carried: '4 of these trips carried a delay on from the trip before: the layover was too short to take it up.',
+      how_label: 'How was this worked out?',
+      how: ['A trip counts as late from 5 whole minutes behind the timetable, at its start or its end: 4 min 59 s behind is still on time.', 'Each late trip pays a share of its value under the contract: 10 % up to 5 minutes, rising evenly to 100 % at 30 minutes.', 'Casual deducts nothing; school transport counts twice.'],
+    },
+    trips_caps: 'Each deduction',
+    trips: [
+      trip(1, 1, '101', '2', 7 * 60 + 12, 22, '€60', 'Traffic in the rush hour on the Hauptstraße: +14 min', 3, 2),
+      trip(2, 1, '102', '1', 16 * 60 + 40, 11, '€34', 'The driver took longer at the stops: +6 min', 2, 3),
+      trip(3, 3, '205', '1', 8 * 60 + 5, 7, '€18', 'Bus 2571 was slow to start: +7 min', 4, 1),
+    ],
+  };
+}
+
 // --- the more pages' rest (`co_more_view`) ------------------------------------------------------
 
 function concessions() {
@@ -1174,7 +1208,7 @@ const SITE = EMPTY
 const UPGRADES = {
   parking: [['lights', 'videocam', 'Lights and cameras', 'The staff feel safer, the buses are daubed on less', '€29,300'], ['carports', 'home', 'Carports', 'The buses stand dry: they stay clean longer', '€94,800'], ['hall', 'garage', 'Parking hall', 'The buses stand indoors: they stay clean much longer', '€474,300']],
   workshop: [['paint_booth', 'livery_brush', 'Paint booth', 'Liveries painted in house: 30 % cheaper', '€158,100'], ['inspection_lane', 'speed', 'Inspection lane', 'Repairs found sooner: 15 % cheaper', '€84,300'], ['tyre_store', 'build', 'Tyre store', 'Repairs and overhauls 7 % cheaper', '€42,200']],
-  wash: [['gantry', 'local_car_wash', 'Wash gantries', 'Every lane washes four times the buses a night', '€200,300'], ['interior', 'airline_seat_recline_normal', 'Interior cleaning', 'A wash cleans inside too: it does more', '€47,400'], ['underbody', 'rainy', 'Underbody wash', 'The buses stay clean longer', '€36,900'], ['autorenew', 'autorenew', 'Water recycling', 'The wash lanes cost 40 % less to keep', '€63,200']],
+  wash: [['gantry', 'local_car_wash', 'Wash gantries', 'Every lane washes four times the buses a night', '€200,300'], ['interior', 'airline_seat_recline_normal', 'Interior cleaning', 'A wash cleans inside too: it does more', '€47,400'], ['underbody', 'rainy', 'Underbody wash', 'The buses stay clean longer', '€36,900'], ['recycling', 'autorenew', 'Water recycling', 'The wash lanes cost 40 % less to keep', '€63,200']],
   fuel: [['bulk_tank', 'local_gas_station', 'Bulk tank', 'Diesel bought in bulk: 3 % cheaper at the depot', '€73,800'], ['adblue', 'water_drop', 'AdBlue dispenser', 'No detours for AdBlue: 1 % cheaper at the depot', '€12,600']],
   offices: [['canteen', 'group', 'Canteen', 'The staff are more satisfied', '€94,800'], ['control_room', 'monitor', 'Control room', 'The service watched: the passengers notice', '€126,500'], ['training_room', 'school', 'Training room', 'The staff are a little more satisfied', '€63,200']],
   charging: [['solar', 'wb_sunny', 'Solar roof', 'Power for the chargers 8 % cheaper', '€147,600']],
@@ -1670,7 +1704,7 @@ function vehicles(a) {
 
 // --- the answers -------------------------------------------------------------------------------
 
-const VIEWS = { home, bell, overview, fleet, vehicle, people, lines, add_line: addLine, fare, money, fleet_value: fleetValue, inbox, agenda, launch, settings, time, confirm, report, career, dealer, ops, reputation, late_advice: lateAdvice, casual };
+const VIEWS = { home, bell, overview, fleet, vehicle, people, lines, add_line: addLine, fare, money, fleet_value: fleetValue, inbox, agenda, launch, settings, time, confirm, report, career, dealer, ops, reputation, late_advice: lateAdvice, late, casual };
 const MORE = { planning, concessions, contracts, depot, research, workshop, fleetmap, plan_edit: planEdit };
 
 function doAct(a) {
@@ -1727,9 +1761,9 @@ function doAct(a) {
       bump();
       return {};
     case 'rosterflow':
-      st.rosterflow = !!a.on;
+      co().rosterflow = !!a.on;
       bump();
-      return { rosterflow: st.rosterflow };
+      return { rosterflow: rosterflowOn() };
     case 'inbox_read':
       st.read.add(Number(a.id));
       bump();

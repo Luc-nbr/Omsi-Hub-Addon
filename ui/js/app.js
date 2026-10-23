@@ -10,6 +10,7 @@ import { MigrateOffer } from './setup.js';
 import { set, useStore } from './store.js';
 import { startDrive, watchGame } from './hub/drive.js';
 import { HubShell } from './hub/hub.js';
+import { BusyCard } from './hub/busy.js';
 import { Welcome, welcomeFirstRun } from './hub/welcome.js';
 import { Icon } from './hub/bits.js';
 
@@ -41,13 +42,13 @@ function Migrate() {
     call('hub_setup_state').then(setState, () => {});
   }, []);
   if (!state?.migrate?.offer) return null;
-  return html`<div class="hub-migrate"><${MigrateOffer} state=${state} onDone=${() => call('hub_setup_state').then(setState)} /></div>`;
+  return html`<div class="hub-migrate"><${MigrateOffer} state=${state} onDone=${() => call('hub_setup_state').then(setState, () => setState(null))} /></div>`;
 }
 
 /** The first run: the welcome over the start's ground, the folders among its steps. */
 function FirstRun() {
   useEffect(() => welcomeFirstRun(() => boot()), []);
-  return html`<div class="hub-stage" style="--hub-scale:1"><${Welcome} /><${Toasts} /></div>`;
+  return html`<div class="hub-stage" style="--hub-scale:1"><${Welcome} /><${BusyCard} /><${Toasts} /></div>`;
 }
 
 function App() {

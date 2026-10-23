@@ -8,7 +8,8 @@
 //! What a trip's stops and codes are is read as the game reads them: the stops and their times
 //! from the map's timetable (`hub_core::ttrun::trip_times`: the trip's profile, the times the
 //! map wrote and the rest shared out by the links' lengths), the codes from the depot file the
-//! bus carries (`ttrun::ibis_target`: what the driver types into the IBIS). A player of "Play
+//! bus carries (`hub_core::ibis::trip_ibis`, as the live dashboard has them: what the driver types
+//! into the IBIS). A player of "Play
 //! together" is shown his own duties' cards (`relayed`), whatever his role.
 
 use super::words::{day_label, tr, trf};
@@ -20,9 +21,9 @@ use hub_core::company::network::PlannedTrip;
 use hub_core::company::plan::{DayPlan, Who};
 use hub_core::company::together::Perm;
 use hub_core::company::{self as co, Company};
+use hub_core::linehof::Depot;
 use hub_core::lines as reg;
 use hub_core::ttrun;
-use hub_omsi::hof::Hof;
 use hub_omsi::timetable::Timetable as TimetableData;
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -101,32 +102,36 @@ pub(crate) fn stops_of(tt: &TimetableData, line: &str, kurs: &str, x: &PlannedTr
     (!out.is_empty()).then_some(out)
 }
 
-/// The IBIS codes of trip `x` (course `kurs`, its stops `stops`) from depot file `hof`, as the
-/// game types them (`ibis_target`, as the companion's IBIS card says them: `companion::nav`).
-pub(crate) fn ibis_of(hof: &Hof, x: &PlannedTrip, kurs: &str, stops: &[CardStop]) -> Option<Ibis> {
-    let names: Vec<&str> = stops.iter().map(|s| s.name.as_str()).collect();
-    let t = ttrun::ibis_target(hof, x.line.trim(), x.to.trim(), &names, None)?;
-    let dest = hof.termini.get(t.terminus_index.max(0) as usize);
-    let code = dest.map(|d| d.code).filter(|c| (0..1000).contains(c));
+/// The IBIS codes of trip `x` (course `kurs`) from depot file `depot`, as the game types them -
+/// found as the live dashboard finds them (`hub_core::ibis::trip_ibis`: the trip's `[trip]` target
+/// and every station of it, of the timetable `tt`), so that the card and the dashboard agree. (The
+/// older match, `ttrun::ibis_target`, went by the last stop's name and the stops it halts at, and
+/// could pick another route or line code than the dashboard.)
+pub(crate) fn ibis_of(depot: &Depot, tt: &TimetableData, x: &PlannedTrip, kurs: &str) -> Option<Ibis> {
+    let t = tt.trip(x.name.trim())?;
+    let names: Vec<String> = t.stops.iter().map(|s| if s.name.trim().is_empty() { tt.stop_name(s.id).unwrap_or("").to_string() } else { s.name.trim().to_string() }).collect();
+    let stops: Vec<&str> = names.iter().map(String::as_str).collect();
+    let i = hub_core::ibis::trip_ibis(depot, &t.line, &t.terminus, &stops)?;
     Some(Ibis {
-        line: format!("{:03}", t.line),
-        suffix: (t.suffix > 0).then(|| format!("{:02}", t.suffix)),
-        route: t.route.map(|r| format!("{}{r:02}", t.line)),
-        dest: code.map(|c| format!("{c:03}")),
-        dest_text: dest.and_then(|d| d.strings.iter().map(|s| s.trim()).find(|s| !s.is_empty())).unwrap_or(x.to.trim()).to_string(),
+        line: i.line.map(|l| l.to_string()).unwrap_or_else(|| x.line.trim().to_string()),
+        suffix: None,
+        route: i.route_code.map(|r| r.to_string()),
+        dest: u32::try_from(i.terminus_code).ok().filter(|c| *c < 1000).map(|c| format!("{c:03}")),
+        dest_text: if i.display.trim().is_empty() { x.to.trim().to_string() } else { i.display.trim().to_string() },
         kurs: kurs.trim().to_string(),
     })
 }
 
 /// The depot file `name` (with or without `.hof`) as the bus `bus` finds it: its own folder's,
-/// else wherever another bus brings it (the game borrows it so).
-fn hof_for(bus: &str, name: &str) -> Option<Hof> {
+/// else wherever another bus brings it (the game borrows it so) - the whole of it, as the game
+/// reads it (the line editor's own lines too), with its notes on what its strings show.
+fn hof_for(bus: &str, name: &str) -> Option<Depot> {
     let name = name.trim();
     let name = name.strip_suffix(".hof").or_else(|| name.strip_suffix(".HOF")).unwrap_or(name);
     let in_dir = |d: &std::path::Path| hub_omsi::hof::depot_files(d).into_iter().find(|p| hub_core::depot::answers_to(p, name));
     let own = (!bus.trim().is_empty()).then(|| installed(bus)).and_then(|p| p.parent().and_then(in_dir));
     let path = own.or_else(|| hub_core::paths::merged_folders("Vehicles").iter().flat_map(|(_, copies)| copies.iter()).find_map(|d| in_dir(d)))?;
-    Hof::load(&path).ok()
+    Depot::load_as_game(&path)
 }
 
 /// The line editor's line of a company line (its RosterFlow timing points): an own line's, else
@@ -152,16 +157,16 @@ fn card_of(s: &mut Session, c: &Company, r: &DutyRef) -> Option<(Card, DayPlan)>
             _ => None,
         })
     };
-    let hofs: RefCell<HashMap<String, Option<Hof>>> = RefCell::new(HashMap::new());
+    let hofs: RefCell<HashMap<String, Option<Depot>>> = RefCell::new(HashMap::new());
     let stops = |x: &PlannedTrip, line: &str, kurs: &str| tt.as_ref().and_then(|tt| stops_of(tt, line, kurs, x));
-    let ibis = |x: &PlannedTrip, line: &str, kurs: &str, st: &[CardStop]| {
+    let ibis = |x: &PlannedTrip, line: &str, kurs: &str, _: &[CardStop]| {
         let name = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(line)).map(|l| l.hof_or(&c.depot).to_string()).unwrap_or_else(|| c.depot.clone());
         let key = line.to_lowercase();
         if !hofs.borrow().contains_key(&key) {
             let h = hof_for(&bus_of(line).unwrap_or_default(), &name);
             hofs.borrow_mut().insert(key.clone(), h);
         }
-        hofs.borrow().get(&key).and_then(|h| h.as_ref()).and_then(|h| ibis_of(h, x, kurs, st))
+        hofs.borrow().get(&key).and_then(|h| h.as_ref()).zip(tt.as_deref()).and_then(|(h, tt)| ibis_of(h, tt, x, kurs))
     };
     let design = |line: &str| design_of(c, &registry, line);
     let look = Lookups { stops: &stops, ibis: &ibis, design: &design };
@@ -251,7 +256,9 @@ pub(crate) fn card_json(c: &Company, card: &Card, p: &DayPlan) -> Value {
                         "kind": "trip", "time": hhmm(*dep), "until": hhmm(*arr), "empty": empty,
                         "line": if *empty { tr("Deadhead") } else { line.clone() }, "route": format!("{from} → {to}"), "kurs": kurs,
                         "ibis": ibis.as_ref().map(|i| json!({
-                            "line_kurs": match kurs.trim().parse::<u32>() { Ok(k) => format!("{}/{k:02}", i.line), Err(_) => format!("{}/{}", i.line, kurs.trim()) },
+                            // (the Linie/Kurs code as it is typed - the line's and its letter's, as the
+                            // live dashboard says it -; the course is the trip's own, beside it)
+                            "line_kurs": i.line,
                             "suffix": i.suffix, "route": i.route, "dest": i.dest, "dest_text": i.dest_text,
                         })),
                         "stops": stops.iter().map(|s| json!({ "time": hhmm(if s.dep > s.arr { s.dep } else { s.arr }), "arr": (s.dep > s.arr).then(|| hhmm(s.arr)), "name": s.name, "timing": s.timing })).collect::<Vec<_>>(),
@@ -382,7 +389,7 @@ mod tests {
             ])
         };
         let ibis = |_: &PlannedTrip, _: &str, kurs: &str, _: &[CardStop]| {
-            Some(Ibis { line: "130".into(), route: Some("13001".into()), dest: Some("042".into()), dest_text: "Zentrum".into(), kurs: kurs.into(), suffix: None })
+            Some(Ibis { line: "13000".into(), route: Some("13001".into()), dest: Some("042".into()), dest_text: "Zentrum".into(), kurs: kurs.into(), suffix: None })
         };
         let look = Lookups { stops: &stops, ibis: &ibis, design: &|_| None };
         let card = dc::card(&c, &p, None, &r, 0, "Luc", &look).unwrap();
@@ -408,7 +415,7 @@ mod tests {
         assert_eq!((rows.last().unwrap()["kind"].as_str(), rows.last().unwrap()["time"].as_str()), (Some("off"), Some("06:45")));
         // the trip with passengers: its IBIS codes, its stops with the timing points marked
         let t = rows.iter().find(|r| r["kind"] == "trip" && r["empty"] == false).unwrap();
-        assert_eq!(t["ibis"]["line_kurs"], "130/01");
+        assert_eq!(t["ibis"]["line_kurs"], "13000");
         assert_eq!((t["ibis"]["route"].as_str(), t["ibis"]["dest"].as_str()), (Some("13001"), Some("042")));
         let marked: Vec<(&str, bool)> = t["stops"].as_array().unwrap().iter().map(|s| (s["name"].as_str().unwrap(), s["timing"].as_bool().unwrap())).collect();
         assert_eq!(marked, vec![("Station", true), ("Markt", false), ("Kerk", true), ("Zentrum", true)]);

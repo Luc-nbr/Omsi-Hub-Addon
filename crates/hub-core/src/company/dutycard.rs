@@ -32,9 +32,10 @@ pub struct CardStop {
     pub timing: bool,
 }
 
-/// What the driver types into the IBIS for a trip (the game's own codes, `ibis_target`): the
-/// line (three digits) and its letter's code, the route (the line with the route's two digits),
-/// the destination code and its text, and the course (Kurs: the timetable's tour).
+/// What the driver types into the IBIS for a trip (the game's own codes, as the live dashboard
+/// finds them: `crate::ibis::trip_ibis`): the Linie/Kurs code (the line × 100 and its letter's
+/// code), the route's code, the destination code and what the IBIS shows, and the course (Kurs:
+/// the timetable's tour). `suffix`: of the older match, none now.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Ibis {
     pub line: String,

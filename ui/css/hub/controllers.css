@@ -23,7 +23,7 @@
 .pads .dot.ok { background: var(--hub-ok); }
 .pads .dot.accent { background: var(--hub-accent); }
 .pads-file { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hub-hairline); display: flex; flex-direction: column; gap: 6px; }
-.pads-file .hub-path { display: flex; gap: 6px; align-items: flex-start; word-break: break-all; }
+.pads-file .hub-path { display: flex; gap: 6px; align-items: flex-start; word-break: break-all; min-height: 22px; padding: 4px 0; line-height: 1.5; box-sizing: border-box; }
 .pads-file p { margin: 0; line-height: 1.6; }
 
 /* the device shown */

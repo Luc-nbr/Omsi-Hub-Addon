@@ -13,7 +13,7 @@ import { S } from '../store.js';
 import { call } from '../api.js';
 import { tr } from '../hub/bits.js';
 import { hex as hexOf } from './pal.js';
-import { setRf, rfCmd, rfAct, after, edit, pick, settle, toggle, clock, hm, say, NO_FILTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { setRf, rfCmd, rfAct, after, edit, pick, settle, toggle, clock, hm, say, bump, NO_FILTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand, dutyHand } from './gantt.js';
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
@@ -107,6 +107,17 @@ export function TitleWindows({ data, drivers, size }) {
   const r = S.rf;
   const panel = r.panel;
   const kind = panel?.kind || panel;
+  // (the day's board still being read - the Timeplan, the Roster or the Routes opened first: the
+  // windows that need it say so where they open, and are drawn once it is in, rather than a press
+  // that shows nothing; the history, print and the day need no board)
+  if (!data?.board && ['colour', 'goto', 'optimise'].includes(kind)) {
+    return html`<div class="rf-over rf-sheetwin rf-reading-win" style=${`left:${size.w / 2 - 180}px;top:100px;width:360px;height:${data?.failed ? 112 : 92}px`}>
+      <div class="title"><b>${tr(kind === 'goto' ? 'Go to vehicle' : kind === 'optimise' ? 'Optimisation settings' : 'Line colour…')}</b><button type="button" title=${tr('Close')} onClick=${() => setRf({ panel: null })}><${Icon} name="close" size=${18} /></button></div>
+      ${data?.failed
+        ? html`<div class="body" style="flex-direction:row;align-items:center;font-size:12px"><span class="t-err" style="flex:1;min-width:0">${data.reading}</span><${RfButton} label="Try again" style="width:110px;height:28px" onClick=${() => bump()} /></div>`
+        : html`<div class="body" style="flex-direction:row;align-items:center;font-size:12px"><i class="rf-spin"></i><span>${data?.reading || tr('Reading the timetable…')}</span></div>`}
+    </div>`;
+  }
   return html`${kind === 'history' && html`<${History} data=${data} size=${size} />`}
     ${kind === 'print' && html`<${PrintMenu} />`}
     ${kind === 'day' && html`<${DayMenu} size=${size} />`}
@@ -364,8 +375,8 @@ function EventCard({ data, c, size }) {
       ${spare && html`<${SpareFields} row=${row} v=${v} cls="rf-evline" onChanged=${() => setAsked((n) => n + 1)} />`}
       ${e.at && html`<${Field} cap="Where" value=${e.at} />`}
       <div class="tl wide"><${TimeLine} from=${ok ? from : e.from} to=${ok ? to : e.to} mid=${ok ? `${to - from} min  ·  ${hm(to - from)}` : from != null && to != null ? tr('The end comes before the start') : tr('Not a time')} /></div>
-      ${custom && html`<div class="rf-evline rf-evtimes"><span>${tr('Start')}</span><${TimeBox} value=${e.from} text=${typed[0]} onText=${(t) => setTyped([t, typed[1]])} onKeep=${keep} />
-        <span class="end">${tr('End')}</span><${TimeBox} value=${e.to} text=${typed[1]} onText=${(t) => setTyped([typed[0], t])} onKeep=${keep} /></div>`}
+      ${custom && html`<div class="rf-evline rf-evtimes"><span>${tr('Start time')}</span><${TimeBox} value=${e.from} text=${typed[0]} onText=${(t) => setTyped([t, typed[1]])} onKeep=${keep} />
+        <span class="end">${tr('End time')}</span><${TimeBox} value=${e.to} text=${typed[1]} onText=${(t) => setTyped([typed[0], t])} onKeep=${keep} /></div>`}
       ${e.kind === 'travel' && html`<${Seg} at=${e.mode} labels=${TRAVEL} onPick=${(k) => edit('travel_event', { row, mode: k, from: e.from })} />`}
       ${custom && html`<div class="rf-evbtns"><${RfButton} label="Delete" style="width:120px;height:28px" onClick=${() => edit('custom_delete', { row, ci: e.ci })} />
         ${spare && html`<${RfButton} label="Add spare line" title="Another spare line for the day, at these times: change them on its card" style="width:150px;height:28px" onClick=${() => edit('spare', { from: e.from, to: e.to })} />`}</div>`}
@@ -860,7 +871,11 @@ function DayMenu({ size }) {
 function Picker({ value, onPick }) {
   const [hsv, setHsv] = useState(() => toHsv(hexOf(value)));
   const [code, setCode] = useState(value);
+  // (while it is dragged the handle is the mouse's: a colour the board brings back meanwhile, one
+  // sent a moment ago, does not move it back)
+  const held = useRef(false);
   useEffect(() => {
+    if (held.current) return;
     setHsv(toHsv(hexOf(value)));
     setCode(value);
   }, [value]);
@@ -869,9 +884,11 @@ function Picker({ value, onPick }) {
   const drag = (el, f) => (e) => {
     const b = el.current.getBoundingClientRect();
     const go = (ev) => f(Math.max(0, Math.min(1, (ev.clientX - b.left) / b.width)), Math.max(0, Math.min(1, (ev.clientY - b.top) / b.height)));
+    held.current = true;
     go(e);
     const mv = (ev) => go(ev);
     const up = () => {
+      held.current = false;
       removeEventListener('mousemove', mv);
       removeEventListener('mouseup', up);
     };
@@ -911,11 +928,28 @@ function toHex([h, s, v]) {
   return '#' + [r, g, b].map((q) => Math.round((q + m) * 255).toString(16).padStart(2, '0')).join('');
 }
 
+/** A line's colour sent (`rf_act` "colour"), as the Routes tab's picker sends its own: while one
+ * is on its way the next waits, and only the last of those waiting goes after it - a drag over
+ * the picker sent one at every move, the day read again after each, and their answers came back
+ * out of order. */
+const colourSend = { next: undefined, busy: false };
+function sendColour(line, colour) {
+  colourSend.next = { line, colour };
+  if (colourSend.busy) return;
+  colourSend.busy = true;
+  const go = () => {
+    const x = colourSend.next;
+    colourSend.next = undefined;
+    rfAct('colour', x).finally(() => (colourSend.next !== undefined ? go() : (colourSend.busy = false)));
+  };
+  go();
+}
+
 /** A line's colour: the palette's swatches and a picker for any other. */
 function ColourWindow({ data, line, size }) {
   const cl = data.lines.find((l) => eq(l.name, line));
   if (!cl) return null;
-  const set = (colour) => rfAct('colour', { line, colour });
+  const set = (colour) => sendColour(line, colour);
   return html`<div class="rf-over rf-sheetwin rf-colour" style=${`left:${size.w / 2 - 170}px;top:120px;width:340px;height:330px`} data-rf="rf-colour">
     <div class="title"><b>${tr('Colour of line %{n}', { n: cl.number })}</b><button type="button" onClick=${() => setRf({ panel: null })}><${Icon} name="close" size=${18} /></button></div>
     <div class="swatches">${(data.palette || []).map((sw) => html`<button type="button" class=${sw === cl.colour ? 'on' : ''} style=${`background:${sw}`} onClick=${() => set(sw)}></button>`)}</div>
@@ -932,9 +966,17 @@ function GoTo({ data, drivers, text, size }) {
   const go = () => {
     const want = text.trim().toLowerCase();
     // (a spare line named "9001 Early": by its number too)
-    const found = drivers ? b.duties.find((s) => s.label.toLowerCase() === want || s.label.split(' ')[0].toLowerCase() === want)?.id : b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
-    if (found) setRf({ reveal: found, selRow: found, pinned: S.rf.pinned.filter((x) => x !== found), panel: null });
-    else say(tr('No vehicle or duty with that ID.'), true);
+    const duty = () => b.duties.find((s) => s.label.toLowerCase() === want || s.label.split(' ')[0].toLowerCase() === want)?.id;
+    const block = () => b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
+    // (the tab's own rows first, then the other Gantt's - shown there: from the Timeplan, the
+    // Roster or the Routes the row was chosen out of sight, and a duty's ID typed in Vehicles was
+    // "no vehicle or duty")
+    let view = drivers ? DRIVERS : VEHICLES;
+    let found = drivers ? duty() : block();
+    if (!found) [view, found] = drivers ? [VEHICLES, block()] : [DRIVERS, duty()];
+    if (!found) return say(tr('No vehicle or duty with that ID.'), true);
+    const away = S.rf.view !== view ? { view, hand: null, zones: null, sel: [], card: null, menu: null } : {};
+    setRf({ ...away, reveal: found, selRow: found, pinned: S.rf.pinned.filter((x) => x !== found), panel: null });
   };
   return html`<div class="rf-over rf-sheetwin rf-goto" style=${`left:${size.w / 2 - 180}px;top:100px;width:360px;height:92px`}>
     <${Caps} text=${drivers ? 'Go to duty' : 'Go to vehicle'} />

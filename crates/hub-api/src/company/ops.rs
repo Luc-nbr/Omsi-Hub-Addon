@@ -78,12 +78,15 @@ fn option_words(date: &str, o: &Effect, base: &Effect) -> String {
         parts.push(trf(text, &[("n", &pt.to_string()), ("amount", &eur(o.parts_cost - base.parts_cost))]));
     }
     let avoided = base.late_trips.saturating_sub(o.late_trips);
-    if avoided > 0 {
-        parts.push(trf("avoids %{n} late trips (−%{amount})", &[("n", &avoided.to_string()), ("amount", &eur(base.penalty - o.penalty))]));
-    }
     let saved = base.lost_trips.saturating_sub(o.lost_trips);
-    if saved > 0 {
-        parts.push(trf("saves %{n} trips (−%{amount})", &[("n", &saved.to_string()), ("amount", &eur(base.penalty - o.penalty))]));
+    // (the penalties saved once: both said the whole of it, as if it were saved twice)
+    let less = eur(base.penalty - o.penalty);
+    if avoided > 0 && saved > 0 {
+        parts.push(trf("avoids %{n} late trips and saves %{m} trips (−%{amount})", &[("n", &avoided.to_string()), ("m", &saved.to_string()), ("amount", &less)]));
+    } else if avoided > 0 {
+        parts.push(trf("avoids %{n} late trips (−%{amount})", &[("n", &avoided.to_string()), ("amount", &less)]));
+    } else if saved > 0 {
+        parts.push(trf("saves %{n} trips (−%{amount})", &[("n", &saved.to_string()), ("amount", &less)]));
     }
     if o.lost_trips > 0 && saved > 0 {
         parts.push(trf("%{n} still dropped", &[("n", &o.lost_trips.to_string())]));

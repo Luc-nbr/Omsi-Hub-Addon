@@ -362,7 +362,9 @@ pub(crate) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
     for l in &c.lines {
         let fare = co::fares::fare_of(c, l);
         let advised = advised_fare(c, l);
-        if fare > advised + 5 {
+        // (above what the Lines page calls good - within 10 cents of the advice - or its button led
+        // to a page that says the fare is good and offers nothing to change)
+        if fare > advised + 10 {
             out.push(tip(
                 format!("fare-{}", l.name),
                 Words::new("Your fare on line %{n} is high: fewer people ride.").with("n", &l.number),

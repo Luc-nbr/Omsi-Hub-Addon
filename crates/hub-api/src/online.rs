@@ -300,7 +300,10 @@ type Fetched = ((bool, bool), Result<(Option<Profile>, Vec<Friend>, Vec<Invite>)
 fn refresh(beat: bool) -> Result<(), Error> {
     let away = view().away;
     let now_state = presence(away);
+    // (the account's user id beside what was fetched: the driver linked is this account's)
+    let mut user = String::new();
     let got = with(|c| -> Result<Option<Fetched>, Error> {
+        user = c.user_id().unwrap_or("").to_string();
         if !c.signed_in() {
             return Ok(None);
         }
@@ -340,10 +343,7 @@ fn refresh(beat: bool) -> Result<(), Error> {
             Ok(())
         }
         Ok(Some(((lasting, no_password), Ok((profile, friends, invites))))) => {
-            // (the account's driver: the display name's, the first time - `drivers::link_account`)
-            if let Some(p) = &profile {
-                crate::drivers::link_account(&p.display_name);
-            }
+            let link = profile.as_ref().map(|p| p.display_name.clone());
             v.signed_in = true;
             v.lasting = lasting;
             v.no_password = no_password;
@@ -357,6 +357,12 @@ fn refresh(beat: bool) -> Result<(), Error> {
             if beat {
                 v.told = Some(now_state);
                 v.beat_at = unix_now();
+            }
+            // (the account's driver: the display name's, the first time - `drivers::link_account`;
+            // its file work done after the view is let go, which `ol_state` waits for)
+            drop(v);
+            if let Some(name) = link {
+                crate::drivers::link_account(&name, &user);
             }
             Ok(())
         }
@@ -788,12 +794,14 @@ fn sign_out() -> Value {
 }
 
 fn delete(args: &Value) -> Value {
+    // (whose account it was: only its companies are made local)
+    let me = with(|c| c.user_id().map(str::to_string));
     match with(|c| c.delete_account(str_arg(args, "password"))) {
         Ok(()) => {
             signed_out(&mut view());
             crate::drivers::unlink_account();
             // (its cloud saves went with it: the companies here are local saves now)
-            crate::cloud::forget_account();
+            crate::cloud::forget_account(me.as_deref());
             done(&tr("Your account, your cloud saves and everything of it are deleted."))
         }
         Err(e) => fail(e),

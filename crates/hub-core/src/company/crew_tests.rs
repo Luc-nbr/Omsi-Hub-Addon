@@ -178,6 +178,18 @@ fn a_breakdown_of_the_company_s_model_is_logged_with_the_bus() {
 }
 
 #[test]
+fn a_colleague_does_not_swap_a_duty_of_his_that_has_begun() {
+    let (mut c, _) = rostered();
+    let e1 = c.staff[0].id;
+    // (the player's at ten, the colleague's at six - begun at seven)
+    let tours = vec![tour("2", 10 * 60, 3), tour("3", 6 * 60, 3)];
+    c.clock.minute = 7 * 60;
+    let p = day_plan(&c, &c.date, tours, &[], &[], false);
+    let s = ask_swap(&mut c, &p, Who::Player, &duty("2"), Who::Staff(e1)).unwrap();
+    assert_eq!((s.state, s.why.as_str()), (SwapState::Refused, BEGUN));
+}
+
+#[test]
 fn a_colleague_of_the_staff_answers_a_swap_by_the_roster_rules() {
     let (mut c, tours) = rostered();
     let e1 = c.staff[0].id;

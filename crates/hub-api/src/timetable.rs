@@ -13,7 +13,7 @@
 //! * `tt_save {map, lines}` - the lines written: `{ saved, error, lines: [{ name, path, line }] }`
 //!   (the first error; the lines saved with where they lie now);
 //! * `tt_reset {map}` - the map's own timetable back (`ttstore::reset_timetable`), the player's
-//!   own lines of the map written into it again: `{ done, own, own_error }`.
+//!   own lines of the map written into it again: `{ done, done_args: { map, n }, own, own_error }` (`done` a text to translate).
 //!
 //! Departures are minutes of the day, as the `.ttl` has them (`6:15` is 375.0).
 
@@ -203,7 +203,7 @@ fn in_day(m: f64) -> f64 {
 /// A tour number none of the line's tours has: one above the highest.
 fn free_number(line: &TtLine) -> String {
     let top = line.tours.iter().filter_map(|t| t.number.trim().parse::<u64>().ok()).max().unwrap_or(0);
-    (top + 1..).map(|n| n.to_string()).find(|n| !line.tours.iter().any(|t| t.number.trim() == n)).unwrap_or_default()
+    (top.saturating_add(1)..=u64::MAX).map(|n| n.to_string()).find(|n| !line.tours.iter().any(|t| t.number.trim() == n)).unwrap_or_default()
 }
 
 /// `tour` copied `by` minutes later, as a tour of its own.
@@ -263,7 +263,8 @@ pub fn edit(mut line: TtLine, tour: usize, op: &str, args: &Value) -> Result<(Tt
             let t = need(line.tours.get(at))?;
             let every = offset.filter(|o| *o >= 1.0).ok_or("Type the minutes between the tours (1 or more) in the field above")?;
             let until = minutes(args, "until").ok_or("Type the last departure as h:mm")?;
-            let start = t.trips.first().map_or(0.0, |x| x.departure);
+            // (a tour without trips repeated would be a day of empty tours)
+            let start = t.trips.first().map(|x| x.departure).ok_or("The tour has no trips yet: give it one with Add trip")?;
             let mut made = 0;
             while made < MAX_REPEAT && start + every * (made + 1) as f64 <= until + 1e-6 {
                 made += 1;
@@ -346,10 +347,19 @@ fn save_line(content: &Path, folder: &str, original: &Path, l: &TtLine) -> Resul
     if let Some(d) = target.parent() {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
-    let codepage = Line::load(&target).ok().and_then(|x| x.codepage).unwrap_or(Codepage::Windows1252);
+    // (a new line: in the code page of the map's other lines - a Cyrillic map's 1251 - and in
+    // UTF-8 when that lacks one of its characters, as `ttstore::write_text` writes; else its
+    // trips' names would turn into ?)
+    let codepage = Line::load(&target).ok().and_then(|x| x.codepage).or_else(|| sibling_codepage(target.parent()?)).unwrap_or(Codepage::Windows1252);
     let text = l.to_line(target.clone(), codepage).to_text();
+    let codepage = if hub_omsi::text::encode(&text, codepage).1 { Codepage::Utf8 } else { codepage };
     hub_omsi::timetable::write_text(&target, &text, codepage).map_err(|e| format!("{}: {e}", target.display()))?;
     Ok(target)
+}
+
+/// The code page of a line (`.ttl`) in the folder `dir`, the first one read.
+fn sibling_codepage(dir: &Path) -> Option<Codepage> {
+    hub_core::paths::read_dir_paths(dir).into_iter().filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttl"))).find_map(|p| Line::load(&p).ok()?.codepage)
 }
 
 /// `tt_reset`: the map's own timetable back, and the player's own lines of the map (the line
@@ -357,7 +367,11 @@ fn save_line(content: &Path, folder: &str, original: &Path, l: &TtLine) -> Resul
 pub fn reset(content: &Path, vfs: &Vfs, map: &str) -> Answer {
     let (_, folder) = map_parts(map);
     let map_dir = global_dir(vfs, map)?;
-    let done = ttstore::reset_timetable(content, &map_dir, &folder)?;
+    // (the page words what was done, its text translated with the map's name in it)
+    let (done, n) = match ttstore::reset_timetable(content, &map_dir, &folder)? {
+        None => (ttstore::RESET_COPY, 0),
+        Some(n) => (ttstore::RESET_BACK, n),
+    };
     let reg = lines::load_registry(&lines::registry_path(&folder));
     let (mut own, mut own_error) = (0, None);
     if !reg.lines.is_empty() {
@@ -366,7 +380,7 @@ pub fn reset(content: &Path, vfs: &Vfs, map: &str) -> Answer {
             Err(e) => own_error = Some(e),
         }
     }
-    Ok(json!({ "done": done, "own": own, "own_error": own_error }))
+    Ok(json!({ "done": done, "done_args": { "map": folder, "n": n }, "own": own, "own_error": own_error }))
 }
 
 #[cfg(test)]
@@ -402,6 +416,14 @@ mod tests {
 
         assert!(edit(line(), 0, "repeat", &json!({ "offset": 0, "until": 480 })).unwrap_err().contains("1 or more"));
         assert!(edit(line(), 0, "copy", &json!({})).is_err());
+        // (a tour without trips is not repeated into a day of empty tours)
+        let mut empty = line();
+        empty.tours[0].trips.clear();
+        assert!(edit(empty, 0, "repeat", &json!({ "offset": 30, "until": 1320 })).unwrap_err().contains("no trips"));
+        // (a tour number at the very top: no overflow)
+        let mut top = line();
+        top.tours[0].number = u64::MAX.to_string();
+        assert_eq!(free_number(&top), "");
     }
 
     #[test]
@@ -430,6 +452,40 @@ mod tests {
         assert_eq!((at, l.tours.len()), (0, 0));
         assert!(edit(l.clone(), 0, "add_trip", &json!({})).is_err());
         assert!(edit(l, 0, "nope", &json!({})).unwrap_err().contains("nope"));
+    }
+
+    /// A new line of a map whose lines are in Windows-1251 is written so too, its Cyrillic trips
+    /// whole; one that its map's code page cannot hold is written in UTF-8, not with ?.
+    #[test]
+    fn a_new_line_is_written_in_its_maps_code_page() {
+        let root = std::env::temp_dir().join(format!("omsihub-tt-codepage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (content, original) = (root.join("content"), root.join("omsi/maps/Город/TTData"));
+        std::fs::create_dir_all(&original).unwrap();
+        let old = Line {
+            path: original.join("1.ttl"),
+            name: "1".into(),
+            user_allowed: true,
+            priority: 1,
+            tours: vec![Tour {
+                number: "1".into(), ai_group: "Автобусы".into(), days: DayMask::ALWAYS, trips: vec![TourTrip { trip: "Вокзал - Площадь".into(), profile: 0, departure: 360.0 }]
+            }],
+            codepage: Some(Codepage::Windows1251),
+        };
+        hub_omsi::timetable::write_text(&old.path, &old.to_text(), Codepage::Windows1251).unwrap();
+        let mut l = line();
+        (l.name, l.path) = ("2".into(), original.join("2.ttl").to_string_lossy().into_owned());
+        l.tours[0].trips[0].trip = "Площадь - Вокзал".into();
+        let at = save_line(&content, "Город", &original, &l).unwrap();
+        let bytes = std::fs::read(&at).unwrap();
+        assert!(!bytes.contains(&b'?') && hub_omsi::text::detect(&bytes) == Codepage::Windows1251, "{}", String::from_utf8_lossy(&bytes));
+        assert_eq!(Line::load(&at).unwrap().tours[0].trips[0].trip, "Площадь - Вокзал");
+        // (a name the map's code page lacks: UTF-8)
+        l.tours[0].trips[0].trip = "Łódź Fabryczna".into();
+        (l.name, l.path) = ("3".into(), original.join("3.ttl").to_string_lossy().into_owned());
+        let at = save_line(&content, "Город", &original, &l).unwrap();
+        assert_eq!(Line::load(&at).unwrap().tours[0].trips[0].trip, "Łódź Fabryczna");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

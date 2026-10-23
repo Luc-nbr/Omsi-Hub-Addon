@@ -554,7 +554,11 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
     if m.live {
         m.clock = now;
     } else if m.speed > 0.0 {
-        m.clock = (m.clock + dt * m.speed).rem_euclid(86_400.0);
+        // (the day runs on to its last trip's end before it begins again: a night trip after
+        // midnight - 24:10, as the plan has it - was never on the map, the clock wrapped at 24:00)
+        let end = m.blocks.iter().flat_map(|b| b.trips.iter()).map(|t| t.arr).fold(86_400.0, f64::max);
+        let next = m.clock + dt * m.speed;
+        m.clock = if next >= end { (next - end).rem_euclid(86_400.0) } else { next };
     }
     live_delays(m, c, in_game);
     game_road(m, c, in_game);

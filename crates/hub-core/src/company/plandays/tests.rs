@@ -445,3 +445,24 @@ fn copies_after_switching_days_and_across_the_week_boundary() {
     let made = apply(&mut c, day(mon, &lines), day("2024-03-18", &lines), true, What::ALL);
     assert!(made.same_plan);
 }
+
+#[test]
+fn half_a_plan_copied_onto_one_date_keeps_the_other_half_of_its_plan() {
+    let mut c = company();
+    let lines = line5();
+    monday(&mut c, &lines);
+    // every Wednesday as Monday: three buses
+    apply(&mut c, day(MON, &lines), day(WED, &lines), true, What::ALL);
+    let buses = |c: &Company| {
+        let mut v: Vec<(String, usize)> = tours_of_day(c, &lines, WED).iter().map(|t| (t.tour.clone(), t.trips.len())).collect();
+        v.sort();
+        v
+    };
+    let before = buses(&c);
+    assert_eq!(before.len(), 3);
+    // Tuesday's duties alone onto this Wednesday: its buses stay Wednesday's
+    let made = apply(&mut c, day(TUE, &lines), day(WED, &lines), false, What { vehicles: false, drivers: true });
+    assert!(made.slot >= FIRST_DATE_SLOT, "{made:?}");
+    assert_eq!(slot_of(&c, WED), made.slot);
+    assert_eq!(buses(&c), before);
+}

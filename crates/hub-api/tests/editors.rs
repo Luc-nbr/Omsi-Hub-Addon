@@ -99,7 +99,8 @@ fn the_editors_write_into_the_content_folder_and_the_data_folder_only() {
 
     // the reset: the map's own timetable back
     let r = ok("tt_reset", json!({ "map": MAP }));
-    assert!(r["done"].as_str().unwrap().contains("Testdorf"), "{r}");
+    // (a text to translate, the map's name beside it)
+    assert!(r["done"].as_str().unwrap().contains("%{map}") && r["done_args"]["map"] == "Testdorf", "{r}");
     assert_eq!((r["own"].as_u64(), r["own_error"].is_null()), (Some(0), true));
     assert!(!copy.exists());
     assert_eq!(line(&ok("tt_load", json!({ "map": MAP })), "10")["tours"].as_array().unwrap().len(), 2);
@@ -128,6 +129,10 @@ fn the_editors_write_into_the_content_folder_and_the_data_folder_only() {
     let refused = call("de_make", &json!({ "name": "Spare", "map": MAP, "source": { "kind": "empty" } }), &Quiet).unwrap_err();
     assert_eq!(refused, "%{name} has changes that are not saved: save it first|Testdorf mine");
     assert!(ok("de_show", json!({ "key": "oo_other" }))["error"].as_str().unwrap().ends_with("|Testdorf mine"));
+    // (the file open clicked again in the list: its changes stay, not read over from the disk)
+    let again = ok("de_open", json!({ "key": key }));
+    assert_eq!(again["dirty"].as_bool(), Some(true));
+    assert!(again["termini"].as_array().unwrap().iter().any(|t| t["name"] == "Zoo"), "Zoo kept");
     let saved = ok("de_save", json!({}));
     assert_eq!((saved["name"].as_str(), saved["copies"].as_u64(), saved["view"]["dirty"].as_bool()), (Some("Testdorf mine"), Some(0), Some(false)));
     let file = base.join("data/depots").join(format!("{key}.hof"));

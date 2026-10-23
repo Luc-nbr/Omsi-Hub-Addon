@@ -66,6 +66,8 @@ pub struct Doc {
     pub specials: Vec<i32>,
     /// The comment lines at the head of the file it was made from (who made the map's), kept.
     pub head: Vec<String>,
+    /// The text began with a byte order mark (a UTF-8 file): written at its head again.
+    pub bom: bool,
 }
 
 /// The notes OMSI's own depot files have on their strings, in English: the layout of a new
@@ -134,7 +136,10 @@ impl Doc {
 
     /// A depot file's text as the editor has it: without the line editor's blocks (`blocks`).
     pub fn from_text(text: &str) -> Doc {
-        let (own, _) = split_blocks(text);
+        // (a UTF-8 file's byte order mark is no part of its first line: else `[name]` there
+        // is not read, and the mark ends up inside a comment, the file without it)
+        let bom = text.starts_with('\u{feff}');
+        let (own, _) = split_blocks(text.trim_start_matches('\u{feff}'));
         let hof = Hof::parse(&hub_omsi::CfgFile::from_str("depot.hof", &own));
         let notes = linehof::notes(&own, hof.string_count_terminus);
         let mut stop_notes = vec![String::new(); hof.string_count_busstop];
@@ -159,7 +164,7 @@ impl Doc {
                 head.push(t.to_string());
             }
         }
-        let mut d = Doc { hof, notes, stop_notes, map, specials, head };
+        let mut d = Doc { hof, notes, stop_notes, map, specials, head, bom };
         d.tidy();
         d
     }
@@ -175,7 +180,12 @@ impl Doc {
         }
         head.push(META_NOTE.to_string());
         head.extend(self.head.iter().cloned());
-        self.hof.to_text(&Comments { head, terminus: self.notes.clone(), busstop: self.stop_notes.clone() })
+        let text = self.hof.to_text(&Comments { head, terminus: self.notes.clone(), busstop: self.stop_notes.clone() });
+        if self.bom {
+            format!("\u{feff}{text}")
+        } else {
+            text
+        }
     }
 
     /// Everything in step with the counts: as many texts a destination and a stop as the file
@@ -1042,6 +1052,26 @@ mod tests {
         d.set_string_count(9);
         assert!(d.hof.termini.iter().all(|t| t.strings.len() == 9) && d.notes.len() == 9);
         assert_eq!(d.free_route(0), 101);
+    }
+
+    /// A depot file written in UTF-8 with its byte order mark (a bus's, as Lincolnshire_V5.hof):
+    /// its name read, and a copy of it made with the mark at its head again, not in a comment.
+    #[test]
+    fn a_utf8_file_keeps_its_byte_order_mark_at_its_head() {
+        let text = "\u{feff}HOF file \r\n\r\n[name]\r\nLincolnshire\r\n\r\n[servicetrip]\r\nNot in Service\r\n\r\nstringcount_terminus\r\n2\r\n\r\nstringcount_busstop\r\n1\r\n\r\n[addterminus]\r\n1\r\nLincoln Straße\r\nLINCOLN\r\nLincoln\r\n................\r\n";
+        let l = read(text.as_bytes());
+        assert!(matches!(l.coding, Coding::Page(CodePage::Utf8)));
+        assert_eq!((l.doc.hof.name.as_str(), l.doc.hof.termini.len(), l.doc.bom), ("Lincolnshire", 1, true));
+        assert_eq!(l.doc.head, ["HOF file"], "the mark is no part of the comment");
+        let s = Scratch::new("bom");
+        let p = create_from(&s.0, "Lincolnshire - mine", "Grundorf", Some(text.as_bytes())).unwrap();
+        let bytes = std::fs::read(&p).unwrap();
+        assert!(bytes.starts_with(b"\xEF\xBB\xBF\topenOMSI depot file, map: Grundorf"), "{:?}", String::from_utf8_lossy(&bytes[..40]));
+        assert_eq!(bytes.windows(3).filter(|w| *w == b"\xEF\xBB\xBF").count(), 1);
+        let back = load(&p).unwrap();
+        assert_eq!((back.doc.hof.name.as_str(), back.doc.hof.termini[0].texture_id.as_str(), back.doc.bom), ("Lincolnshire - mine", "Lincoln Straße", true));
+        // (a file without the mark gets none)
+        assert!(!Doc::blank("x", "y").to_text().starts_with('\u{feff}'));
     }
 
     #[test]

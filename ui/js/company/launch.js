@@ -9,7 +9,7 @@ import { duty } from '../hub/drive.js';
 import { RouteMap } from '../hub/routemap.js';
 import { dark } from '../hub/theme.js';
 import { mapColors } from '../steps/mapbehind.js';
-import { html, useEffect, act, cmd, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
+import { html, useEffect, act, cmd, useView, Icon, Mark, Select, inkOn, rgbOf, escTaken } from './kit.js';
 import { openDutyCard } from './dutycard.js';
 
 /** The duty's route as the game-drawn launcher draws it here (`duty_launch::route_map`): the
@@ -43,7 +43,8 @@ export function LaunchPage() {
   // Escape closes the duty launcher (back to the page it came from)
   useEffect(() => {
     const k = (e) => {
-      if (e.key !== 'Escape' || S.co.popup) return;
+      // (a dialog over it - the settings, the clock's, the duty card - closes first)
+      if (e.key !== 'Escape' || escTaken()) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       act('launch_close');

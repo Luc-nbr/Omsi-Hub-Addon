@@ -17,23 +17,13 @@ import { MapBehind } from './mapbehind.js';
 import { EntrySelect } from './map.js';
 import { dayName } from './day.js';
 import { DutyMapTools } from './duty-more.js';
+// (the player's own lines of the map, the line editor's: kept by map, `start.js`)
+import { useOwnLines } from './start.js';
 
 const DAYPARTS = ['All day', 'Morning', 'Midday', 'Evening', 'Night'];
 const hhmm = (sec) => hms(sec);
 /** Natural order of tour numbers ("2" before "10"). */
 const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
-
-/** The player's own lines of the map (the line editor's): `hub_own_lines`, once a map. */
-let ownFor = '';
-function useOwnLines(map) {
-  const s = useStore();
-  useEffect(() => {
-    if (!map || ownFor === map) return;
-    ownFor = map;
-    call('hub_own_lines', { map }).then((own) => set({ hubOwn: own })).catch(() => set({ hubOwn: [] }));
-  }, [map]);
-  return ownFor === map ? s.hubOwn || [] : [];
-}
 
 /** The shifts for the length and part of the day chosen (`hub_shifts`): made again when one
  * of them, the map, the date or the seed changes. */

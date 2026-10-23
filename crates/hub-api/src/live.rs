@@ -316,14 +316,14 @@ fn metres_of(tt: &hub_omsi::timetable::Timetable, trip: &str) -> Option<Vec<f64>
 /// The drive's plan, read from the map's timetable of the day once (outside the lock: it
 /// takes a moment on a large map).
 fn ensure_plan() {
-    let (duty, a) = {
+    let (duty, a, began) = {
         let mut g = drive();
         let Some(d) = g.as_mut() else { return };
         if d.plan.is_some() || d.planning {
             return;
         }
         d.planning = true;
-        (d.duty.clone(), d.assignment.clone())
+        (d.duty.clone(), d.assignment.clone(), d.began)
     };
     let date = duty.date.clone().filter(|x| !x.trim().is_empty()).unwrap_or_else(|| hub_core::DEFAULT_DATE.to_string());
     let lines = hub_core::list_lines(&duty.map, &date).unwrap_or_default();
@@ -353,7 +353,8 @@ fn ensure_plan() {
     }
     let bus_name = hub_core::paths::vfs().and_then(|v| v.resolve(&duty.bus)).and_then(|p| hub_omsi::vehicle::Bus::load(&p).ok()).map(|b| hub_core::display_bus_name(&b.name()));
     let mut g = drive();
-    if let Some(d) = g.as_mut() {
+    // (a drive begun again while this one's plan was read has a plan of its own coming)
+    if let Some(d) = g.as_mut().filter(|d| d.began == began) {
         d.plan = Some(Arc::new(Plan { trips, metres, depot, ibis }));
         d.planning = false;
         d.bus_name = bus_name;
@@ -391,7 +392,8 @@ fn depot_of(vfs: &hub_omsi::Vfs, d: &Duty) -> (Depot, Option<hub_core::linehof::
     if found.is_none() && !name.is_empty() {
         found = vfs.list_dir("Vehicles").into_iter().filter(|(_, is_dir)| *is_dir).find_map(|(f, _)| pick(hofs(&format!("Vehicles/{f}"))));
     }
-    let depot = found.as_ref().and_then(|(_, p)| hub_core::linehof::Depot::load(p, &d.map));
+    // (the whole file, as the game reads it: the line editor's own lines' destinations too)
+    let depot = found.as_ref().and_then(|(_, p)| hub_core::linehof::Depot::load_as_game(p));
     let name = if name.is_empty() { depot.as_ref().map(|x| x.hof.name.trim().to_string()).unwrap_or_default() } else { name };
     (Depot { name, file: found.filter(|_| depot.is_some()).map(|(rel, _)| rel) }, depot)
 }
@@ -429,6 +431,18 @@ fn near(clock: f64, start: f64) -> f64 {
     }
 }
 
+/// The seconds from the clock `now` to `t`, each a time of the day (a later day's above
+/// 86 400, as the timetable has its night): a time up to twelve hours ahead is to come, one
+/// up to twelve hours before is past (negative) - midnight between them or not.
+fn ahead(t: f64, now: f64) -> f64 {
+    let d = (t - now).rem_euclid(86_400.0);
+    if d > 43_200.0 {
+        d - 86_400.0
+    } else {
+        d
+    }
+}
+
 fn sheet_row<'a>(a: Option<&'a Assignment>, kind: &str) -> Option<&'a SheetRow> {
     a?.sheet.iter().find(|r| r.kind == kind)
 }
@@ -439,6 +453,8 @@ fn span(f: &Facts, trips: &[PlanTrip]) -> (Option<f64>, Option<f64>, String, Str
     let off = f.assignment.and_then(|a| a.sheet.iter().rev().find(|r| r.kind == "sign_off"));
     let start = on.map(|r| r.from as f64 * 60.0).or_else(|| trips.first().map(|t| t.departure));
     let end = off.map(|r| r.to as f64 * 60.0).or_else(|| trips.last().map(|t| t.arrival));
+    // (a duty over midnight whose end is written as the next day's clock: after its start)
+    let end = end.map(|e| if start.is_some_and(|s| e < s) { e + 86_400.0 } else { e });
     let from = on.map(|r| r.at.clone()).filter(|x| !x.is_empty()).or_else(|| trips.first().map(|t| t.from.clone())).unwrap_or_default();
     let to = off.map(|r| r.at.clone()).filter(|x| !x.is_empty()).or_else(|| trips.last().map(|t| t.terminus.clone())).unwrap_or_default();
     (start, end, from, to)
@@ -545,7 +561,7 @@ pub fn build(f: &Facts) -> Value {
                 (m[i] - from - if next > 0 { since } else { 0.0 }).max(0.0)
             }
         });
-        json!({ "index": i, "name": s.name, "due": due, "eta": eta, "minutes": clock.map(|c| ((near(eta, c) - c) / 60.0).max(0.0)), "metres": metres, "passed": i < next, "stops": s.stops })
+        json!({ "index": i, "name": s.name, "due": due, "eta": eta, "minutes": clock.map(|c| (ahead(eta, c) / 60.0).max(0.0)), "metres": metres, "passed": i < next, "stops": s.stops })
     };
     let upcoming: Vec<Value> = stops.iter().enumerate().skip(next).filter(|(_, s)| s.stops).take(NEXT_STOPS).map(|(i, s)| stop_view(i, s)).collect();
     let all_stops: Vec<Value> = stops.iter().enumerate().map(|(i, s)| stop_view(i, s)).collect();
@@ -869,6 +885,31 @@ mod tests {
         let f = Facts { dash: None, ..f };
         let v = build(&f)["ibis"].clone();
         assert_eq!((v["for"].as_str(), v["trip"].as_str(), v["matches"].is_null()), (Some("first"), Some("23_a"), true));
+    }
+
+    #[test]
+    fn a_duty_over_midnight_counts_its_minutes_and_its_end_after_midnight() {
+        // (a stop due at 00:10 - written as the next day's 24:10 or as 00:10 - is 15 min away at 23:55)
+        assert_eq!(ahead(87_000.0, 86_100.0), 900.0);
+        assert_eq!(ahead(600.0, 86_100.0), 900.0);
+        assert_eq!(ahead(87_000.0, 300.0), 300.0);
+        assert_eq!(ahead(85_800.0, 300.0), -900.0);
+        let mut x = dash();
+        x.clock = Some(300.0);
+        x.duty.as_mut().unwrap().delay = 0.0;
+        x.stops = vec![DashStop { name: "Nachtbus".into(), arrival: 87_300.0, departure: 87_300.0, stops: true }; 5];
+        let plan = plan_of(&tour_duty(), None, &lines());
+        let metres = HashMap::new();
+        let f = Facts { duty: &tour_duty(), assignment: None, dash: Some(&x), plan: &plan, metres: &metres, first: None, bus_name: None, depot: &Depot::default(), ibis: &HashMap::new() };
+        let v = build(&f);
+        assert_eq!(v["stops"][0]["minutes"].as_f64(), Some(10.0), "{}", v["stops"][0]);
+        // a company's sheet from 22:00 to 01:30: its end the next day's
+        let row = |kind: &str, from: i32, to: i32| SheetRow { kind: kind.into(), from, to, ..SheetRow::default() };
+        let a = Assignment { company: "Nachtbus".into(), sheet: vec![row("sign_on", 1320, 1320), row("sign_off", 90, 90)], ..Assignment::default() };
+        let f = Facts { assignment: Some(&a), ..f };
+        let v = build(&f);
+        assert_eq!((v["start"].as_f64(), v["end"].as_f64()), (Some(79_200.0), Some(91_800.0)));
+        assert_eq!(v["elapsed"].as_f64(), Some(7_500.0));
     }
 
     #[test]

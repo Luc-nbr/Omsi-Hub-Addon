@@ -85,6 +85,8 @@ function weatherItems(c, airport) {
   const [, m] = parseDate(c.date);
   const season = c.season && c.season !== 'auto' ? c.season : seasonOf(m).toLowerCase();
   const fits = (w) => {
+    // (a preset whose file could not be read says nothing of its season: it is offered)
+    if (w.temp == null) return true;
     const rain = (w.precip || '').startsWith('rain');
     if (season === 'winter') return w.snow || (rain ? w.temp <= 10 : w.temp <= 16);
     if (w.snow || w.temp <= 0) return false;
@@ -100,8 +102,12 @@ function weatherItems(c, airport) {
     if (!fits(w)) continue;
     const clouds = (w.clouds || '').toLowerCase();
     const icon = w.snow || (w.precip || '').startsWith('snow') ? 'weather_snowy' : (w.precip || '').startsWith('rain') ? 'rainy' : w.fog_m < 1500 ? 'foggy' : clouds.includes('overcast') ? 'cloud' : clouds.includes('cumulus') ? 'partly_cloudy_day' : 'wb_sunny';
-    const vis = w.fog_m >= 20000 ? tr('clear air') : `${Math.round(w.fog_m)} m`;
-    items.push([w.file, w.name, `${Math.round(w.temp)} °C · ${w.precip} · ${vis}`, icon, true]);
+    // (what it holds in words: `hub_weather`'s temperature, what falls, the visibility - each
+    // left out where the file did not say)
+    const vis = w.fog_m == null ? null : w.fog_m >= 20000 ? tr('clear air') : `${Math.round(w.fog_m)} m`;
+    const falls = { none: tr('Dry'), rain: tr('Rain'), snow: tr('Snow') }[w.precip] || null;
+    const meta = [w.temp != null ? `${Math.round(w.temp)} °C` : null, falls, vis].filter(Boolean).join(' · ');
+    items.push([w.file, w.name, meta, icon, true]);
   }
   return items;
 }

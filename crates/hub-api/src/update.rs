@@ -158,12 +158,12 @@ fn look() -> Result<Option<Release>, String> {
         .timeout(Duration::from_secs(15))
         .call()
         .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("GitHub answered {code}"),
+            ureq::Error::Status(code, _) => trf("GitHub answered %{code}", &[("code", &code.to_string())]),
             ureq::Error::Transport(_) => tr("GitHub could not be reached. Are you online?"),
         })?
         .into_string()
         .map_err(|e| e.to_string())?;
-    let v: Value = serde_json::from_str(&text).map_err(|_| "GitHub's answer could not be read".to_string())?;
+    let v: Value = serde_json::from_str(&text).map_err(|_| tr("GitHub's answer could not be read"))?;
     let (os, arch) = platform();
     Ok(pick(&v, current_version(), os, arch))
 }
@@ -428,7 +428,14 @@ fn tick() -> Value {
     }
     s.game_was_running = game;
     // (and every half hour while the app stays open)
-    let idle = matches!(s.status, Status::Idle | Status::UpToDate) || (matches!(s.status, Status::Failed(_)) && s.dismissed);
+    // (a look of its own that failed is never shown to be closed, and an offer put aside waits
+    // for a newer version: both are looked again)
+    let idle = match &s.status {
+        Status::Idle | Status::UpToDate => true,
+        Status::Failed(_) => s.dismissed || !s.asked,
+        Status::Available(_) => s.dismissed,
+        _ => false,
+    };
     if looking && idle && s.last_check.is_some_and(|t| t.elapsed() > Duration::from_secs(30 * 60)) {
         check(s, false);
     }

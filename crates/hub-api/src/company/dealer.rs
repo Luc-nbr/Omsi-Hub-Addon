@@ -623,7 +623,9 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
         Sheet::Model { listing, livery, count, pay, quick } => {
             let r = co::economy::rules_for(&c);
             let list = dl::list_price(&c, listing.bus.kind);
-            let grant = co::economy::grant(listing.bus.kind, list, &r, c.price_index);
+            // (the grant on the price paid, as the core books it: on the quick buy's discounted
+            // price - on the list price it was more, and "You pay" and the loan less, than charged)
+            let grant = co::economy::grant(listing.bus.kind, if quick { dl::quick_price(&c, &listing, count) } else { list }, &r, c.price_index);
             let days = dl::delivery_days(&c, &format!("new:{}", listing.bus.file), false, false);
             let mut rows = vec![
                 row(tr("Maker"), listing.maker.clone(), false),
@@ -1252,8 +1254,10 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                     let n = count as i64;
                     let painting = if livery.is_empty() { 0 } else { dl::painting_cost(c) };
                     let r = co::economy::rules_for(c);
-                    let grant = co::economy::grant(listing.bus.kind, dl::list_price(c, listing.bus.kind), &r, c.price_index);
-                    let total = n * (dl::quick_price(c, &listing, count) + painting - grant);
+                    // (the grant on the quick price, as `dl::quick_buy` books it)
+                    let price = dl::quick_price(c, &listing, count);
+                    let grant = co::economy::grant(listing.bus.kind, price, &r, c.price_index);
+                    let total = n * (price + painting - grant);
                     let (_, ok) = pay_line(c, total, pay);
                     if !ok || allowed.is_err() {
                         return popup_of(cannot_buy(s, c, allowed, total, pay));
@@ -1332,8 +1336,8 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                     let mut offer = offer;
                     if let Some(y) = args.get("age").and_then(Value::as_str) {
                         let typed = (!y.trim().is_empty()).then(|| y.trim().to_string());
-                        let id = offer.id.clone();
-                        if let Err(p) = apply(s, |c| dl::set_offer_age(c, &id, typed.as_deref())) {
+                        let (id, file) = (offer.id.clone(), offer.listing.bus.file.clone());
+                        if let Err(p) = apply(s, |c| dl::set_offer_age(c, &id, &file, typed.as_deref())) {
                             return popup_of(p);
                         }
                         let all = listings(s).map(|l| l.to_vec()).unwrap_or_default();
@@ -1498,7 +1502,9 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                         return popup_of(refuse(s, "Sign the contract first."));
                     }
                     if !ok {
-                        return popup_of(if k.pay == PayWay::Loan { super::popup(s, kit::no_credit(c, k.due())) } else { super::popup(s, kit::no_cash(c, k.due())) });
+                        // (a lease wants its first instalments, not the price: that is what it says it lacks)
+                        let need = if k.pay == PayWay::Lease { k.lease(c).0 * k.count as i64 } else { k.due() };
+                        return popup_of(if k.pay == PayWay::Loan { super::popup(s, kit::no_credit(c, k.due())) } else { super::popup(s, kit::no_cash(c, need)) });
                     }
                     if k.pay == PayWay::Loan {
                         let purpose = format!("{} × {}", k.count, k.listing.bus.name);

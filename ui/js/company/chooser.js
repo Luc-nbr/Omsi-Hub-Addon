@@ -4,7 +4,7 @@
 // company on the left (name, short name, colours, logo, map and depot), the game mode on the
 // right (Casual, Normal or Realistic, the first day, how it buys).
 
-import { S } from '../store.js';
+import { S, toast } from '../store.js';
 import { call } from '../api.js';
 import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, Btn, Seg, Chips, Select, Dialog, IconBtn, rgbOf } from './kit.js';
 // (Luc 2026-10-16: the companies as cards of the pages' shared look; the map's picture)
@@ -31,18 +31,25 @@ export function Chooser() {
   if (step === 'mode') return html`<${Modes} v=${v.modes} n=${v.companies.tiles.length} />`;
   if (step === 'join') return html`<${JoinPage} />`;
   const cv = v.companies;
+  // (what went wrong said - a company file that cannot be read, one that cannot be deleted -
+  // where nothing happened at the click)
   const open = async (id) => {
-    // (a cloud company: a newer version or a conflict is asked first)
-    await cloudBeforeOpen(id);
-    await cmd('co_open', { id });
-    // (the shell of the company opened first: the founding is not shown on the way)
-    takeShell(await cmd('co_tick', { modal: true, still: true }));
+    try {
+      // (a cloud company: a newer version or a conflict is asked first)
+      await cloudBeforeOpen(id);
+      await cmd('co_open', { id });
+      // (the shell of the company opened first: the founding is not shown on the way)
+      takeShell(await cmd('co_tick', { modal: true, still: true }));
+    } catch (e) {
+      toast(e.message, 'error');
+      return;
+    }
     setCo({ chooser: null, tab: HOME });
     refresh();
   };
   const del = async (id) => {
     setAsking(null);
-    await cmd('co_delete', { id });
+    await cmd('co_delete', { id }).catch((e) => toast(e.message, 'error'));
     refresh();
   };
   const victim = asking && cv.tiles.find((t) => t.id === asking);
@@ -155,7 +162,8 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career', country: w.country || v.country.key, currency: w.currency || 'EUR' });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career', country: w.country || v.country.key, currency: w.currency || 'EUR' }).catch((e) => (toast(e.message, 'error'), null));
+    if (!r) return;
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;

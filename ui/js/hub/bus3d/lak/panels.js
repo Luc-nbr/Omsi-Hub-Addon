@@ -39,13 +39,15 @@ function Num({ label, value, onChange, step = 0.01, min, max, unit = '' }) {
 }
 
 /** The colour picker with the colours used last. */
-function Colour({ me, value, onChange }) {
-  return html`<div class="lak-colour">
+/** The colour picker; `onDone` when the mouse lets go or the field is left: a drag through the
+ * colours is one change (one undo step, one recent colour), not one per mouse move. */
+function Colour({ me, value, onChange, onDone }) {
+  return html`<div class="lak-colour" onPointerUp=${() => onDone?.()} onFocusOut=${() => onDone?.()}>
     <${ColourPicker} value=${value || '#ffffff'} onChange=${(c) => {
       me.colour = c;
       onChange(c);
     }} />
-    ${me.recent.length > 0 && html`<div class="lak-recent">${me.recent.map((c) => html`<button type="button" style=${`background:${c}`} title=${c} onClick=${() => onChange(c)}></button>`)}</div>`}
+    ${me.recent.length > 0 && html`<div class="lak-recent">${me.recent.map((c) => html`<button type="button" style=${`background:${c}`} title=${c} onClick=${() => (onChange(c), onDone?.())}></button>`)}</div>`}
   </div>`;
 }
 
@@ -78,9 +80,10 @@ function Making({ me }) {
       <${Range} label="Cover" value=${b.dekking} min=${0.05} max=${1} onInput=${(v) => set('dekking', v)} />
       ${!b.gum && html`<${Colour} me=${me} value=${me.colour} onChange=${(c) => {
         me.colour = c;
-        if (me.brushLayer) change(me, (p) => (p.lagen.find((l) => l.id === me.brushLayer).kleur = c));
+        // (its layer may be gone meanwhile: undone, or deleted)
+        if (me.brushLayer) change(me, (p) => { const l = p.lagen.find((x) => x.id === me.brushLayer); if (l) l.kleur = c; }, { pending: true });
         me.tick();
-      }} />`}
+      }} onDone=${() => settle(me)} />`}
       <${Btn} label="Done (Escape)" onClick=${() => endMaking(me, true)} />
     </div>`;
   }
@@ -104,15 +107,23 @@ function StartPanel({ me }) {
   const p = me.project;
   const q = p.snel || { kleuren: [null, null, null], strook: 'onderband' };
   const [which, setWhich] = useState(0);
+  // (each choice on top of the one before, even before its answer came; only the last answer
+  // is taken - a colour dragged or a name typed asks many times, and an older answer that came
+  // last put back an earlier choice)
   const apply = async (next) => {
-    const quick = { ...q, ...next };
+    const quick = { ...(me.quickNext || q), ...next };
+    me.quickNext = quick;
+    const seq = (me.quickSeq = (me.quickSeq || 0) + 1);
     try {
-      const r = await call('lak_quick', { project: p, quick });
+      const r = await call('lak_quick', { project: me.project, quick });
+      if (seq !== me.quickSeq) return;
+      me.quickNext = null;
       change(me, (x) => {
         x.snel = quick;
         x.lagen = r.layers;
-      });
+      }, { pending: !!me.quickDragging });
     } catch (x) {
+      if (seq === me.quickSeq) me.quickNext = null;
       say(me, x.message || String(x), true);
     }
   };
@@ -127,10 +138,16 @@ function StartPanel({ me }) {
       </button>`)}
     </div>
     <${Colour} me=${me} value=${colours[which] || me.colour} onChange=${(c) => {
-      remember(me, c);
-      const k = [...colours];
+      me.picked = c;
+      me.quickDragging = true;
+      const k = [...((me.quickNext || q).kleuren || colours)];
       k[which] = c;
       apply({ kleuren: k });
+    }} onDone=${() => {
+      remember(me, me.picked);
+      me.picked = null;
+      me.quickDragging = false;
+      settle(me);
     }} />
     <label class="lak-row"><span>${tr('Stripe')}</span><${Drop} value=${q.strook || 'onderband'} options=${STRIPES} onChange=${(v) => apply({ strook: v, strookGekozen: true })} /></label>
     <label class="lak-row"><span>${tr('Name on the bus')}</span><${LiveField} value=${q.naam || ''} raw placeholder="" onInput=${(t) => apply({ naam: t })} /></label>
@@ -176,12 +193,16 @@ function LayerPanel({ me, l }) {
         ${gradable && l.verloop && html`<button type="button" class=${pickFor === 'gradient' ? 'on' : ''} onClick=${() => setPickFor('gradient')}><i style=${`background:${l.verloop.kleur2}`}></i><span>${tr('Gradient')}</span></button>`}
       </div>`}
       <${Colour} me=${me} value=${colourNow} onChange=${(c) => {
-        remember(me, c);
+        me.picked = c;
         edit((x) => {
           if (pickFor === 'outline' && x.omlijning) x.omlijning.kleur = c;
           else if (pickFor === 'gradient' && x.verloop) x.verloop.kleur2 = c;
           else x.kleur = c;
-        });
+        }, true);
+      }} onDone=${() => {
+        remember(me, me.picked);
+        me.picked = null;
+        done();
       }} />`}
     <${Range} label="Opacity" value=${l.dekking ?? 1} min=${0} max=${1} onInput=${(v) => edit((x) => (x.dekking = v), true)} onDone=${done} />
     <${Range} label="Keep details" value=${l.detail ?? 1} min=${0} max=${1} onInput=${(v) => edit((x) => (x.detail = v), true)} onDone=${done} />

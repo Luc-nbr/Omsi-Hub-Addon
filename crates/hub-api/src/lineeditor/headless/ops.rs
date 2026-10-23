@@ -28,7 +28,13 @@ pub(super) fn apply(s: &mut Session, op: &str, req: &Value) -> R {
         "view" => Ok(()),
         "open" => open(s, req),
         // (the page left: nothing of it is kept here)
-        "leave" => Ok(()),
+        "leave" => {
+            // (the self-check's new line forgotten: the map's lines read again on the next open)
+            if b_of(req, "forget") {
+                s.v.loaded = None;
+            }
+            Ok(())
+        }
         _ if op.starts_with("t_") => table(s, op, req),
         _ if op.starts_with("c_") => super::company::act(s, op, req),
         _ => edit(s, op, req),
@@ -114,15 +120,20 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
     let mut status: Option<(String, bool)> = None;
     // ("Automatic" pressed once: anything else lets it go)
     let back_armed = std::mem::take(&mut v.back_armed);
+    // (another map chosen once with unsaved changes: anything else lets it go too)
+    let switch_armed = std::mem::take(&mut v.switch_armed);
     match op {
         // --- the left panel ------------------------------------------------------------
         "pick_map" => {
             let k = u_of(req, "k");
             if k != v.map || v.loaded.as_deref() != s.maps.get(k).map(|m| m.1.as_str()) {
-                if v.dirty {
-                    status = Some(("The changes to the line on the map before were not saved".into(), true));
+                // (unsaved changes: the first choice only says what goes, the second reads it)
+                if v.dirty && switch_armed != Some(k) {
+                    v.switch_armed = Some(k);
+                    status = Some(("The line's changes are not saved: choose the map again to leave them".into(), false));
+                } else {
+                    load(s, k);
                 }
-                load(s, k);
             }
         }
         "pick_line" => {
@@ -316,9 +327,8 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
                     if let Some(p) = d.legs.get_mut(k).and_then(|g| g.vias.get_mut(u_of(req, "j"))) {
                         *p = at;
                     }
-                } else if k < d.legs.len() {
+                } else if let (true, Some(a)) = (k < d.legs.len(), d.stops.get(k).map(|st| dv(st.at))) {
                     // (in its place along the leg: after the points nearer its start)
-                    let a = dv(d.stops[k].at);
                     let along = |p: DVec2| (p - a).length();
                     let g = &mut d.legs[k];
                     let pos = g.vias.iter().position(|p| along(dv(*p)) > along(dv(at))).unwrap_or(g.vias.len());
@@ -339,9 +349,13 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
         }
         "use_similar" => {
             let d_idx = v.dir;
-            let similar = v.line().map(|l| l.directions[d_idx].destination()).and_then(|dest| v.line_depot().and_then(|depot| depot.similar(&dest).map(|t| t.texture_id.trim().to_string())));
-            if let (Some(ident), Some(line)) = (similar, v.line_mut()) {
-                line.directions[d_idx].set_destination(&ident);
+            let similar = v
+                .line()
+                .and_then(|l| l.directions.get(d_idx))
+                .map(Direction::destination)
+                .and_then(|dest| v.line_depot().and_then(|depot| depot.similar(&dest).map(|t| t.texture_id.trim().to_string())));
+            if let (Some(ident), Some(d)) = (similar, v.line_mut().and_then(|l| l.directions.get_mut(d_idx))) {
+                d.set_destination(&ident);
                 v.touched();
             }
         }
@@ -884,7 +898,8 @@ fn table(s: &mut Session, op: &str, req: &Value) -> R {
             changed = false;
         }
         "t_select" => {
-            v.table_sel = Some((u_of(req, "i"), u_of(req, "s")));
+            // (Enter on the last stop's cell goes no further down)
+            v.table_sel = Some((u_of(req, "i"), u_of(req, "s").min(stops.saturating_sub(1))));
             v.table_text.clear();
             changed = false;
         }
@@ -1066,6 +1081,41 @@ mod tests {
         assert_eq!((s.v.line().unwrap().back_route, ids(&s, 1)), (BackRoute::Auto, vec![3, 21, 11]));
     }
 
+    /// A line of the map's has variants after its two directions: one of them changed is
+    /// routed and drawn like the others (it panicked: the legs drawn were kept for two).
+    #[test]
+    fn a_third_direction_is_changed_and_drawn() {
+        let mut s = session();
+        clicks(&mut s, &[0, 2]);
+        s.v.line_mut().unwrap().directions.resize(3, Direction::default());
+        op(&mut s, "dir", json!({ "d": 2 }));
+        clicks(&mut s, &[4, 5]);
+        assert_eq!(ids(&s, 2), vec![3, 4]);
+        op(&mut s, "drag_new", json!({ "k": 0, "at": [1100.0, 30.0] }));
+        assert_eq!(s.v.line().unwrap().directions[2].legs[0].vias.len(), 1);
+        assert_eq!(s.v.shapes.get(2).map(Vec::len), Some(1));
+        op(&mut s, "drag_new", json!({ "k": 5, "at": [0.0, 0.0] }));
+    }
+
+    /// Another map chosen while the line has unsaved changes: the first choice says what goes
+    /// and keeps the map; chosen again, the map is read.
+    #[test]
+    fn another_map_with_unsaved_changes_is_chosen_twice() {
+        let mut s = session();
+        s.maps = vec![("Here".into(), "maps/__here__/global.cfg".into()), ("There".into(), "maps/__there__/global.cfg".into())];
+        clicks(&mut s, &[0, 2]);
+        assert!(s.v.dirty);
+        op(&mut s, "pick_map", json!({ "k": 1 }));
+        assert_eq!((s.v.map, s.v.switch_armed, ids(&s, 0)), (0, Some(1), vec![1, 2]));
+        assert!(s.status.as_ref().is_some_and(|x| x.0.contains("choose the map again")), "{:?}", s.status);
+        // something else meanwhile: asked again
+        op(&mut s, "colour_open", json!({}));
+        op(&mut s, "pick_map", json!({ "k": 1 }));
+        assert_eq!((s.v.map, s.v.switch_armed), (0, Some(1)));
+        op(&mut s, "pick_map", json!({ "k": 1 }));
+        assert_eq!((s.v.map, s.v.switch_armed, s.v.dirty), (1, None, false));
+    }
+
     #[test]
     fn the_way_back_texts_are_translated() {
         let keys = [
@@ -1082,6 +1132,7 @@ mod tests {
             "%{n} leg(s) have no way over the roads (red): drag them, or set the way back by hand",
             "%{n} stop(s) taken by a name like the outbound's (marked): check them on the map",
             "Every stop has its stop across the road, and every leg a way over the roads",
+            "The line's changes are not saved: choose the map again to leave them",
         ];
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for k in keys {

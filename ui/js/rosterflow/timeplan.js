@@ -187,9 +187,12 @@ export function TimeplanTab() {
     // (from a day of Vehicles or Drivers: the day group that day runs, `tpDay`)
     const day = r.tpDay;
     setRf({ tpLine: null, tpHint: null, tpReload: false, tpDay: null });
-    rfCmd('rf_tp_guide', { line, hint, reload, ...(day != null ? { day } : {}) }).then((x) => {
-      tpSet({ cell: null, text: '', sel: null, picked: [], anchor: null, adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), ...(x?.group != null ? { day: x.group, chart: null, issuesOpen: false, scroll: 0 } : {}), rev: (S.rf.tp.rev || 0) + 1 });
-    });
+    rfCmd('rf_tp_guide', { line, hint, reload, ...(day != null ? { day } : {}) })
+      .then((x) => {
+        tpSet({ cell: null, text: '', sel: null, picked: [], anchor: null, adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), ...(x?.group != null ? { day: x.group, chart: null, issuesOpen: false, scroll: 0 } : {}), rev: (S.rf.tp.rev || 0) + 1 });
+      })
+      // (the line not opened: why, in the corner - not a promise left failing unseen)
+      .catch((e) => say(e.message, true));
   }, [r.tpLine]);
   // (what the lessons look at: the line read, changed, saved, refreshed)
   useEffect(() => {
@@ -607,6 +610,8 @@ function Timetable({ v }) {
   if (t.adding) y0 += FORM_H;
   const wide = cols.w * ncol > room.w + 0.5;
   const gridH = Math.max(0, box.h - y0 - 4 - (wide ? 14 : 0));
+  // (the rows that fit whole are drawn: a part-row under them was cut off by the grid's edge, its
+  // number and vehicle type half shown; the last ones come with the scroll, `maxScroll`)
   const visible = Math.max(1, Math.floor(gridH / TT_ROW));
   const rows = tt.rows;
   const maxScroll = Math.max(0, rows.length - visible);
@@ -642,7 +647,7 @@ function Timetable({ v }) {
     ${t.adding && html`<${AddForm} v=${v} top=${hy + 34} />`}
     ${!rows.length && html`<p class="tp-none" style=${`top:${y0 + 8}px`}>${tr('No trips on this day: add them by headway with the clock above, or one at a time with +.')}</p>`}
     <div class="tp-grid" style=${`top:${y0}px;height:${gridH}px`}>
-      ${rows.slice(scroll, scroll + visible + 1).map((row, kk) => {
+      ${rows.slice(scroll, scroll + visible).map((row, kk) => {
         const k = kk + scroll;
         const y = kk * TT_ROW;
         const chosenRow = chosen.includes(row.i);

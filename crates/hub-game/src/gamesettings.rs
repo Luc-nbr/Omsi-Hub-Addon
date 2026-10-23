@@ -43,7 +43,8 @@ const fn number(min: f64, max: f64, step: f64, default: Option<f64>) -> Kind {
 }
 
 /// The groups, in the page's order.
-pub const GROUPS: [&str; 10] = ["Graphics", "Mirrors", "Screen and navigator", "Language", "Sound and radio", "Driving and controls", "Passengers and traffic", "Wheel and pedals", "Gamepad", "Force feedback"];
+pub const GROUPS: [&str; 10] =
+    ["Graphics", "Mirrors", "Screen and navigator", "Language", "Sound and radio", "Driving and controls", "Passengers and traffic", "Wheel and pedals", "Gamepad", "Force feedback"];
 
 /// The groups the Settings page shows with the game controllers (the tab "Controllers"), not
 /// among openOMSI's other settings.
@@ -261,7 +262,10 @@ pub fn write(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }
-    let part = path.with_extension("cfg.omsihub-part");
+    // (a name of its own per write: two at once never write into one part file)
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let part = path.with_extension(format!("cfg.omsihub-part-{}-{n}", std::process::id()));
     std::fs::write(&part, text)?;
     std::fs::rename(&part, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
@@ -276,6 +280,10 @@ pub fn set(path: &Path, key: &str, value: Option<&str>) -> Result<Option<String>
         Some(v) => Some(checked(field, v).map_err(|e| e.to_string())?),
         None => None,
     };
+    // (read, changed and written one at a time: two settings set at once each kept the file as
+    // it was before the other, and one change was lost)
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     let text = match std::fs::read(path) {
         // (a file that is no plain text is not written over: its other lines would change)
         Ok(b) => String::from_utf8(b).map_err(|_| format!("{} is not plain text: not changed", path.display()))?,

@@ -4,7 +4,7 @@
 // matrix; the working hours of the staff who do not drive; the holidays asked for and planned
 // (Beta 57: `people/holidays.rs`); and the hiring rules.
 
-import { html, useEffect, useState, setCo, setUi, ui, act, useView, useSize, goKey, Icon, Btn, Seg, Chips, Select, Section, Meter, Switch, IconBtn, Slider, Tag, fill } from './kit.js';
+import { html, useEffect, useState, setCo, setUi, ui, act, useView, useSize, goKey, escTaken, Icon, Btn, Seg, Chips, Select, Section, Meter, Switch, IconBtn, Slider, Tag, fill } from './kit.js';
 import { callBytes, inApp, onWeb } from '../api.js';
 
 // --- the portraits -------------------------------------------------------------------------
@@ -121,7 +121,8 @@ function List({ l, st }) {
 function Person({ p }) {
   const back = () => setUi('people', { open: null });
   useEffect(() => {
-    const k = (e) => e.key === 'Escape' && (e.stopImmediatePropagation(), back());
+    // (a dialog or popup over the page - dismissing someone, a raise refused - closes first)
+    const k = (e) => e.key === 'Escape' && !escTaken() && (e.stopImmediatePropagation(), back());
     addEventListener('keydown', k, true);
     return () => removeEventListener('keydown', k, true);
   }, []);

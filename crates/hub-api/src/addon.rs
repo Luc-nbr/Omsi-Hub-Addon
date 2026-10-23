@@ -513,8 +513,11 @@ fn book_from_log(data: &Path) -> Booked {
     if (text.len() as u64) < k.log {
         k.log = 0;
     }
-    let new = String::from_utf8_lossy(&text[k.log as usize..]).into_owned();
-    k.log = text.len() as u64;
+    // (up to the last whole line: one the game is still writing is read whole next time)
+    let start = k.log as usize;
+    let Some(end) = text[start..].iter().rposition(|b| *b == b'\n') else { return Booked::default() };
+    let new = String::from_utf8_lossy(&text[start..start + end]).into_owned();
+    k.log = (start + end + 1) as u64;
     let (_, reports) = bridge::from_log(&new);
     let b = book_reports(data, &reports, k.assigned.as_ref());
     let _ = save(data, &k);

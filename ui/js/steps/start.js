@@ -104,16 +104,19 @@ function findRoute(lines, line, route) {
 /** The line and route a free drive follows, when the player chose one (`free_route`). */
 export const freeRoute = (c) => (c.free && c.own_line && String(c.free_line || '').trim() && String(c.free_route || '').trim() ? [c.free_line, c.free_route] : null);
 
-/** The player's own lines of the map (`hub_own_lines`, once a map). */
-let ownFor = '';
-function useOwnLines(map) {
+/** The player's own lines of the map (`hub_own_lines`, read once a map; the duty step's too):
+ * kept by map, so that one map's lines are never shown on another's. */
+const ownRead = new Set();
+export function useOwnLines(map) {
   const s = useStore();
   useEffect(() => {
-    if (!map || ownFor === map) return;
-    ownFor = map;
-    call('hub_own_lines', { map }).then((own) => set({ hubOwn: own })).catch(() => set({ hubOwn: [] }));
+    if (!map || ownRead.has(map)) return;
+    ownRead.add(map);
+    call('hub_own_lines', { map })
+      .then((own) => set({ hubOwn: { ...S.hubOwn, [map]: own || [] } }))
+      .catch(() => (ownRead.delete(map), set({ hubOwn: { ...S.hubOwn, [map]: [] } })));
   }, [map]);
-  return ownFor === map ? s.hubOwn || [] : [];
+  return (map && s.hubOwn?.[map]) || [];
 }
 
 /** Where a stop stands on the map and the entry points: the map's export of a trip calling at
@@ -121,7 +124,8 @@ function useOwnLines(map) {
 const places = new Map();
 function placesOf(map, date, trip) {
   const key = `${map}|${date}|${trip}`;
-  if (!places.has(key)) places.set(key, call('hub_route_map', { map, date, trip }).catch(() => null));
+  // (one that could not be read is asked again the next time)
+  if (!places.has(key)) places.set(key, call('hub_route_map', { map, date, trip }).catch(() => (places.delete(key), null)));
   return places.get(key);
 }
 
@@ -134,9 +138,12 @@ function useStop(c, stops) {
   const s = [...stops[0], ...stops[1]].find((x) => x.name === c.free_stop);
   const key = s && c.free && !c.own_line ? `${c.map}|${c.date}|${s.name}` : '';
   useEffect(() => {
-    if (!key || !s.at) return;
+    if (!key || !s.at) return undefined;
     const [trip, k] = s.at;
+    // (another stop chosen meanwhile: this one's entry point is not the bus's)
+    let alive = true;
     placesOf(c.map, c.date, trip).then((m) => {
+      if (!alive) return;
       const at = m?.stops?.find((x) => x.k === k)?.at;
       if (!at || !m.entries?.length) return;
       let best = null;
@@ -147,6 +154,9 @@ function useStop(c, stops) {
       setNear({ key, metres: best.d });
       if (S.choice.free_entry !== best.index) choose({ free_entry: best.index });
     });
+    return () => {
+      alive = false;
+    };
   }, [key]);
   return near?.key === key ? near.metres : null;
 }

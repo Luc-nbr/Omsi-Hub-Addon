@@ -52,6 +52,9 @@ function Languages() {
 /** The light or the dark look: the new look spreads from the button over the window (a view
  * transition where the webview has them and the animations are on), as our launcher's does. */
 export function flipLook(e) {
+  // (pressed again while the look still spreads: the one under way goes to its end - a second
+  // transition would cut the first off)
+  if (flipping) return;
   const to = !dark();
   const change = () => {
     S.settings = { ...S.settings, dark_mode: to };
@@ -60,14 +63,31 @@ export function flipLook(e) {
   };
   const motion = S.settings?.animations !== false && !matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!document.startViewTransition || !motion || !e) return change();
-  const x = e.clientX;
-  const y = e.clientY;
+  // (pressed with Enter or Space the click has no place: then from the button's middle)
+  const b = !e.detail && e.currentTarget?.getBoundingClientRect?.();
+  const x = b ? b.left + b.width / 2 : e.clientX;
+  const y = b ? b.top + b.height / 2 : e.clientY;
   const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  // (the page's own colour transitions held while it flips: the circle alone shows the change)
+  const root = document.documentElement;
+  root.classList.add('hub-flipping');
   const vt = document.startViewTransition(change);
+  flipping = vt;
+  // (the circle as even over its time as over the window: slow out of the button, slow into the
+  // last corner; the old look held whole under it till it gets there, hub.css)
   vt.ready
-    .then(() => document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] }, { duration: 650, easing: 'cubic-bezier(0.22, 0.8, 0.3, 1)', pseudoElement: '::view-transition-new(root)' }))
+    .then(() => root.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] }, { duration: 650, easing: 'ease-in-out', pseudoElement: '::view-transition-new(root)' }))
     .catch(() => {});
+  vt.finished
+    .catch(() => {})
+    .finally(() => {
+      flipping = null;
+      root.classList.remove('hub-flipping');
+    });
 }
+
+/** The look's flip under way (its view transition), else null. */
+let flipping = null;
 
 /** The accent chosen: the setting, and the whole page recoloured at once. */
 export function setAccent(rgb) {

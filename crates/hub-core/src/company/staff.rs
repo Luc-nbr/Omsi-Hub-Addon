@@ -1769,7 +1769,8 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
                 .arg("name", e.name.clone()),
             );
         }
-        if e.notice_until.as_deref() == Some(today.as_str()) {
+        // (on their last day, or past it: a company moved on over it kept them for ever)
+        if e.notice_until.as_deref().and_then(dates::parse).zip(dates::parse(&today)).is_some_and(|(u, t)| t >= u) {
             leaving.push(e.id);
         }
     }

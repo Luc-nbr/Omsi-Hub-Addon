@@ -315,6 +315,12 @@ mod tests {
         v.leave_fresh();
         pick(&mut v, "12");
         assert!(pick(&mut v, "7").is_none() && v.sel == id && v.reg.lines.len() == 1, "line 12 left as it came");
+        // its way back made anew ("Reverse again"): its short run 7E stays
+        let mut said = None;
+        reverse(&mut v, &mut said);
+        let l = v.line().unwrap();
+        assert_eq!(l.directions.len(), 3, "{said:?}");
+        assert_eq!(l.directions[2].stops.iter().map(|s| s.id).collect::<Vec<_>>(), [1, 2]);
         // before the map's stops are read: opened once they are
         v.stops.clear();
         assert!(pick(&mut v, "12").is_some() && v.opening.as_deref() == Some("12"));

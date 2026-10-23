@@ -27,6 +27,10 @@ export const MORE_TABS = [5, 7, 8, 9, 10, 11, 12];
 
 /** A view of this part (`co_more_view`), asked again whenever the company changed, an action was
  * taken, or `args` differ; the last one is shown until the new one comes (`kit::useView`). */
+/** The views of this part's pages (`MORE_TABS`'): one that fails is said over the page with a way
+ * to ask again (`pages.js`), the page as it was last drawn kept under it - it was drawn blank. */
+const PAGE_VIEWS = new Set(['planning', 'depot', 'concessions', 'fleetmap', 'research', 'workshop', 'contracts']);
+
 export function useMore(name, args = {}, on = true) {
   const gen = S.co.shell?.gen ?? 0;
   const key = name + '|' + JSON.stringify(args);
@@ -35,9 +39,18 @@ export function useMore(name, args = {}, on = true) {
   useEffect(() => {
     if (!on) return undefined;
     let gone = false;
+    const page = PAGE_VIEWS.has(name);
     cmd('co_more_view', { view: name, ...args })
-      .then((v) => !gone && setSt({ key, v }))
-      .catch((e) => !gone && setSt({ key, v: { error: e.message } }));
+      .then((v) => {
+        if (gone) return;
+        setSt({ key, v });
+        if (page && S.co.moreError?.view === name) setCo({ moreError: null });
+      })
+      .catch((e) => {
+        if (gone) return;
+        setSt((o) => ({ key, v: page && o.v && !o.v.error ? o.v : { error: e.message } }));
+        if (page) setCo({ moreError: { view: name, text: e.message } });
+      });
     return () => {
       gone = true;
     };
@@ -168,6 +181,8 @@ export function useListSize() {
     ro.current = new ResizeObserver(() => requestAnimationFrame(measure));
     ro.current.observe(el);
     measure();
+    // (measured again once it is in the document: `kit::useSize`)
+    queueMicrotask(() => el.isConnected && measure());
   }, []);
   useEffect(() => () => ro.current?.disconnect(), []);
   return [ref, size];

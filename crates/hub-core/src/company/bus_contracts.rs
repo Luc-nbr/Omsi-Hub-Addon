@@ -982,14 +982,18 @@ pub fn close_day(c: &mut Company, date: &str, journeys: &Journeys, lines: &mut [
         let raw = timing * observed(n) + pd.vehicle as f64 * econ_uk::POINTS_MISSED + pd.serious as f64 * econ_uk::POINTS_SERIOUS;
         pd.default = raw * strict;
         // (what it pays today by its period)
+        // (the week's or month's end - or the contract's own last day, its part of the period: a
+        // contract ending on a Wednesday was not paid its last days)
+        let ends = dates::between(date, &k.until) == 0;
+        let since = |start: i64| dates::parse(&k.from).map_or(start, |f| f.max(start));
         let pay = match k.period {
             Period::Day if n > 0 => payment(c, &k),
-            Period::Week if sunday => {
-                let held = (dates::between(&k.from, date) + 1).clamp(1, 7);
+            Period::Week if sunday || ends => {
+                let held = (day - since(day - dates::weekday(day) as i64) + 1).clamp(1, 7);
                 (payment(c, &k) as f64 * held as f64 / 7.0).round() as Cents
             }
-            Period::Month if last && !(k.months() == 11 && m == 8) => {
-                let held = (dates::between(&k.from, date) + 1).clamp(1, month_len);
+            Period::Month if (last || ends) && !(k.months() == 11 && m == 8) => {
+                let held = (day - since(day - (dates::civil_from_days(day).2 as i64 - 1)) + 1).clamp(1, month_len);
                 (payment(c, &k) as f64 * held as f64 / month_len as f64).round() as Cents
             }
             _ => 0,

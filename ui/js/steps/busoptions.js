@@ -6,7 +6,7 @@
 // (`hub_more_bus_option_set`) and goes to the game as `--setvar` (`hub_more_setvars`).
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
-import { useStore } from '../store.js';
+import { toast, useStore } from '../store.js';
 import { call } from '../api.js';
 import { Icon, tr } from '../hub/bits.js';
 import { Select } from '../ui.js';
@@ -79,10 +79,13 @@ export function BusOptions({ bus, paint }) {
   const r = cache.get(key);
   if (!r?.options?.length) return null;
   const edit = (args) =>
-    call('hub_more_bus_option_set', { bus, ...args }).then(() => {
-      tell(bus);
-      return load();
-    });
+    call('hub_more_bus_option_set', { bus, ...args })
+      .then(() => {
+        tell(bus);
+        return load();
+      })
+      // (a choice that could not be kept says so, not a silent error in the console)
+      .catch((e) => toast(e?.message || String(e), 'error'));
   const looks = r.options.filter((o) => !o.technical);
   const technical = r.options.filter((o) => o.technical);
   const changed = r.options.filter((o) => o.chosen != null).length;

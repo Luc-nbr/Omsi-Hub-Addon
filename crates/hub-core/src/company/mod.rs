@@ -162,7 +162,9 @@ pub fn short_of(name: &str) -> String {
 /// Found a company: its starting capital booked, nothing else yet.
 pub fn found(f: &Founding, profile: &str) -> Company {
     let r = economy::rules(f.game_mode);
-    let date = if dates::parse(&f.date).is_some() { f.date.clone() } else { crate::DEFAULT_DATE.to_string() };
+    // (written as the company's dates are, "2024-05-06": one typed "2024-5-6" read its month
+    // wrong, and that month's bus costs were shared out over almost nothing)
+    let date = dates::parse(&f.date).map(dates::fmt).unwrap_or_else(|| crate::DEFAULT_DATE.to_string());
     let short = if f.short.trim().is_empty() { short_of(&f.name) } else { f.short.trim().to_uppercase() };
     let colour = |c: &str, d: &str| if c.trim().is_empty() { d.to_string() } else { c.trim().to_string() };
     let mut c = Company {

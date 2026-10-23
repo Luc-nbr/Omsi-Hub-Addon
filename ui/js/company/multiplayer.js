@@ -148,18 +148,21 @@ function PlayerCard({ p, v, go }) {
 /** Give a duty of the day to a player: the duty, the player, Give. */
 function GiveDuty({ v, go }) {
   const w = v.words;
-  const [duty, setDuty] = useState(0);
-  const [who, setWho] = useState(0);
+  // (the duty and the player chosen by what they are, not by their place in the lists: asked
+  // again every two seconds, a duty claimed or a player gone meanwhile put another in that place)
+  const [duty, setDuty] = useState(null);
+  const [who, setWho] = useState(null);
   const players = v.players.filter((p) => !p.banned && !p.kicked);
   if (!v.giveable.length || !players.length) return html`<p class="dim">${!players.length ? w.no_players : w.no_open}</p>`;
-  const d = v.giveable[Math.min(duty, v.giveable.length - 1)];
-  const p = players[Math.min(who, players.length - 1)];
+  const keyOf = (x) => JSON.stringify(x.duty);
+  const d = v.giveable.find((x) => keyOf(x) === duty) || v.giveable[0];
+  const p = players.find((x) => String(x.no) === who) || players[0];
   return html`<div class="tg-give">
-    <span class="co-select"><select class="co-field" value=${String(duty)} onChange=${(e) => setDuty(Number(e.currentTarget.value))}>
-      ${v.giveable.map((x, k) => html`<option value=${String(k)}>${x.times}  ·  ${x.title}${x.who ? '  ·  ' + x.who : ''}</option>`)}
+    <span class="co-select"><select class="co-field" value=${keyOf(d)} onChange=${(e) => setDuty(e.currentTarget.value)}>
+      ${v.giveable.map((x) => html`<option value=${keyOf(x)}>${x.times}  ·  ${x.title}${x.who ? '  ·  ' + x.who : ''}</option>`)}
     </select><${Icon} name="expand_more" size=${20} /></span>
-    <span class="co-select"><select class="co-field" value=${String(who)} onChange=${(e) => setWho(Number(e.currentTarget.value))}>
-      ${players.map((x, k) => html`<option value=${String(k)}>${x.name}${x.online ? ' (' + w.online + ')' : ''}</option>`)}
+    <span class="co-select"><select class="co-field" value=${String(p.no)} onChange=${(e) => setWho(e.currentTarget.value)}>
+      ${players.map((x) => html`<option value=${String(x.no)}>${x.name}${x.online ? ' (' + w.online + ')' : ''}</option>`)}
     </select><${Icon} name="expand_more" size=${20} /></span>
     <${Btn} kind="primary" icon="sync_alt" label=${w.give} onClick=${() => go('tg_host_give', { duty: d.duty, guest: p.no })} />
   </div>`;

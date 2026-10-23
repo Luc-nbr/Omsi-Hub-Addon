@@ -105,6 +105,9 @@ pub(crate) struct Rf {
     /// Undo and redo: the draft before each edit, and the edit in words.
     undo: Vec<(Draft, String)>,
     redo: Vec<(Draft, String)>,
+    /// The day undo, redo and the figures before are of (another day shown: begun anew - not
+    /// the day made again after Revalidate, a line's colour or the rules saved).
+    undo_date: String,
     /// Edits made so far (undone ones too), for the lessons.
     edits: u64,
     /// The Timeplan (`timeplan`).
@@ -665,10 +668,11 @@ pub(crate) fn ensure(s: &mut Session, r: &mut Rf, date: &str) -> Option<Result<C
     relief::add_mids(&mut json, &view, &board, &lines);
     let rev = format!("{:x}", hash_of(&json.to_string()));
     let k = Cached { date: date.to_string(), generation: rf_generation(s), board: Arc::new(board), view: Arc::new(view), lines: Arc::new(lines), json: Arc::new(json), rev };
-    if r.cache.as_ref().is_none_or(|old| old.date != date) {
+    if r.undo_date != date {
         r.undo.clear();
         r.redo.clear();
         r.before = None;
+        r.undo_date = date.to_string();
     }
     match r.proposal.as_mut() {
         Some(p) if p.date != date || (p.generation != k.generation && p.base != k.rev) => r.proposal = None,
@@ -1867,8 +1871,11 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 }
                 "custom" => {
                     let kind = rf::CUSTOM_KINDS[(usize_arg(args, "kind")).min(rf::CUSTOM_KINDS.len() - 1)].to_string();
-                    let (from, to) = (args.get("from").and_then(Value::as_i64).unwrap_or(810) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(900) as i32);
-                    (trf("Custom work added to duty %{d}", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| n.custom.push(rf::Custom { kind: kind.clone(), from, to, place: String::new() })))
+                    // (its times within the day's steppers and at least five minutes, as a spare
+                    // duty's and a dragged one's are: `Custom::set_times`)
+                    let mut cw = rf::Custom { kind, ..Default::default() };
+                    cw.set_times(args.get("from").and_then(Value::as_i64).unwrap_or(810) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(900) as i32);
+                    (trf("Custom work added to duty %{d}", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| n.custom.push(cw.clone())))
                 }
                 "custom_time" => {
                     // (its times typed on its card, or its edges or itself dragged in the Gantt)
@@ -2163,6 +2170,26 @@ mod tests {
     }
 
     #[test]
+    fn undo_stays_when_the_day_is_made_again_and_goes_with_another_day() {
+        // (Revalidate, a line's colour and the rules saved make the day again: its undo stayed
+        // only when another day was shown)
+        let (c, l) = line5_company();
+        let date = c.date.clone();
+        let mut s = Session::default();
+        s.company = Some(c);
+        company::test_week(&mut s, vec![l]);
+        let mut r = Rf::default();
+        ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        r.undo.push((rf::draft_of(s.company.as_ref().unwrap()), "an edit".into()));
+        r.cache = None;
+        ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        assert_eq!(r.undo.len(), 1, "the day made again keeps its undo");
+        let tomorrow = co::dates::add(&date, 1);
+        ensure(&mut s, &mut r, &tomorrow).unwrap().unwrap();
+        assert!(r.undo.is_empty(), "another day begins anew");
+    }
+
+    #[test]
     fn two_vehicles_of_a_line_ticked_go_to_the_stack_together() {
         let (c, l) = line5_company();
         let date = c.date.clone();
@@ -2267,6 +2294,39 @@ mod tests {
         let mut core: Vec<&str> = rf::texts();
         core.extend(st::texts());
         core.extend(co::unassign::texts());
+        // (said through a name rather than a literal: the popups' titles, the rules' names of
+        // `breaks`, the tabs of `live`, the days and months of the day switcher and of every date,
+        // the Timeplan's issues and day groups)
+        core.extend([
+            "Changed meanwhile",
+            "Not one of the line's buses",
+            "Not planned yet",
+            "Not yet",
+            "Nothing could be filled",
+            "Nothing to clear",
+            "Nothing to fill",
+            "Nothing to repeat",
+            "Duty Breaks",
+            "Continuous Break",
+            "Time Limitations",
+            "Duty length at least",
+            "Piece Length",
+            "Driver Changeover Vehicle",
+            "Duty Types",
+            "Duty Travel",
+            "Layover",
+            "Deadheads",
+            "Depot Setup",
+            "Roster",
+            "Vehicles",
+            "Drivers",
+            "Timeplan",
+            "Routes",
+        ]);
+        core.extend(DAY_NAMES);
+        core.extend(company::words::MONTHS);
+        core.extend(hub_core::company::timeplan::texts());
+        core.extend(hub_core::lines::DAY_GROUPS.iter().map(|d| d.0));
         let mut missing = Vec::new();
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             let table = crate::launcher::i18n::table(lang);

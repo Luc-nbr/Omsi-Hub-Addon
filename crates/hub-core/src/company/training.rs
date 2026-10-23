@@ -563,11 +563,14 @@ pub fn service_labour(c: &Company) -> Cents {
 }
 
 /// A bus the player may service today: his course, the workshop, a bus not in the workshop
-/// that is due within 5 000 km or below 90 %, not serviced by him today.
+/// that is due within 5 000 km or below 90 % - or, an old one, ten points below what a service
+/// brings it to -, not serviced by him today. (An old bus never got past 90 % by a service: it
+/// could be serviced every day, the labour booked as saved every time.)
 pub fn can_service(c: &Company, v: &Vehicle) -> bool {
+    let worn = 90.0_f64.min(market::serviced_condition(dates::years_between(&v.built, &c.date)) - 10.0);
     player_can(c, CourseKind::PlayerService)
         && !v.in_workshop(&c.date)
-        && (v.km >= v.next_service_km - 5_000.0 || v.condition < 90.0)
+        && (v.km >= v.next_service_km - 5_000.0 || v.condition < worn)
         && !c.progress.jobs.iter().any(|j| j.vehicle == v.id && j.date == c.date)
 }
 
@@ -792,5 +795,21 @@ mod tests {
         assert_eq!(c.fleet[0].workshop_until.as_deref(), Some("2024-06-05"));
         assert_eq!(repair_due(&c, &c.fleet[0].clone()), None);
         assert!(finish_job(&mut c, id, JobKind::Repair, 1.0).is_err());
+    }
+
+    #[test]
+    fn an_old_bus_serviced_well_is_not_due_again_the_next_day() {
+        let mut c = company();
+        let id = with_bus(&mut c);
+        c.progress.xp = levels::LEVEL_XP[3];
+        enrol(&mut c, CourseKind::PlayerService, None).unwrap();
+        day_passed(&mut c, "2024-05-31");
+        // (twenty years old: a service brings it to 70 % at the most)
+        c.fleet[0].built = "2004-01-01".into();
+        c.fleet[0].condition = 50.0;
+        assert!(can_service(&c, c.vehicle(id).unwrap()));
+        finish_job(&mut c, id, JobKind::Service, 1.0).unwrap();
+        c.date = "2024-06-01".into();
+        assert!(!can_service(&c, c.vehicle(id).unwrap()), "{}", c.fleet[0].condition);
     }
 }

@@ -12,7 +12,7 @@
 // (`co_reread`, when the company port has it).
 
 import { html, render, useEffect, useState } from '../../vendor/preact-htm.js';
-import { call } from '../api.js';
+import { call, waitNoMore } from '../api.js';
 import { language } from '../i18n.js';
 import { Icon, loadSheet, Sure, toast, tr } from './bits.js';
 // (the privacy statement, linked from the question and the slots: what a cloud save keeps)
@@ -143,7 +143,10 @@ function Ask({ v, done }) {
 export async function cloudBeforeOpen(id) {
   let v = null;
   try {
-    v = await Promise.race([ask('cs_open', { id }), new Promise((ok) => setTimeout(() => ok(null), 4000))]);
+    const asked = ask('cs_open', { id });
+    v = await Promise.race([asked, new Promise((ok) => setTimeout(() => ok(null), 4000))]);
+    // (given up: the company opens as it is, and the busy word does not stay up for the answer)
+    waitNoMore(asked);
   } catch (e) {}
   if (v?.notice) toast(v.notice, 'info');
   if (!v?.ask) return;

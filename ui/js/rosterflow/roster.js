@@ -77,6 +77,11 @@ async function rSend(act, args, wait) {
 /** Escape on the Roster tab: its menu, the driver or bus taken up, what is chosen. */
 export function rosterEscape() {
   const s = S.rf.roster;
+  // ("Start service from" open: closed - not RosterFlow left with it still open behind)
+  if (S.rf.service) {
+    setRf({ service: null });
+    return true;
+  }
   if (S.rf.menu?.roster) {
     setRf({ menu: null });
     return true;
@@ -252,14 +257,27 @@ export function RosterTab({ p }) {
   const vr = useRef(v);
   vr.current = v;
   useRosterKeys();
-  // (a duty or tour carried to the list, a driver or bus dragged to the chart: at the mouse)
+  // (a duty or tour carried to the list, a driver or bus dragged to the chart: at the mouse - the
+  // drag as it is now kept here, not taken from the closure the listeners were made with: that is
+  // the drag as it began, never moved, and every drop did nothing)
+  const live = useRef(null);
+  const begin = (d) => {
+    live.current = d;
+    setDrag(d);
+  };
   useEffect(() => {
     if (!drag) return undefined;
-    const mv = (e) => setDrag((d) => d && { ...d, x: e.clientX, y: e.clientY, moved: d.moved || Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 6 });
+    const mv = (e) => {
+      const d = live.current;
+      if (!d) return;
+      live.current = { ...d, x: e.clientX, y: e.clientY, moved: d.moved || Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 6 };
+      setDrag(live.current);
+    };
     const up = (e) => {
-      const d = drag;
+      const d = live.current;
+      live.current = null;
       setDrag(null);
-      if (!d.moved) return;
+      if (!d?.moved) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
       if (d.from === 'chart') {
         const t = el?.closest?.('[data-arm]');
@@ -287,7 +305,7 @@ export function RosterTab({ p }) {
       removeEventListener('mousemove', mv);
       removeEventListener('mouseup', up);
     };
-  }, [drag?.from, drag?.x0]);
+  }, [!!drag]);
   if (!v) return html`<div class="rf-roster" ref=${tab}></div>`;
   return html`<div class="rf-roster" ref=${tab}>
     <${DayTabs} v=${v} />
@@ -295,8 +313,8 @@ export function RosterTab({ p }) {
     <div class="rr-body">
       ${v.reading || v.error
         ? html`<div class="rr-wait"><p class=${v.error ? 'err' : ''}>${v.error || v.reading}</p></div>`
-        : html`<${Chart} v=${v} p=${p} startDrag=${(d) => setDrag(d)} carrying=${drag?.from === 'chart' && drag.moved ? drag.hit : null} />
-          <${Side} v=${v} startDrag=${(d) => setDrag(d)} carrying=${drag?.from === 'chart' && drag.moved ? drag.hit : null} />`}
+        : html`<${Chart} v=${v} p=${p} startDrag=${begin} carrying=${drag?.from === 'chart' && drag.moved ? drag.hit : null} />
+          <${Side} v=${v} startDrag=${begin} carrying=${drag?.from === 'chart' && drag.moved ? drag.hit : null} />`}
     </div>
     ${drag?.moved && html`<div class="rr-carry" style=${carryStyle(drag)}>${drag.label}</div>`}
     ${S.rf.menu?.roster && html`<${RosterMenu} v=${v} m=${S.rf.menu} />`}

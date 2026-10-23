@@ -149,6 +149,13 @@ _version: 2
   pl: "ratuje %{n} kursów (−%{amount})"
   ru: "спасает %{n} рейсов (−%{amount})"
   uk: "рятує %{n} рейсів (−%{amount})"
+"avoids %{n} late trips and saves %{m} trips (−%{amount})":
+  de: "vermeidet %{n} verspätete Fahrten und rettet %{m} Fahrten (−%{amount})"
+  fr: "évite %{n} trajets en retard et sauve %{m} trajets (−%{amount})"
+  nl: "voorkomt %{n} late ritten en redt %{m} ritten (−%{amount})"
+  pl: "unika %{n} spóźnionych kursów i ratuje %{m} kursów (−%{amount})"
+  ru: "избегает %{n} опоздавших рейсов и спасает %{m} рейсов (−%{amount})"
+  uk: "уникає %{n} запізнілих рейсів і рятує %{m} рейсів (−%{amount})"
 "%{n} still dropped":
   de: "%{n} fallen trotzdem aus"
   fr: "%{n} encore supprimés"

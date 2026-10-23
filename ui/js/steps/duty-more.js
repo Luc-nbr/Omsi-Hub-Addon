@@ -8,7 +8,7 @@
 import { html, useEffect, useRef } from '../../vendor/preact-htm.js';
 import { S, set, useStore } from '../store.js';
 import { call } from '../api.js';
-import { curLine, curTour, pickedTrip } from '../hub/drive.js';
+import { curLine, curTour, dutyHof, pickedTrip } from '../hub/drive.js';
 import { tripAt, pickTrip, hms } from '../hub/trips.js';
 import { Icon, tr } from '../hub/bits.js';
 import './more.js';
@@ -137,14 +137,20 @@ let ibisKey = '';
 function Ibis() {
   const s = useStore();
   const c = s.choice;
-  const key = c.line && !c.free ? `${c.bus || ''}|${c.hof || ''}|${c.line}` : '';
+  // (the depot file the drive takes: the one chosen by hand, else the bus's for the map)
+  const key = c.line && !c.free ? `${c.bus || ''}|${dutyHof()}|${c.line}` : '';
   useEffect(() => {
     if (!key || ibisKey === key) return;
     ibisKey = key;
     const [bus, hof, line] = key.split('|');
     call('hub_ibis', { bus, hof, line })
       .then((i) => ibisKey === key && set({ hubIbis: { key, i } }))
-      .catch((e) => ibisKey === key && set({ hubIbis: { key, error: e.message } }));
+      .catch((e) => {
+        if (ibisKey !== key) return;
+        set({ hubIbis: { key, error: e.message } });
+        // (asked again the next time the roadbook opens)
+        ibisKey = '';
+      });
   }, [key]);
   const got = s.hubIbis?.key === key && key ? s.hubIbis : null;
   let body;

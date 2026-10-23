@@ -111,7 +111,7 @@ const DEPOT = {
     { code: 999, name: 'Betriebsfahrt', all_exit: true, strings: ['Betriebsfahrt', 'Betriebsfahrt', '', '', '', '', '', '', '', '', '', ''], special: true, marked: true },
   ],
   stops: STOPS.map((s, k) => ({ ident: `GD_${k}`, strings: [s, s.toUpperCase()] })),
-  trips: [{ code: 101, line: '1', name: 'Bahnhof - Endstation', route: 1, stops: STOPS.map((_, k) => `GD_${k}`) }],
+  trips: [{ code: '101', line: '1', name: 'Bahnhof - Endstation', route: '1', stops: STOPS.map((_, k) => `GD_${k}`) }],
   service_trip: 'Betriebsfahrt',
   notes: [], stop_notes: [], global_strings: ['Grundorf'], string_count: 12,
   labels: ['ibis', 'front_top', 'front_bottom', 'side', 'roller_blind', 'clear_name', 'extra_sign', 'bitmap', 'special', 'rear', 'other', 'other'].map((role) => ({ role, note: '', limit: role === 'ibis' ? 16 : 24 })),
@@ -180,7 +180,8 @@ const answers = {
   // (the online account and the cloud saves, signed out: everything works offline)
   ol_avatar: () => ({ ok: true, message: 'Profile photo saved.' }),
   ol_state: () => ({ mode: 'out', friends: [], invites: [], requests: [], badge: 0, online_count: 0, offline: false, together: false, hosting: false, privacy: { version: 2, needed: false } }),
-  ol_refresh: () => ({ ok: true }),
+  // (as Rust's: the state, refreshed)
+  ol_refresh: () => answers.ol_state(),
   ol_seen: () => ({ ok: true }),
   ol_presence: () => ({ ok: true }),
   cs_state: () => ({ companies: {}, slots: 2, used: 0, local_label: 'Local save', cloud_label: 'Cloud save' }),
@@ -226,8 +227,10 @@ const answers = {
   },
   hub_weather_extras: () => ({ airport: 'EDDB', airports: [['EDDB', 'Berlin Brandenburg'], ['EDDH', 'Hamburg']], cycle: false }),
   hub_duty_extras: (a) => {
-    const m = Math.max(0, (a.minutes || 0) - 10);
-    return { time: `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`, date: a.date, lead: 10, display_font: null };
+    // (the bus's lead time as the settings have it, 5 minutes by default as in Rust)
+    const lead = settings.bus_lead ?? 5;
+    const m = Math.max(0, (a.minutes || 0) - lead);
+    return { time: `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`, date: a.date, lead, display_font: null };
   },
   hub_more_setvars: () => [],
   hub_more_bus_options: () => ({ options: [], reading: false }),
@@ -277,7 +280,7 @@ const answers = {
   tt_load: (a) => (/grundorf/i.test(a.map || '') ? TT : { dir: '', folder: '', lines: [], trips: [] }),
   tt_save: (a) => ({ saved: (a.lines || []).length, error: null, lines: (a.lines || []).map((l) => ({ name: l.name, path: l.path, line: l })) }),
   tt_edit: (a) => ({ line: a.line, tour: a.tour || 0, made: 0 }),
-  tt_reset: () => ({ done: "The timetable of Grundorf is the map's own again (the edited copy was removed)", own: 0, own_error: null }),
+  tt_reset: () => ({ done: "The timetable of %{map} is the map's own again (the edited copy was removed)", done_args: { map: 'Grundorf', n: 0 }, own: 0, own_error: null }),
 
   // the depot editor
   de_show: () => ({ entries: DEPOTS, view: DEPOT, changed_elsewhere: null, error: null }),

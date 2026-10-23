@@ -341,8 +341,16 @@ fn main() {
             let _ = app.get_webview_window("main");
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("the app could not start");
+        .build(tauri::generate_context!())
+        .expect("the app could not start")
+        .run(|_, event| {
+            // (as the app closes: friends told it is offline, and a company session it hosts
+            // ended with its players told - both written for this and never called before)
+            if let tauri::RunEvent::Exit = event {
+                hub_api::together::quit();
+                hub_api::online::goodbye();
+            }
+        });
 }
 
 #[cfg(test)]

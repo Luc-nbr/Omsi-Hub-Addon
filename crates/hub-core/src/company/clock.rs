@@ -78,10 +78,13 @@ pub fn moment(date: &str, minute: i64) -> i64 {
     dates::parse(date).unwrap_or(0) * DAY + minute
 }
 
-/// The first day the company may be moved to (`move_to`): its last day booked or closed
-/// (None: any).
+/// The first day the company may be moved to (`move_to`): its last day booked, or the day after
+/// its last day closed (None: any) - back to the day closed, it was closed again: its fares, wages
+/// and a month's costs booked twice.
 pub fn earliest_date(c: &Company) -> Option<String> {
-    c.ledger.iter().map(|b| b.date.as_str()).chain(c.history.iter().map(|h| h.date.as_str())).filter_map(dates::parse).max().map(dates::fmt)
+    let booked = c.ledger.iter().filter_map(|b| dates::parse(&b.date));
+    let closed = c.history.iter().filter_map(|h| dates::parse(&h.date)).map(|d| d + 1);
+    booked.chain(closed).max().map(dates::fmt)
 }
 
 /// Move the company to another day (the company's settings): its clock to that day's
@@ -96,6 +99,23 @@ pub fn move_to(c: &mut Company, date: &str) -> Result<(), &'static str> {
     // (its own day: the clock stays where it is, the day is not run again)
     if dates::fmt(d) == c.date {
         return Ok(());
+    }
+    // (the staff's week and year as the days closed keep them: a week left behind is a new one -
+    // its days worked, hours paid and guarantee started anew, nothing of it paid; a new year
+    // brings its holidays; the rest since the last duty is long)
+    let old = dates::parse(&c.date);
+    let new_week = old.is_none_or(|o| o - dates::weekday(o) as i64 != d - dates::weekday(d) as i64);
+    let new_year = old.is_none_or(|o| dates::civil_from_days(o).0 != dates::civil_from_days(d).0);
+    for e in c.staff.iter_mut() {
+        e.last_end = None;
+        if new_week {
+            e.week_days = 0;
+            e.week_paid = 0.0;
+            e.week_due = 0.0;
+        }
+        if new_year {
+            e.holiday_left = super::staff::HOLIDAYS;
+        }
     }
     c.date = dates::fmt(d);
     c.clock.minute = 0;
@@ -846,7 +866,9 @@ pub fn free_buses(c: &Company, s: &DayScript, not: u32, line_name: &str, start: 
         if tours.iter().any(|&(a, z)| a < arrive + SPARE_LEAST + margin && start < z + margin) {
             continue;
         }
-        let until = tours.iter().map(|x| x.0).filter(|&a| a < end + margin).min().map(|a| a - margin);
+        // (by the tours still to come: one it drove this morning put its "until" in the past, and
+        // the spare covered no trip at all)
+        let until = tours.iter().map(|x| x.0).filter(|&a| a >= start && a < end + margin).min().map(|a| a - margin);
         let last = until.unwrap_or(end);
         if sent.iter().any(|&(id, from, to)| id == v.id && from < last && arrive < to) {
             continue;

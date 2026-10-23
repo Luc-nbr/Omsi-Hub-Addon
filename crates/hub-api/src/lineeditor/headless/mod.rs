@@ -247,16 +247,13 @@ fn frame(s: &mut Session) {
     let v = &mut s.v;
     if v.shapes_for != v.sel {
         v.shapes_for = v.sel;
-        v.shapes = Default::default();
+        // (every direction: a line of the map's has its variants after the two)
+        v.shapes = Vec::new();
         if let (Some((_, router)), Some(line)) = (v.router.as_ref(), v.sel.and_then(|id| v.reg.line(id))) {
-            for (k, d) in line.directions.iter().enumerate().take(2) {
-                v.shapes[k] = stored_shapes(router, d);
-            }
+            v.shapes = line.directions.iter().map(|d| stored_shapes(router, d)).collect();
         } else if let Some(line) = v.sel.and_then(|id| v.reg.line(id)) {
             // (no roads yet: straight from stop to stop)
-            for (k, d) in line.directions.iter().enumerate().take(2) {
-                v.shapes[k] = (0..d.legs.len().min(d.stops.len().saturating_sub(1))).map(|i| straight(d, i)).collect();
-            }
+            v.shapes = line.directions.iter().map(|d| (0..d.legs.len().min(d.stops.len().saturating_sub(1))).map(|i| straight(d, i)).collect()).collect();
         }
         v.revision += 1;
     }

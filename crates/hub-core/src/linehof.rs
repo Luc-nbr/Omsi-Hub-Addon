@@ -494,6 +494,18 @@ impl Depot {
         Some(Self::from_text(path, &decode(&b).0, map))
     }
 
+    /// The depot file at `path` as the game reads it - the whole of it, the line editor's blocks
+    /// (every map's) too: what a bus's IBIS finds in it (the duty card's and the live dashboard's
+    /// codes, `crate::ibis`). (`load` leaves the editor's blocks out: an own line had no
+    /// destination there.)
+    pub fn load_as_game(path: &Path) -> Option<Depot> {
+        let b = std::fs::read(path).ok()?;
+        let text = decode(&b).0;
+        let hof = Hof::parse(&hub_omsi::CfgFile::from_str(path, &text));
+        let notes = notes(&text, hof.string_count_terminus);
+        Some(Self::from_hof(hof, notes))
+    }
+
     /// The file's own terminus a destination names (its ident, as the game looks for it).
     pub fn terminus(&self, name: &str) -> Option<&Terminus> {
         let n = name.trim();
@@ -1428,6 +1440,23 @@ pub(crate) mod tests {
         let put = put_block(&lf, "Grundorf", "[addterminus]\r\n1\r\nA\r\n");
         assert!(!put.contains('\r'));
         assert_eq!(strip_block(&put, "Grundorf"), lf);
+    }
+
+    /// What a bus's IBIS finds: the whole file, the line editor's own destinations too - the
+    /// line editor's view leaves its map's block out (it writes it anew).
+    #[test]
+    fn the_game_reads_the_line_editors_own_destinations() {
+        let block = "[addterminus]\r\n900\r\nMarktplatz Süd\r\nMARKTPLATZ SÜD\r\nMARKTPLATZ\r\nSÜD\r\nMARKTPLATZ SÜD\r\nBlanko.tga\r\nMarktplatz Süd\r\n\r\n\r\n\r\n";
+        let dir = std::env::temp_dir().join(format!("omsihub-linehof-game-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Grundorf.hof");
+        std::fs::write(&path, put_block(GRUNDORF, "Grundorf", block)).unwrap();
+        let game = Depot::load_as_game(&path).unwrap();
+        let editor = Depot::load(&path, "Grundorf").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(game.terminus("Marktplatz Süd").is_some_and(|t| t.code == 900));
+        assert!(game.terminus("Krankenhaus").is_some());
+        assert!(editor.terminus("Marktplatz Süd").is_none());
     }
 
     #[test]

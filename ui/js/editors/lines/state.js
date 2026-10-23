@@ -71,7 +71,9 @@ function take(v) {
       })
       .catch((e) => status(e.message, true));
   }
-  if (!v.map_key) L.map = null;
+  // (no map read: the key let go too, so that the map read again - the same one, chosen
+  // back while another was being read - is asked for again)
+  if (!v.map_key) (L.map = null), (L.mapKey = null);
   // (the map is being read: asked again until it is)
   if (v.reading && !L.polling) {
     L.polling = true;

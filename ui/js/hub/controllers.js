@@ -236,7 +236,7 @@ function gameValue(v, [f, flags]) {
 
 const STEPS = [
   ['Let go of everything', 'Take your hands off the wheel and your feet off the pedals, the wheel in the middle; then press Next.'],
-  ['Steering', 'Turn the wheel (or move the stick) all the way to the LEFT and hold it there; then press Next.'],
+  ['Steering', 'Turn the wheel (or move the stick) all the way to the LEFT and hold it there; then press Next. No wheel (pedals only): Skip.'],
   ['Throttle', 'Press the throttle pedal all the way down and hold it; then press Next. No pedals: Skip.'],
   ['Brake', 'Press the brake pedal all the way down and hold it; then press Next. No brake pedal: Skip.'],
   ['Clutch', 'Press the clutch pedal all the way down and hold it; then press Next. No clutch: Skip.'],
@@ -288,6 +288,12 @@ function Wizard({ name, live, onDone, onClose }) {
     (live?.axes || []).forEach(([k, v]) => (a[k] = v));
     return a;
   };
+  // (Escape closes it, as the Cancel button)
+  useEffect(() => {
+    const k = (e) => e.key === 'Escape' && onClose();
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, [onClose]);
   // (the axis moved most from where it rested: lit while it is held)
   const moving = rest && step > 0 ? movedMost(rest, now(), []) : null;
   const next = (skip) => {
@@ -318,7 +324,7 @@ function Wizard({ name, live, onDone, onClose }) {
       ${error && html`<p class="small bad">${tr(error)}</p>`}
       <div class="row" style="gap:8px;justify-content:flex-end;margin-top:14px">
         <${Button} kind="ghost" label="Cancel" onClick=${onClose} />
-        ${step > 1 && html`<${Button} label="Skip" onClick=${() => next(true)} />`}
+        ${step > 0 && html`<${Button} label="Skip" onClick=${() => next(true)} />`}
         <${Button} kind="primary" icon="arrow_forward" label=${step === STEPS.length - 1 ? 'Done' : 'Next'} disabled=${!live} onClick=${() => next(false)} />
       </div>
     </div>
@@ -331,11 +337,22 @@ function Wizard({ name, live, onDone, onClose }) {
 export function ControllersPanel() {
   const [cfg, setCfg] = useState(null);
   const [error, setError] = useState('');
-  const [game, setGame] = useState(null);
+  const [game, setGameNow] = useState(null);
+  // (the settings as last answered, for a change made before the page drew them)
+  const gameRef = useRef(null);
+  const setGame = (v) => {
+    gameRef.current = v;
+    setGameNow(v);
+  };
+  const offQueue = useRef(Promise.resolve());
   const [saving, setSaving] = useState('');
   const [sel, setSel] = useState(null);
   const [wizard, setWizard] = useState(null);
   const [lit, setLit] = useState(null);
+  // (the line lit for four seconds: put out by a timer, not by whether the page happens to be
+  // drawn again)
+  const litTimer = useRef(0);
+  useEffect(() => () => clearTimeout(litTimer.current), []);
   const [pads, listeners] = usePads();
   const devicesRef = useRef(null);
   const timer = useRef(0);
@@ -393,9 +410,14 @@ export function ControllersPanel() {
   const offField = game?.groups.flatMap((g) => g.fields).find((f) => f.key === 'ctrl_off');
   const offs = (offField?.value || '').split('|').filter(Boolean);
   const isOff = (name) => offs.some((o) => namesMatch(o, name));
+  // (one after the other, each from the answer before it: two devices switched off quickly
+  // kept only the second)
   const setOn = (name, on) => {
-    const rest = offs.filter((o) => !namesMatch(o, name));
-    call('addon_game_setting', { key: 'ctrl_off', value: (on ? rest : [...rest, name]).join('|') }).then(setGame, (e) => toast(tr(String(e?.message || e)), 'error'));
+    offQueue.current = offQueue.current.then(() => {
+      const now = gameRef.current?.groups.flatMap((g) => g.fields).find((f) => f.key === 'ctrl_off');
+      const rest = (now?.value || '').split('|').filter(Boolean).filter((o) => !namesMatch(o, name));
+      return call('addon_game_setting', { key: 'ctrl_off', value: (on ? rest : [...rest, name]).join('|') }).then(setGame, (e) => toast(tr(String(e?.message || e)), 'error'));
+    });
   };
 
   const devices = cfg?.devices || [];
@@ -411,7 +433,9 @@ export function ControllersPanel() {
       if (wizard) return;
       const hit = list.find((e) => e.cfg && namesMatch(e.name, name)) || list.find((e) => namesMatch(e.name, name));
       if (hit) setSel(hit.name);
-      setLit({ name, n, at: Date.now() });
+      setLit({ name, n });
+      clearTimeout(litTimer.current);
+      litTimer.current = setTimeout(() => setLit(null), 4000);
     };
     listeners.current.add(press);
     return () => listeners.current.delete(press);
@@ -448,7 +472,7 @@ export function ControllersPanel() {
               actions=${cfg.actions || []}
               off=${isOff(entry.name)}
               ffInvert=${game?.groups.flatMap((g) => g.fields).find((f) => f.key === 'ff_invert')?.value === '1'}
-              lit=${lit && namesMatch(lit.name, entry.name) && Date.now() - lit.at < 4000 ? lit.n : null}
+              lit=${lit && namesMatch(lit.name, entry.name) ? lit.n : null}
               change=${(f) => change(entry.cfg.name, f)}
               setOn=${(on) => setOn(entry.cfg.name, on)}
               setUp=${() => setWizard(entry.cfg.name)}
@@ -643,6 +667,11 @@ function ActionSelect({ value, groups, names, onChange, placeholder = 'Nothing' 
 function ButtonsCard({ d, live, names, actions, lit, change }) {
   const [all, setAll] = useState(false);
   const [adding, setAdding] = useState(null);
+  // (a button pressed stays listed once its light is out: its action may still be being chosen)
+  const [touched, setTouched] = useState(() => new Set());
+  useEffect(() => {
+    if (lit != null) setTouched((t) => (t.has(lit) ? t : new Set(t).add(lit)));
+  }, [lit]);
   const groups = actionGroups(actions, d, names);
   const count = live ? live.buttons : 0;
   const hats = live ? live.hats : 0;
@@ -652,6 +681,7 @@ function ButtonsCard({ d, live, names, actions, lit, change }) {
   d.latching.forEach((n) => bound.add(n));
   d.buttons.forEach(([, c], n) => c === '1' && bound.add(n));
   if (lit != null) bound.add(lit);
+  touched.forEach((n) => bound.add(n));
   if (all) {
     for (let n = 0; n < count; n++) bound.add(n);
     for (let n = 0; n < hats * 4; n++) bound.add(HATS + n);

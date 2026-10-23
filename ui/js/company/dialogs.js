@@ -6,7 +6,8 @@
 
 import { S } from '../store.js';
 import { call } from '../api.js';
-import { html, tr, setCo, act, cmd, refresh, useView, goTab, goKey, handOver, Icon, Btn, Seg, Switch, Select, Dialog, Popup, Figure, Mark, Plate, Slider, T } from './kit.js';
+import { html, useEffect, useState, tr, setCo, act, cmd, refresh, useView, useGone, goTab, goKey, handOver, Icon, Btn, Seg, Switch, Select, Dialog, Popup, Figure, Mark, Plate, Slider, T } from './kit.js';
+import { toast } from '../store.js';
 import { VehicleDialog, NewDialog } from './fleet.js';
 import { DealerSheet } from './dealer.js';
 import { AddLineDialog } from './lines.js';
@@ -80,7 +81,7 @@ const close = () => setCo({ dialog: null });
  * buys, whether friends join without an invite, its date and the real clock; deleting it. */
 function SettingsDialog({ d }) {
   const v = useView('settings', { date: d.date || null });
-  if (!v) return null;
+  if (useGone(v, close) || !v) return null;
   const k = v.modes.findIndex((m) => m.key === v.mode);
   const pick = async () => {
     const p = await call('pick_file', { title: v.choose_logo }).catch(() => null);
@@ -154,7 +155,11 @@ function SettingsDialog({ d }) {
  * dispatcher, and closing the day quickly. */
 function TimeDialog() {
   const v = useView('time');
-  if (!v) return null;
+  // (the time "until" while it is dragged: sent when let go - sent at every step, the answer put
+  // the thumb back where it was while the hand went on)
+  const [until, setUntil] = useState(null);
+  useEffect(() => setUntil(null), [v?.until]);
+  if (useGone(v, close) || !v) return null;
   const step = (s) => {
     close();
     act('step', { step: s.step, n: s.n });
@@ -166,8 +171,8 @@ function TimeDialog() {
     <div class="co-caps" style="margin-bottom:10px">${v.simulate}</div>
     <div class="co-steps">${v.steps.map((s) => html`<${Btn} label=${s.label} title=${s.tip} style="height:38px;padding:0 6px" onClick=${() => step(s)} />`)}</div>
     <div style="display:flex;gap:14px;align-items:center;margin:10px 0 24px">
-      <${Slider} label=${v.until_label} value=${v.until} min=${0} max=${1425} step=${15} format=${(m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`} onChange=${(m) => act('until', { minute: m })} style="flex:1;height:40px" />
-      <${Btn} icon="schedule" label=${v.until_button} style="height:40px" onClick=${() => (close(), act('step', { step: 'until', minute: v.until }))} />
+      <${Slider} label=${v.until_label} value=${until ?? v.until} min=${0} max=${1425} step=${15} format=${(m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`} onChange=${setUntil} onRelease=${(m) => act('until', { minute: m })} style="flex:1;height:40px" />
+      <${Btn} icon="schedule" label=${v.until_button} style="height:40px" onClick=${() => (close(), act('step', { step: 'until', minute: until ?? v.until }))} />
     </div>
     <div class="co-caps" style="margin-bottom:10px">${v.run}</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -186,17 +191,18 @@ function TimeDialog() {
  * more, deleting the company, another game mode. */
 function ConfirmDialog({ d }) {
   const v = useView('confirm', { what: d.what, id: d.id || 0, name: d.name || '' });
-  if (!v) return null;
-  if (v.gone) {
-    close();
-    return null;
-  }
+  if (useGone(v, close) || !v) return null;
   const back = () => setCo({ dialog: d.settings ? { kind: 'settings', date: d.settings } : null });
   const yes = async () => {
     setCo({ dialog: null });
     if (d.what === 'delete_company') {
       const id = d.name || S.co.shell?.id;
-      await cmd('co_delete', { id });
+      try {
+        await cmd('co_delete', { id });
+      } catch (e) {
+        toast(e.message, 'error');
+        return;
+      }
       // (the company open is gone: its start, the companies)
       if (!d.name || d.name === S.co.shell?.id) setCo({ chooser: 'companies' });
       refresh();
@@ -218,8 +224,9 @@ function ConfirmDialog({ d }) {
  * kind, the lines (a click opens one's money), and what happened with the ways to mend it. */
 function ReportDialog() {
   const v = useView('report');
-  if (!v) return null;
   const done = () => act('close_reports');
+  if (!v) return null;
+  if (v.error) return html`<${Failed} v=${v} onClose=${done} />`;
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${v.close} onClick=${done} />`;
   return html`<${Dialog} icon="receipt_long" title=${v.title} w=${1000} h=${860} onClose=${done} foot=${foot} bodyStyle="display:flex;flex-direction:column">
     <div class="co-figures4">${v.figures.map((f) => html`<div title=${f.tip || undefined}><${Figure} f=${f} /></div>`)}</div>
@@ -258,6 +265,7 @@ function toPlanning(link) {
 function AwayDialog() {
   const v = useView('away');
   if (!v) return null;
+  if (v.error) return html`<${Failed} v=${v} onClose=${() => act('close_away', { report: false })} />`;
   const foot = html`${v.report && html`<${Btn} icon="receipt_long" label=${v.report} onClick=${() => act('close_away', { report: true })} />`}
     <span class="rest"></span><${Btn} kind="primary" label=${v.go} onClick=${() => act('close_away', { report: false })} />`;
   return html`<${Dialog} icon="history" title=${v.title} w=${860} h=${700} foot=${foot} bodyStyle="display:flex;flex-direction:column">
@@ -279,11 +287,14 @@ function AwayDialog() {
  * or the trips dropped), a tender, the morning's disruptions, a notice. */
 function AskDialog() {
   const v = useView('ask');
-  if (!v || !v.kind) return null;
-  if (v.kind === 'gone') {
-    act('ask_on', { on: true });
-    return null;
-  }
+  // (the question gone - the breakdown or the tender answered meanwhile: the clock goes on, once
+  // for that answer - asked in the drawing, it went on again at every drawing until the view came
+  // anew, and answered the next question before it was seen)
+  useEffect(() => {
+    if (v?.kind === 'gone') act('ask_on', { on: true });
+  }, [v]);
+  if (v?.error) return html`<${Failed} v=${v} onClose=${() => act('ask_on', { on: true })} />`;
+  if (!v || !v.kind || v.kind === 'gone') return null;
   if (v.kind === 'breakdown') {
     const foot = html`<span class="rest"></span><${Btn} label=${v.drop} onClick=${() => act('ask_drop')} />
       <${Btn} kind=${v.spares.length ? '' : 'primary'} icon="directions_bus" label=${v.rental} onClick=${() => act('ask_rental')} />`;
@@ -310,6 +321,14 @@ function AskDialog() {
   }
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${v.on} onClick=${() => act('ask_on', { on: true })} />`;
   return html`<${Dialog} icon=${v.icon} title=${v.title} w=${600} onClose=${() => act('ask_on', { on: true })} foot=${foot}><p class="co-para">${v.text}</p></${Dialog}>`;
+}
+
+/** What lies over the pages could not be read (a friend's look at the boss's company that lost
+ * him): what went wrong, and the way on. */
+function Failed({ v, onClose }) {
+  return html`<${Dialog} icon="error" title=${tr('Error')} w=${560} onClose=${onClose} foot=${html`<span class="rest"></span><${Btn} kind="primary" label=${tr('OK')} onClick=${onClose} />`}>
+    <p class="co-para">${v.error}</p>
+  </${Dialog}>`;
 }
 
 export { T, tr };

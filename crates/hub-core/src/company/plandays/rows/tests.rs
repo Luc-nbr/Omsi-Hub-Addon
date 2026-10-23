@@ -216,3 +216,17 @@ fn a_locked_duty_copied_twice_is_copied_over_the_second_time() {
     let made = copy_rows(&mut c, 1, Day { date: TUE, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows_of_block("1"));
     assert!(made.same_plan && made.matched == 0);
 }
+
+#[test]
+fn a_spare_duty_pasted_twice_is_there_once() {
+    let lines = line_of(&[("1", 360, 8), ("2", 390, 8)]);
+    let mut c = company();
+    c.planning.flow.sheet.spares.push(rf::Spare { weekday: 0, id: 1, name: "Early spare".into(), ..Default::default() });
+    let rows = Rows { spares: vec![1], ..Default::default() };
+    for _ in 0..2 {
+        copy_rows(&mut c, 0, Day { date: MON, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows);
+    }
+    let tue: Vec<&rf::Spare> = c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == 1).collect();
+    assert_eq!(tue.len(), 1);
+    assert!(tue[0].id != 1 && tue[0].name == "Early spare");
+}

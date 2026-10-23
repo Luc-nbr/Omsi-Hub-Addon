@@ -253,7 +253,8 @@ impl Upgrade {
             Gantry => "gantry",
             Interior => "interior",
             Underbody => "underbody",
-            Recycling => "autorenew",
+            // (its name, as the yard draws it - its icon's name, the tanks were never drawn)
+            Recycling => "recycling",
             BulkTank => "bulk_tank",
             AdBlue => "adblue",
             Canteen => "canteen",
@@ -718,7 +719,10 @@ pub fn next_cost(c: &Company, area: Area) -> Option<(Cents, i64)> {
         return None;
     }
     let s = step(area, next);
-    let cost = ((s.cost as f64 * cost_factor(c.game_mode) * c.price_index / 100.0).round() as Cents) * 100;
+    // (with what the area's upgrades priced by the lane or block need for one more: a wash lane
+    // built after the gantries got its gantry for nothing, a parking block its carport)
+    let more: Cents = c.site.upgrades.iter().filter(|u| u.per_unit() && u.area() == area).map(|u| unit_cost(*u)).sum();
+    let cost = (((s.cost + more) as f64 * cost_factor(c.game_mode) * c.price_index / 100.0).round() as Cents) * 100;
     let days = if c.game_mode == GameMode::Casual { (s.days + 1) / 2 } else { s.days };
     Some((cost, days))
 }
@@ -741,6 +745,12 @@ pub fn upkeep_month(c: &Company) -> Cents {
         sum += upgrade_step(&c.site, *u).upkeep;
     }
     (sum as f64 * c.price_index).round() as Cents
+}
+
+/// What an upgrade priced by the lane or block costs for one of them.
+fn unit_cost(u: Upgrade) -> Cents {
+    let cents = super::econ_uk::gbp(u.price().0);
+    ((cents / 100_00.0).round() * 100_00.0) as Cents
 }
 
 /// An upgrade's price as a level's (`step`): a block's or a lane's for those priced by them, as
@@ -1410,6 +1420,12 @@ mod tests {
         assert!(c.site.has(Upgrade::Gantry) && c.site.level(Area::Wash) == 2);
         assert_eq!(c.site.washes(), 2 * WASHES_GANTRY);
         assert_eq!(build_upgrade(&mut c, Upgrade::Gantry), Err("This is there already."));
+        // a lane built since comes with its gantry, paid for with it
+        let with = next_cost(&c, Area::Wash).unwrap().0;
+        c.site.upgrades.retain(|u| *u != Upgrade::Gantry);
+        let without = next_cost(&c, Area::Wash).unwrap().0;
+        c.site.upgrades.push(Upgrade::Gantry);
+        assert!((with - without - cost / 2).abs() <= 100, "{with} {without} {cost}");
         // its upkeep is the depot's; the water recycled makes the lanes' less
         let up = upkeep_month(&c);
         c.site.upgrades.push(Upgrade::Recycling);

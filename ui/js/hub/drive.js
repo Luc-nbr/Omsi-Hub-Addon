@@ -25,7 +25,8 @@ export const CHOICE_DEFAULTS = {
 /** The look's and the pages' settings, until the player changes them. */
 export const SETTINGS_DEFAULTS = {
   dark_mode: true, accent: '#2a75f7', animations: true, stop_style: 'de', launcher_scale: 1,
-  company_layout: 'sidebar', units: 'metric', bus_lead: 10, update_auto: false,
+  // (`bus_lead`: hub-core's `BUS_LEAD_DEFAULT`, what `hub_duty_extras` takes while it is not set)
+  company_layout: 'sidebar', units: 'metric', bus_lead: 5, update_auto: false,
 };
 
 const KEPT_SETTINGS = 'omsihub.settings';
@@ -109,7 +110,8 @@ function fixChoice() {
   const c = { ...S.choice };
   if (S.maps?.length && !S.maps.some((m) => m.file === c.map)) {
     c.map = (S.maps.find((m) => /grundorf/i.test(m.file)) || S.maps[0]).file;
-    c.entry = -1;
+    // (an entry point or stop of the map before is none of this one's)
+    Object.assign(c, { entry: -1, free_entry: -1, free_stop: '', free_line: '', free_route: '', start_trip: null });
   }
   if (S.vehicles?.length && !S.vehicles.some((v) => v.file === c.bus)) {
     c.bus = S.vehicles[0].file;
@@ -212,9 +214,15 @@ export async function loadLines() {
   }
 }
 
+let hofAsked = '';
 async function updateHof() {
   const c = S.choice;
-  const hof = await call('hub_default_hof', { map: c.map, bus: c.bus, date: c.date, line: c.free ? null : c.line }).catch(() => '');
+  const line = c.free ? null : c.line;
+  // (another bus or map chosen while this was asked: its answer is the one kept)
+  const key = JSON.stringify([c.map, c.bus, c.date, line]);
+  hofAsked = key;
+  const hof = await call('hub_default_hof', { map: c.map, bus: c.bus, date: c.date, line }).catch(() => '');
+  if (hofAsked !== key) return;
   set({ hof: hof || '' });
   loadIbis();
 }
@@ -239,8 +247,11 @@ export async function loadIbis() {
 }
 
 export async function loadSituations() {
-  if (!S.choice?.map) return;
-  set({ situations: await call('hub_situations', { map: S.choice.map }).catch(() => []) });
+  const map = S.choice?.map;
+  if (!map) return;
+  const situations = await call('hub_situations', { map }).catch(() => []);
+  // (the answer for a map chosen before is not the chosen map's)
+  if (S.choice?.map === map) set({ situations });
 }
 
 /** The drivers on this computer (`hub_profiles`: OMSI's personnel files and those openOMSI's

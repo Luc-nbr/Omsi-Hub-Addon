@@ -50,9 +50,19 @@ function BusSide({ g, w, h, selected, onPick }) {
   </div>`;
 }
 
+/** When each job under way began (by its title: the bus and the kind), for as long as it runs -
+ * its clock went on from the full time whenever the page was drawn anew (another of the career's
+ * parts and back), and the bell could be put off for ever. */
+const began = new Map();
+const leftOf = (g) => Math.max(0, (g.seconds || 0) - (Date.now() - (began.get(g.title) ?? Date.now())) / 1000);
+
 /** The job under way (`repair_game::play`), or done (`results`). `g` is the job's view. */
 export function RepairGame({ g }) {
-  const [left, setLeft] = useState(g.seconds || 0);
+  // (one begun long past its time is another job: the last ended without its view)
+  const old = began.get(g.title);
+  if (!g.done && (old == null || Date.now() - old > ((g.seconds || 0) + 60) * 1000)) began.set(g.title, Date.now());
+  if (g.done) began.delete(g.title);
+  const [left, setLeft] = useState(() => leftOf(g));
   const [selected, setSelected] = useState('lights');
   const [checking, setChecking] = useState(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -61,14 +71,13 @@ export function RepairGame({ g }) {
   // the clock, and the check's moment
   useEffect(() => {
     if (g.done) return;
-    const t0 = performance.now();
-    const from = left;
-    const k = setInterval(() => setLeft(Math.max(0, from - (performance.now() - t0) / 1000)), 100);
+    const k = setInterval(() => setLeft(leftOf(g)), 100);
     return () => clearInterval(k);
   }, [g.done]);
   useEffect(() => {
     if (!g.done && left <= 0 && !ended.current) {
       ended.current = true;
+      began.delete(g.title);
       act('job_finish', { left: 0 });
     }
   }, [left <= 0]);
@@ -98,7 +107,7 @@ export function RepairGame({ g }) {
       <p class="tally">${g.tally}</p>
       <div class="rows">${g.rows.map((r) => html`<div class="row"><${Icon} name=${r.good ? 'check_circle' : 'error'} size=${16} class=${r.good ? 't-ok' : 't-warn'} />
         <b class="cut">${r.label}</b><span class="cut reading">${r.reading}</span><span class=${'cut did ' + (r.good ? 't-dim' : 't-warn')}>${r.did}</span></div>`)}</div>
-      <div class="foot"><${Btn} kind="primary" label=${g.back} style="width:220px;height:38px" onClick=${() => act('job_leave')} /></div>
+      <div class="foot"><${Btn} kind="primary" label=${g.back} style="width:220px;height:38px" onClick=${() => (began.delete(g.title), act('job_leave'))} /></div>
     </${Section}></div>`;
   }
   const total = g.seconds || 1;
@@ -108,6 +117,7 @@ export function RepairGame({ g }) {
   const finish = () => {
     if (ended.current) return;
     ended.current = true;
+    began.delete(g.title);
     act('job_finish', { left });
   };
   const bw = Math.max(0, Math.min(box.w - 80, (box.h - 120) * 3.6));
@@ -116,7 +126,7 @@ export function RepairGame({ g }) {
       <div class="what"><b class="cut">${g.title}</b><span class="cut">${g.sub}</span></div>
       <div class="clock"><b class=${low ? 't-danger' : ''}>${clock}</b><div class="co-meter"><i style=${`width:${(left / total) * 100}%;background:var(--co-${low ? 'danger' : 'accent2'})`}></i></div></div>
       <${Btn} kind="primary" icon="check_circle" label=${g.finish} style="width:150px;height:38px" onClick=${finish} />
-      <${Btn} kind="ghost" label=${g.leave} style="width:104px;height:38px" onClick=${() => act('job_leave')} />
+      <${Btn} kind="ghost" label=${g.leave} style="width:104px;height:38px" onClick=${() => (began.delete(g.title), act('job_leave'))} />
     </div>
     <div class="body">
       <div class="stage co-section" ref=${stage}>

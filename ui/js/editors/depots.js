@@ -15,7 +15,7 @@ import { S, set, useStore } from '../store.js';
 import { call } from '../api.js';
 import { curBus } from '../hub/drive.js';
 import { Seg } from '../hub/bits.js';
-import { Card, Heading, Row, Field, Drop, IconBtn, Btn, Toggle, Icon, tr, status, keep, mapLabel } from './kit.js';
+import { Card, Heading, Row, Field, LiveField, Drop, IconBtn, Btn, Toggle, Icon, tr, status, keep, mapLabel } from './kit.js';
 import { LedSign, IbisLcd, SideSign, useBusFont } from './signs.js';
 
 // (a name, the same in every language)
@@ -34,7 +34,8 @@ const redraw = () => set({});
 function say(e) {
   const m = String(e?.message || e);
   const [text, a] = m.split('|');
-  if (a == null) return m;
+  // (said inside another text too - "Not saved: …" - so translated here)
+  if (a == null) return tr(m);
   return tr(text, { name: a, hof: a });
 }
 
@@ -47,8 +48,19 @@ function mapName(folder) {
   return m ? mapLabel(m) : folder;
 }
 
+/** The requests of the depot editor, one at a time in the order they were made: Rust answers
+ * each on a thread of its own, so a name typed key by key could arrive "ab" before "a" (and
+ * be left "a"), an answer could put back an older view, a save come before the last change. */
+let queue = Promise.resolve();
+function inTurn(fn) {
+  const next = queue.then(fn, fn);
+  queue = next.catch(() => {});
+  return next;
+}
+
 /** The page shown: the files read, the one asked for opened (`draw`'s first frame). */
-async function show(key) {
+const show = (key) => inTurn(() => showNow(key));
+async function showNow(key) {
   const maps = (S.maps || []).map((m) => [folderOf(m.file), m.hof || '']);
   try {
     const r = await call('de_show', { key: key || null, maps });
@@ -75,9 +87,13 @@ function take(view, sel) {
 }
 
 /** A change of the file open (`de_edit`). */
-async function edit(op, more = {}) {
+const edit = (op, more = {}) => inTurn(() => editNow(op, more));
+async function editNow(op, more) {
   try {
     const r = await call('de_edit', { op, ...more });
+    // (the code typed is the field's own while it is typed; after another change - a row
+    // deleted, one put in before - it is the destination's own again)
+    if (op !== 't_code') V.code = [-1, ''];
     take(r.view, r.sel);
   } catch (e) {
     status(say(e), true);
@@ -85,16 +101,18 @@ async function edit(op, more = {}) {
   redraw();
 }
 
-async function openKey(key) {
-  try {
-    take(await call('de_open', { key }));
-  } catch (e) {
-    status(say(e), true);
-  }
-  redraw();
-}
+const openKey = (key) =>
+  inTurn(async () => {
+    try {
+      take(await call('de_open', { key }));
+    } catch (e) {
+      status(say(e), true);
+    }
+    redraw();
+  });
 
-async function save() {
+const save = () => inTurn(saveNow);
+async function saveNow() {
   try {
     const r = await call('de_save');
     take(r.view);
@@ -108,7 +126,8 @@ async function save() {
   redraw();
 }
 
-async function remove() {
+const remove = () => inTurn(removeNow);
+async function removeNow() {
   try {
     const r = await call('de_delete');
     V.view = null;
@@ -130,34 +149,40 @@ function NewForm() {
   const m = maps[Math.min(f.map, maps.length - 1)];
   useEffect(() => {
     if (!m || f.sourcesFor === m.file) return;
-    f.sourcesFor = m.file;
+    const file = m.file;
+    f.sourcesFor = file;
     const bus = curBus() || (S.vehicles || []).find((v) => v.file === S.choice.last_bus);
-    call('de_sources', { hof: m.hof || '', map: m.file, bus: bus?.file || '', bus_name: bus?.name || '' }).then((list) => {
-      // (the source chosen kept by what it is, not by its place; else the map's, else an empty one)
-      const had = f.sources?.[f.from]?.source;
-      const same = (a, b) => a && b && a.kind === b.kind && (a.path || '') === (b.path || '');
-      let at = had ? list.findIndex((x) => same(x.source, had)) : -1;
-      if (at < 0) at = Math.max(0, list.findIndex((x) => x.source.kind === 'map'));
-      Object.assign(f, { sources: list, from: at });
-      redraw();
-    });
+    call('de_sources', { hof: m.hof || '', map: file, bus: bus?.file || '', bus_name: bus?.name || '' })
+      .then((list) => {
+        // (another map chosen meanwhile, or the form gone: its own answer counts)
+        if (V.form !== f || f.sourcesFor !== file) return;
+        // (the source chosen kept by what it is, not by its place; else the map's, else an empty one)
+        const had = f.sources?.[f.from]?.source;
+        const same = (a, b) => a && b && a.kind === b.kind && (a.path || '') === (b.path || '');
+        let at = had ? list.findIndex((x) => same(x.source, had)) : -1;
+        if (at < 0) at = Math.max(0, list.findIndex((x) => x.source.kind === 'map'));
+        Object.assign(f, { sources: list, from: at });
+        redraw();
+      })
+      .catch((e) => status(say(e), true));
   });
   const hint = m ? tr('%{map} - mine', { map: mapLabel(m) }) : '';
-  const make = async () => {
-    if (!m) return;
-    const name = f.name.trim() || hint;
-    try {
-      const r = await call('de_make', { name, map: m.file, source: f.sources?.[f.from]?.source || { kind: 'empty' } });
-      V.form = null;
-      V.entries = r.entries;
-      take(r.view);
-      status(tr('Depot file %{name} made', { name }));
-      S.ed.ownDepotsChanged = Date.now();
-    } catch (e) {
-      status(say(e), true);
-    }
-    redraw();
-  };
+  const make = () =>
+    inTurn(async () => {
+      if (!m || V.form !== f) return;
+      const name = f.name.trim() || hint;
+      try {
+        const r = await call('de_make', { name, map: m.file, source: f.sources?.[f.from]?.source || { kind: 'empty' } });
+        V.form = null;
+        V.entries = r.entries;
+        take(r.view);
+        status(tr('Depot file %{name} made', { name }));
+        S.ed.ownDepotsChanged = Date.now();
+      } catch (e) {
+        status(say(e), true);
+      }
+      redraw();
+    });
   return html`<div class="de-form">
     <span class="ed-caps">${tr('Name')}</span>
     <${Field} value=${f.name} raw placeholder=${hint} onInput=${(v) => ((f.name = v), redraw())} onEnter=${make} />
@@ -276,7 +301,7 @@ function DestinationDetail({ v, roles }) {
       ${p?.too_wide && html`<p class="ed-warn de-small">${tr('Wider than the display of %{bus} in its font %{font}: the end is cut off', { bus: bus.name, font: p.font })}</p>`}`}
     <${Head2} title="Destination" />
     <div class="de-namecode">
-      <${Field} raw value=${t.name} placeholder=${tr('What the timetable\'s trips name')} onInput=${(x) => edit('t_name', { i, value: x })} />
+      <${LiveField} raw value=${t.name} placeholder=${tr('What the timetable\'s trips name')} onInput=${(x) => edit('t_name', { i, value: x })} />
       <${Field} raw value=${V.code[1]} placeholder=${tr('Code')} onInput=${(x) => ((V.code = [i, x]), edit('t_code', { i, value: x }))} />
     </div>
     <${Toggle} checked=${t.all_exit} label="Nobody boards: a service trip (everybody gets off)" onChange=${(on) => edit('t_all_exit', { i, on })} />
@@ -286,7 +311,7 @@ function DestinationDetail({ v, roles }) {
       const l = v.labels[k];
       const count = s.trimEnd().length;
       return html`<div class="de-text"><span>${labelOf(l, k)}</span>${l?.limit != null && html`<b class=${count > l.limit ? 'over' : ''}>${count}/${l.limit}</b>`}</div>
-        <${Field} raw class="short" value=${s} placeholder="-" onInput=${(x) => edit('t_string', { i, k, value: x })} />`;
+        <${LiveField} raw class="short" value=${s} placeholder="-" onInput=${(x) => edit('t_string', { i, k, value: x })} />`;
     })}
     ${issues.map((x) => html`<p class=${'de-issue' + (x.serious ? ' bad' : '')}>${issueText(x)}</p>`)}
     <div class="two"><${Btn} icon="content_copy" label="Duplicate" onClick=${() => edit('t_dup', { i })} /><${Btn} kind="danger" icon="delete" label="Delete" onClick=${() => edit('t_del', { i })} /></div>
@@ -311,10 +336,10 @@ function Stops({ v }) {
       const b = v.stops[k];
       return html`<div class="de-detail">
         <${Head2} title="Stop" />
-        <${Field} raw value=${b.ident} placeholder=${tr('What the routes name it')} onInput=${(x) => edit('s_ident', { i: k, value: x })} />
+        <${LiveField} raw value=${b.ident} placeholder=${tr('What the routes name it')} onInput=${(x) => edit('s_ident', { i: k, value: x })} />
         <${Head2} title="Texts" />
         ${b.strings.map((s, j) => html`<div class="de-text"><span>${(v.stop_notes[j] || '').trim() || (j === 0 ? tr('IBIS display') : tr('Text %{n}', { n: j + 1 }))}</span></div>
-          <${Field} raw class="short" value=${s} placeholder="-" onInput=${(x) => edit('s_string', { i: k, k: j, value: x })} />`)}
+          <${LiveField} raw class="short" value=${s} placeholder="-" onInput=${(x) => edit('s_string', { i: k, k: j, value: x })} />`)}
         ${issuesAt(v, 'stop', k).map((x) => html`<p class=${'de-issue' + (x.serious ? ' bad' : '')}>${issueText(x)}</p>`)}
         <${Btn} kind="danger" icon="delete" label="Delete" style="width:160px;margin-top:6px" onClick=${() => edit('s_del', { i: k })} />
       </div>`;
@@ -326,8 +351,8 @@ function Routes({ v }) {
   const n = v.trips.length;
   const to = (t) => {
     const code = parseInt(t.route, 10);
-    const x = t.route.trim() ? v.termini.find((d) => d.code === code) : null;
-    return x ? x.name : `? ${t.route.trim()}`;
+    const x = String(t.route).trim() ? v.termini.find((d) => d.code === code) : null;
+    return x ? x.name : `? ${String(t.route).trim()}`;
   };
   return html`<div class="de-split">
     <div class="de-table">
@@ -352,15 +377,15 @@ function RouteDetail({ v }) {
   const t = v.trips[k];
   const code = parseInt(t.route, 10);
   const options = v.termini.map((d) => [String(d.code), `${d.code} · ${d.name}`]);
-  const known = t.route.trim() && v.termini.some((d) => d.code === code);
-  if (!known) options.push(['?', tr('? %{code}: not in the file', { code: t.route.trim() })]);
+  const known = String(t.route).trim() && v.termini.some((d) => d.code === code);
+  if (!known) options.push(['?', tr('? %{code}: not in the file', { code: String(t.route).trim() })]);
   const names = v.stops.map((b) => b.ident);
   V.addStop = Math.min(V.addStop, Math.max(0, names.length - 1));
   return html`<div class="de-detail route">
     <div class="de-three"><span class="ed-caps">${tr('Code')}</span><span class="ed-caps">${tr('Line')}</span><span class="ed-caps">${tr('Name')}</span>
-      <${Field} raw value=${t.code} placeholder=${tr('Code')} onInput=${(x) => edit('r_code', { i: k, value: x })} />
-      <${Field} raw value=${t.line} placeholder=${tr('Line')} onInput=${(x) => edit('r_line', { i: k, value: x })} />
-      <${Field} raw value=${t.name} placeholder=${tr('Name')} onInput=${(x) => edit('r_name', { i: k, value: x })} /></div>
+      <${LiveField} raw value=${t.code} placeholder=${tr('Code')} onInput=${(x) => edit('r_code', { i: k, value: x })} />
+      <${LiveField} raw value=${t.line} placeholder=${tr('Line')} onInput=${(x) => edit('r_line', { i: k, value: x })} />
+      <${LiveField} raw value=${t.name} placeholder=${tr('Name')} onInput=${(x) => edit('r_name', { i: k, value: x })} /></div>
     ${options.length > 0 && html`<${Head2} title="Goes to" /><${Drop} raw value=${known ? String(code) : '?'} options=${options} onChange=${(c) => c !== '?' && edit('r_route', { i: k, value: c })} />`}
     <${Head2} title="Its stops" />
     <div class="de-stops">
@@ -406,10 +431,10 @@ function FileTab({ v }) {
       <${IconBtn} icon="remove" size=${12} title="One text less (the last of every destination goes)" onClick=${() => n > 1 && edit('count', { k: n - 1 })} />
       <${IconBtn} icon="add" size=${12} title="One text more" onClick=${() => edit('count', { k: n + 1 })} /></div>
     <p class="ed-para">${tr('A bus\'s scripts read the texts by their place: keep the order the map\'s buses expect (OMSI\'s own: IBIS, front line 1 and 2, side, roller blind, IBIS 2, extra sign, picture).')}</p>
-    ${v.notes.map((x, k) => html`<div class="de-note"><b>${tr('Text %{n}', { n: k + 1 })}</b><${Field} raw class="short" value=${x} placeholder=${tr('What it is for')} onInput=${(t) => edit('note', { k, value: t })} /></div>`)}
+    ${v.notes.map((x, k) => html`<div class="de-note"><b>${tr('Text %{n}', { n: k + 1 })}</b><${LiveField} raw class="short" value=${x} placeholder=${tr('What it is for')} onInput=${(t) => edit('note', { k, value: t })} /></div>`)}
     <${Head2} title="Global texts" />
     <p class="ed-para">${tr('Folders of the announcements, the roller blinds and the side signs, and the IBIS\'s special codes, as the bus\'s scripts read them.')}</p>
-    ${v.global_strings.map((x, k) => html`<div class="de-note g"><b>${k}</b><${Field} raw class="short" value=${x} placeholder="-" onInput=${(t) => edit('global', { k, value: t })} /></div>`)}
+    ${v.global_strings.map((x, k) => html`<div class="de-note g"><b>${k}</b><${LiveField} raw class="short" value=${x} placeholder="-" onInput=${(t) => edit('global', { k, value: t })} /></div>`)}
     <${Btn} kind="ghost" icon="add" label="One more" style="width:170px;height:30px" onClick=${() => edit('global_add')} />
     <${Head2} title="From your lines" />
     ${!v.blocks.length && html`<p class="ed-para">${tr('No line has chosen this depot file yet: in the line editor, under Displays.')}</p>`}
@@ -447,7 +472,7 @@ function OpenFile() {
   const Tab = [Destinations, Stops, Routes, Specials, FileTab][V.tab] || FileTab;
   return html`<${Card} class="de-open">
     <div class="de-top">
-      <${Field} icon="departure_board" raw value=${v.name} placeholder=${tr("The depot file's name")} onInput=${(x) => edit('name', { value: x })} style="width:300px;flex:none" />
+      <${LiveField} icon="departure_board" raw value=${v.name} placeholder=${tr("The depot file's name")} onInput=${(x) => edit('name', { value: x })} style="width:300px;flex:none" />
       <${Drop} raw value=${mapAt} options=${options} onChange=${(k) => edit('map', { value: k < 0 ? '' : maps[k][0] })} style="width:230px;flex:none" />
       <span class=${'state' + (v.dirty ? ' dirty' : '')}>${tr(v.dirty ? 'Not saved' : 'Saved')}</span>
       <${Btn} kind="danger" icon="delete" label=${V.deleteArmed ? 'Really delete it?' : 'Delete'} style=${`width:${V.deleteArmed ? 170 : 110}px`} onClick=${() => (V.deleteArmed ? remove() : ((V.deleteArmed = true), redraw()))} />

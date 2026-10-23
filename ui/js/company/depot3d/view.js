@@ -193,7 +193,8 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
     view.setSkinned(skinned(s.buses, (b) => own.get(b.id), states), moved);
   }
 
-  useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover]);
+  // (and again on a new renderer: another graphics level starts unlit)
+  useEffect(() => r.current?.highlight(AREAS[hover] || 0), [hover, level]);
 
   // 2D: the yard from straight above (and back to the view from the corner)
   useEffect(() => {
@@ -282,7 +283,13 @@ export function Depot3D({ p, names, w, h, selected, hover, onPick, onFail, placi
       const q = project(vp, t.pos);
       const on = q[3] > 0 && q[0] > -1.1 && q[0] < 1.1 && q[1] > -1.1 && q[1] < 1.1;
       el.style.display = on ? '' : 'none';
-      if (on) el.style.transform = `translate(${Math.round((q[0] * 0.5 + 0.5) * cw)}px, ${Math.round((0.5 - q[1] * 0.5) * ch)}px) translate(-50%, -100%)`;
+      if (!on) return;
+      // (kept inside the view: a label by its edge was cut off by it - its words and its icon)
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const x = Math.max(4, Math.min(cw - w - 4, (q[0] * 0.5 + 0.5) * cw - w / 2));
+      const y = Math.max(4, Math.min(ch - h - 4, (0.5 - q[1] * 0.5) * ch - h));
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     });
   }
 

@@ -388,8 +388,10 @@ fn rankings_part(s: &mut Session, c: &Company) -> Value {
 
 fn statistics_part(s: &mut Session, c: &Company) -> Value {
     let mine = driver(s).map(|d| (d.summary.clone(), d.trips.clone())).map(|(sm, trips)| {
+        // (the last 30, as the title says - the trips are the newest first: every one ever was drawn)
         let values: Vec<Value> = trips
             .iter()
+            .take(30)
             .rev()
             .map(|t| {
                 let e = dc::evaluate(t);

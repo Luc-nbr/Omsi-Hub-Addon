@@ -12,8 +12,9 @@
 //! * `hub_ibis {bus, hof, line}` - what to type into the IBIS: the routes the depot file has
 //!   for the line;
 //! * `hub_situations {map}` - the situations to continue: none yet (`[]`);
-//! * `hub_route_map {map, date, trip}` - the map's roads, the trip's route (`a|b`: each trip's),
-//!   its frame and entry points, as the game's city map has them (see [`mapview`]);
+//! * `hub_route_map {map, date, trip}` - the map's roads, the trip's route (`a|b`, or `a|` for
+//!   one: each trip's by its name), its frame and entry points, as the game's city map has them
+//!   (see [`mapview`]);
 //! * `hub_map_picture {map}` (bytes) - the map folder's `picture.jpg`;
 //! * `hub_settings_patch {patch}` - settings changed (the look's keys go to `Settings.other`);
 //! * `hub_shifts`, `hub_duty_extras` - see [`shifts`];
@@ -43,11 +44,12 @@ pub mod mapview;
 pub mod shifts;
 pub mod weather;
 
-use crate::launcher::{MapInfo, WeatherInfo};
+use crate::launcher::MapInfo;
 use crate::{arg, to_json, Answer, Platform};
 use hub_core::settings::Settings;
 use hub_core::VehicleInfo;
 use hub_omsi::Vfs;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
@@ -333,12 +335,44 @@ pub fn buses_in(vfs: &Vfs) -> Vec<VehicleInfo> {
     out
 }
 
-/// The weather files of `vfs`'s `Weather` folder, by their file names.
-pub fn weather_in(vfs: &Vfs) -> Vec<WeatherInfo> {
+/// A weather file as the day step lists it: its file and name, and what it holds - the
+/// temperature (°C), what falls (`none`, `rain`, `snow`), the visibility (m), the clouds'
+/// texture and snow on the ground - by which the step offers the presets that fit the season
+/// and says what each is (none of them when the file cannot be read).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct WeatherRow {
+    pub file: String,
+    pub name: String,
+    pub temp: Option<f32>,
+    pub precip: Option<&'static str>,
+    pub fog_m: Option<f32>,
+    pub clouds: Option<String>,
+    pub snow: Option<bool>,
+}
+
+/// The weather files of `vfs`'s `Weather` folder, by their file names, each with what it holds.
+pub fn weather_in(vfs: &Vfs) -> Vec<WeatherRow> {
     vfs.list_dir("Weather")
         .into_iter()
         .filter(|(n, d)| !d && n.to_lowercase().ends_with(".owt"))
-        .map(|(n, _)| WeatherInfo { file: format!("Weather/{n}"), name: n[..n.len() - 4].replace('_', " ") })
+        .map(|(n, _)| {
+            let (file, name) = (format!("Weather/{n}"), n[..n.len() - 4].replace('_', " "));
+            let w = vfs.resolve(&file).and_then(|p| hub_omsi::weather::Weather::load(&p).ok());
+            let precip = w.as_ref().map(|w| match w.precipitation {
+                hub_omsi::weather::Precipitation::None => "none",
+                hub_omsi::weather::Precipitation::Rain => "rain",
+                hub_omsi::weather::Precipitation::Snow => "snow",
+            });
+            WeatherRow {
+                file,
+                name,
+                temp: w.as_ref().map(|w| w.temperature),
+                precip,
+                fog_m: w.as_ref().map(|w| w.fog_m),
+                clouds: w.as_ref().map(|w| w.clouds.clone()),
+                snow: w.as_ref().map(|w| w.snow),
+            }
+        })
         .collect()
 }
 
@@ -403,9 +437,11 @@ pub fn ibis(vfs: &Vfs, bus: &str, hof: &str, line: &str) -> Value {
 /// draws and the trip's route over its lanes; a duty's trips (`a|b`) each their route.
 pub fn route_map(map: &str, date: &str, trip: &str) -> Answer {
     let global = hub_core::paths::resolve_content(map).filter(|p| p.is_file()).ok_or_else(|| format!("The map {map} is not there"))?;
-    // (`a|b`: the trips of a duty, each its route)
+    // (`a|b`: the trips of a duty, each its route - `a|` a duty of one trip, as the live
+    // dashboard asks: each trip by its name, its route the lanes the game drives one after
+    // the other)
     let trips: Vec<String> = trip.split('|').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
-    Ok(if trips.len() > 1 { mapview::trips_page(map, &global, date, &trips) } else { mapview::export(map, &global, date, trips.first().map(String::as_str).unwrap_or(""), 0.6) })
+    Ok(if trip.contains('|') { mapview::trips_page(map, &global, date, &trips) } else { mapview::export(map, &global, date, trips.first().map(String::as_str).unwrap_or(""), 0.6) })
 }
 
 /// The picture of the map `map` (`maps/<folder>/global.cfg`): its folder's `picture.jpg`, in
@@ -511,6 +547,12 @@ pub(crate) mod tests {
 
         let w = weather_in(&v);
         assert_eq!(w.iter().map(|x| (x.file.as_str(), x.name.as_str())).collect::<Vec<_>>(), [("Weather/Grey.owt", "Grey"), ("Weather/Snow.owt", "Snow")]);
+        // (what each holds, for the day step's seasons and its words: no NaN there)
+        assert_eq!((w[0].temp, w[0].precip, w[0].clouds.as_deref()), (Some(11.0), Some("rain"), Some("Overcast 1")), "{:?}", w[0]);
+        assert!(w[0].fog_m.is_some_and(|f| (f - 200.0).abs() < 0.01), "{:?}", w[0]);
+        assert_eq!((w[1].precip, w[1].snow.is_some()), (Some("snow"), true), "{:?}", w[1]);
+        let j = serde_json::to_value(&w[0]).unwrap();
+        assert!(j["temp"].is_number() && j["fog_m"].is_number() && j["precip"].is_string(), "{j}");
     }
 
     #[test]

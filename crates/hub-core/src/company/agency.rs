@@ -267,7 +267,10 @@ pub fn book(c: &mut Company, date: &str, count: u32, hours: Option<(i32, i32)>, 
         return Err(NO_CASH);
     }
     prune(c);
-    let no = c.planning.agency.iter().map(|b| b.no).max().unwrap_or(0) + 1;
+    // (a number never given before: one of a booking cancelled or forgotten came again, its
+    // drivers' ids with it - and the reports and complaints of then named the new ones)
+    let no = c.planning.agency.iter().map(|b| b.no).max().unwrap_or(0).max(c.planning.agency_last) + 1;
+    c.planning.agency_last = no;
     let first = c.planning.agency.iter().filter(|b| b.date == date).flat_map(|b| b.drivers.iter()).map(|d| number_of(&d.employee)).max().unwrap_or(0);
     // (each a name of the company's country, none of its people's or the other drivers')
     let mut used = super::names::used_in(c);
@@ -456,6 +459,9 @@ mod tests {
         assert_eq!(fee, (b.cost as f64 * LATE_FEE).round() as Cents);
         assert_eq!(c.cash, cash - fee);
         assert_eq!(cancel(&mut c, b.no), Err(NOT_FOUND));
+        // (the next one a number never given: its drivers are not the cancelled ones)
+        let n = book(&mut c, &dates::add(&tomorrow, 1), 1, None, &[]).unwrap();
+        assert!(n.no > b.no, "{} after {}", n.no, b.no);
         // not without the cash
         c.cash = 0;
         assert_eq!(book(&mut c, &dates::add(&tomorrow, 1), 1, None, &[]), Err(NO_CASH));

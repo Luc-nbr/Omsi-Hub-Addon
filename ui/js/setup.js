@@ -27,7 +27,13 @@ export function MigrateOffer({ state, onDone }) {
   if (!m || !m.offer) return null;
   const p = m.preview || {};
   const skip = async () => {
-    await call('hub_migrate_skip');
+    // (not asked again either way; a failure said, not an offer that stays without a word)
+    try {
+      await call('hub_migrate_skip');
+    } catch (e) {
+      setError(String(e));
+      return;
+    }
     onDone();
   };
   const copy = async () => {

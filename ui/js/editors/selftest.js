@@ -85,7 +85,8 @@ export async function editorsSelftest(check, errors) {
       const leg = d?.legs?.[0];
       check('editors: a new line routed', d?.stops?.length === 2 && !!leg?.ok, `${stops[0].name} - ${stops[j].name}: ${leg ? `${Math.round(leg.length)} m${leg.ok ? '' : ', no way'}` : 'no leg'}`);
     }
-    await le('leave');
+    // (its new line not kept: the map's lines are read again when the editor opens next)
+    await le('leave', { forget: true });
   } catch (x) {
     check('editors: the line editor', false, x.message);
   }

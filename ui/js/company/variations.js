@@ -21,7 +21,8 @@ const close = () => setUi('vary', START);
 export function VaryDialog() {
   const st = ui('vary', START);
   const v = useMore('variation', { line: st.line, ask: st.ask }, !!st.line);
-  if (!st.line || !v) return null;
+  // (the view of this line only: reopened on another, the last line's was shown - and agreed to)
+  if (!st.line || !v || (v.line != null && String(v.line).toLowerCase() !== String(st.line).toLowerCase())) return null;
   if (v.none || v.error) {
     return html`<${Dialog} icon="edit_road" title=${v.none || v.error} w=${520} onClose=${close} foot=${html`<span class="rest"></span><${Btn} kind="primary" label=${tr('OK')} onClick=${close} />`} />`;
   }

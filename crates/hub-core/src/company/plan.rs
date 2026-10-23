@@ -233,6 +233,9 @@ pub struct Planning {
     /// The agency drivers booked ahead for a day (`agency`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agency: Vec<super::agency::Booking>,
+    /// The last agency booking's number given (`agency::book`): never given twice.
+    #[serde(default)]
+    pub agency_last: u32,
 }
 
 impl Default for Planning {
@@ -250,6 +253,7 @@ impl Default for Planning {
             flow: Default::default(),
             arrivals: Vec::new(),
             agency: Vec::new(),
+            agency_last: 0,
         }
     }
 }
@@ -1264,6 +1268,9 @@ fn unavailable(e: &Employee, date: &str, today: bool) -> Option<Problem> {
         Some(Problem::Sick)
     } else if e.on_holiday(date).is_some() {
         Some(Problem::Holiday)
+    } else if covers(&e.training_until, date) {
+        // (on a course, as `Employee::absent` has it: the roster gave them their duties all the same)
+        Some(Problem::Away)
     } else if today && e.week_days >= WEEK_DAYS {
         Some(Problem::Away)
     } else {
@@ -1337,6 +1344,10 @@ pub enum Cannot {
     Holiday {
         until: String,
     },
+    /// On a course (`Employee::training_until`): off the duties until its last day.
+    Training {
+        until: String,
+    },
     /// Worked the week's days already (`WEEK_DAYS`).
     WeekDone {
         days: u32,
@@ -1374,6 +1385,9 @@ pub fn day_unavailable(e: &Employee, date: &str, today: bool) -> Option<Cannot> 
         Some(Cannot::Ill { until: e.sick_until.clone().unwrap_or_default() })
     } else if let Some(until) = e.on_holiday(date) {
         Some(Cannot::Holiday { until: until.to_string() })
+    } else if covers(&e.training_until, date) {
+        // (on a course, as `Employee::absent` has it: offered and given duties all the same)
+        Some(Cannot::Training { until: e.training_until.clone().unwrap_or_default() })
     } else if today && e.week_days >= WEEK_DAYS {
         Some(Cannot::WeekDone { days: e.week_days })
     } else {
@@ -2937,6 +2951,25 @@ mod tests {
         let b = block_of(&t.tour, &t.duties[0], duty_key("Linie5", "1", 0));
         assert_eq!(can_take(e3, &c.date, true, &t.bus_of(&c), &[], &b), Err(Cannot::NightRest { from: 23 * 60 + staff::NIGHT_REST - 1440 }));
         assert_eq!(free_from(e3, true), Some(10 * 60));
+    }
+
+    #[test]
+    fn a_driver_on_a_course_is_off_the_duties_until_it_ends() {
+        let mut c = quiet(1, 2);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+        let bus = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(bus));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(ids[0])));
+        let until = dates::add(&c.date, 2);
+        c.staff[0].training_until = Some(until.clone());
+        // (the roster's driver is not given the duty on the course's days, and says why)
+        let p = day_plan(&c, &c.date, vec![tour("1", 6 * 60, 3)], &[], &[], false);
+        assert_ne!(p.tours[0].duties[0].who, Some(Who::Staff(ids[0])));
+        let e = c.employee(ids[0]).unwrap();
+        assert_eq!(day_unavailable(e, &c.date, true), Some(Cannot::Training { until: until.clone() }));
+        assert_eq!(day_unavailable(e, &dates::add(&until, 1), false), None);
     }
 
     #[test]

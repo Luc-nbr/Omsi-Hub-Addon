@@ -13,6 +13,7 @@
 // (`company_sidebar`, `company_pins`).
 
 import { S } from '../store.js';
+import { useLayoutEffect } from '../../vendor/preact-htm.js';
 import { saveSettings } from '../hub/drive.js';
 import { dark } from '../hub/theme.js';
 import { flipLook } from '../hub/bar.js';
@@ -342,18 +343,22 @@ function TopBar({ layout, side, narrow }) {
   // then the reputation and the date; all back when the window changes)
   const ref = useRef();
   const [fit, setFit] = useState(0);
-  useEffect(() => {
+  // (measured before the bar is shown, step after step at once: after each frame, the bar was
+  // shown cut for a moment at every step - and for good in a window that draws no frames)
+  useLayoutEffect(() => {
     const el = ref.current;
-    // (the bar too wide, or a button's words cut in it: the buttons shrink before the bar does)
+    // (the bar too wide, or a button's words cut in it - or where one is squeezed past its words,
+    // to its icon: the buttons shrink before the bar does)
     const over = (x) => x.scrollWidth > x.clientWidth + 1;
-    if (el && (over(el) || [...el.querySelectorAll('.co-tomorrow, .co-top-back, .co-next')].some(over)) && fit < 4) setFit(fit + 1);
+    if (el && (over(el) || [...el.querySelectorAll('.co-tomorrow, .co-top-back, .co-next, .co-top-where')].some(over)) && fit < 4) setFit(fit + 1);
   });
   useEffect(() => {
     const again = () => setFit(0);
     addEventListener('resize', again);
     return () => removeEventListener('resize', again);
   }, []);
-  useEffect(() => setFit(0), [layout, side, sh.casual, c.tab]);
+  // (the Launcher size changed too: the stage is as wide as before, the bar's parts are not)
+  useEffect(() => setFit(0), [layout, side, sh.casual, c.tab, S.settings?.launcher_scale]);
   const palette = layout === 'palette';
   // (each step keeps the ones before it: `fit2` is `fit1 fit2`, as the bar's styles take them)
   const fits = [1, 2, 3, 4].filter((k) => k <= fit).map((k) => ' fit' + k).join('');
@@ -437,7 +442,7 @@ function Clock() {
           return html`<button type="button" class=${'co-pop-item' + (playing(speed) ? ' on' : '')} title=${playTip(speed, i)} onClick=${pick(() => play(speed))}>
             <${Icon} name=${playing(speed) ? 'pause' : 'play_arrow'} size=${17} /><span class="grow">${i === 0 ? '×60' : '×600'}</span><span class="co-pop-note cut">${playTip(speed, i)}</span></button>`;
         })}
-        <button type="button" class="co-pop-item" onClick=${pick(() => act('hour'))}><${Icon} name="schedule" size=${17} /><span class="grow">+1 h</span><span class="co-pop-note cut">${tr("Simulate one hour of the company's time")}</span></button>
+        <button type="button" class="co-pop-item" onClick=${pick(() => act('hour'))}><${Icon} name="schedule" size=${17} /><span class="grow">${tr('+1 h')}</span><span class="co-pop-note cut">${tr("Simulate one hour of the company's time")}</span></button>
         <i class="co-pop-rule"></i>
         <button type="button" class="co-pop-item" onClick=${pick(() => !sh.cover && setCo({ dialog: { kind: 'time' } }))}><${Icon} name="tune" size=${17} /><span class="grow cut">${tr("More steps, the clock's speed and the dispatcher")}</span></button>
       </div>`}
@@ -474,7 +479,8 @@ function Bell() {
     let gone = false;
     cmd('co_view', { view: 'bell' })
       .then((r) => !gone && setV(r))
-      .catch(() => {});
+      // (not "Reading…" for ever: what went wrong said)
+      .catch((e) => !gone && setV({ error: e.message }));
     return () => {
       gone = true;
     };
@@ -493,8 +499,8 @@ function Bell() {
     </button>
     ${n > 0 && html`<span class="co-top-count">${n > 99 ? '99+' : n}</span>`}
     ${open && html`<div class="co-pop co-pop-right co-pop-bell">
-      ${!v
-        ? html`<div class="co-pop-none">${tr('Reading…')}</div>`
+      ${!v || v.error
+        ? html`<div class="co-pop-none">${v?.error || tr('Reading…')}</div>`
         : html`${part(v.inbox, 13, (m) => html`<button type="button" class="co-pop-item two" onClick=${() => go(() => (setUi('inbox', { open: m.id }), act('inbox_read', { id: m.id }), goTab(13)))}>
               <${Icon} name=${m.icon} size=${17} class=${'t-' + (m.tone || 'accent')} /><span class="grow cut">${m.title}</span><span class="co-pop-note">${m.date}</span></button>`)}
             ${part(v.agenda, 14, (e) => html`<button type="button" class="co-pop-item two" onClick=${() => go(() => follow(e.go))}>
@@ -608,7 +614,7 @@ function entries(narrow) {
     if (has(CASUAL.DRIVERS)) a('groups', tr('Hire drivers'), pageName(sh, CASUAL.DRIVERS), () => goTab(CASUAL.DRIVERS));
   } else if (!remote) {
     a('nights_stay', tr('Simulate to tomorrow'), tr('Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight'), () => act('tomorrow'));
-    a('schedule', tr("Simulate one hour of the company's time"), '+1 h', () => act('hour'));
+    a('schedule', tr("Simulate one hour of the company's time"), tr('+1 h'), () => act('hour'));
     a('play_arrow', '×60', tr("Run the company's clock at a minute a second while this page is open"), () => act('play', { speed: Math.abs(k.speed - 1) < 1e-6 ? 0 : 1 }));
     a('play_arrow', '×600', tr("Run the company's clock at ten minutes a second while this page is open"), () => act('play', { speed: Math.abs(k.speed - 10) < 1e-6 ? 0 : 10 }));
     a('tune', tr("More steps, the clock's speed and the dispatcher"), '', () => !sh.cover && setCo({ dialog: { kind: 'time' } }));

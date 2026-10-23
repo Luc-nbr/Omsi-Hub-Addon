@@ -18,7 +18,7 @@
 --   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.9.0"
+local VERSION = "1.10.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 

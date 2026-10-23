@@ -134,7 +134,7 @@ function Toolbar({ data, drivers, proposal }) {
     ${filterOn && html`<span class="rf-fchip">${tr('Filter')}<button type="button" onClick=${() => setRf({ filter: { ...NO_FILTER, issues: r.filter.issues } })}><${Icon} name="close" size=${14} /></button></span>`}
     <${DayChip} data=${data} />
     <span class="grow"></span>
-    ${stack > 0 && !drivers && html`<span class="rf-stackpill">${tr('Stack: %{n} unassigned', { n: stack })}</span>`}
+    ${stack > 0 && !drivers && html`<span class="rf-stackpill" title=${tr('Stack: %{n} unassigned', { n: stack })}>${tr('Stack: %{n} unassigned', { n: stack })}</span>`}
     <span class="opt" data-rf="rf-optimise">
       ${(() => {
         // (neither the vehicles nor the duties to make: the Optimisation settings say so)

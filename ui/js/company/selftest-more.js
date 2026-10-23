@@ -33,7 +33,12 @@ export async function selftest(check, errors, shown) {
   ];
   for (const [tab, name, what] of pages) {
     const e = await shown(`page ${tab}`, { tab, dialog: null }, 1200);
-    const said = !e && what();
+    let said = !e && what();
+    // (what the page is made of waited for a while more: its view may come after the sleep)
+    for (let k = 0; k < 15 && !e && !said; k++) {
+      await new Promise((r) => setTimeout(r, 200));
+      said = what();
+    }
     check(`company: ${name}`, !!said, e || said || `${$$('.co-body *').length} elements`);
   }
   // the contracts' parts

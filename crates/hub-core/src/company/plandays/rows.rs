@@ -127,6 +127,12 @@ pub fn copy_rows(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day
     let mut id = c.planning.flow.sheet.spares.iter().map(|s| s.id).max().unwrap_or(0);
     let spares: Vec<Spare> = c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == from_slot && rows.spares.contains(&s.id)).cloned().collect();
     for sp in spares {
+        // (one copied there before, the same but for its number: not copied again - pasted twice,
+        // the day had two of it)
+        let there = c.planning.flow.sheet.spares.iter().any(|x| x.weekday == to_slot && *x == Spare { weekday: to_slot, id: x.id, ..sp.clone() });
+        if there {
+            continue;
+        }
         id += 1;
         c.planning.flow.sheet.spares.push(Spare { weekday: to_slot, id, ..sp });
     }

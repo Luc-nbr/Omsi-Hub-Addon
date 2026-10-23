@@ -469,6 +469,7 @@ pub const TWO_DUTIES: &str = "They have more than one duty that day.";
 pub const CANNOT_DRIVE: &str = "The rules do not let them drive your duty: their licence or their working time.";
 pub const YOU_CANNOT: &str = "Their duty clashes with your other work that day.";
 pub const RATHER_NOT: &str = "They would rather keep their own duty.";
+pub const NOT_ROSTER: &str = "Only duties of the roster can be swapped.";
 
 pub const SWAP_ACCEPTED: &str = "%{name} swaps with you: you drive %{theirs}, they drive %{mine}";
 pub const SWAP_TAKEN: &str = "%{name} takes over your duty %{mine}";
@@ -521,6 +522,15 @@ pub fn ai_answer(c: &Company, p: &DayPlan, no: u32, from: Who, mine: &DutyRef, i
         return Err(TWO_DUTIES);
     }
     let theirs_ref = theirs.first().and_then(|&(ti, k)| DutyRef::of(p, ti, k));
+    // (a swap changes the roster's duties, `swapped`: one the dispatcher or the office gave was
+    // "accepted" and nothing changed; and theirs begun already - the asker could not take it)
+    let roster = |(ti, k): (usize, usize)| p.tours[ti].duties[k].from_ == Source::Roster;
+    if !roster((mi, mk)) || theirs.first().is_some_and(|&t| !roster(t)) {
+        return Err(NOT_ROSTER);
+    }
+    if theirs.first().is_some_and(|&(ti, k)| p.date == c.date && p.tours[ti].duties[k].from <= c.clock.minute as i32) {
+        return Err(BEGUN);
+    }
     // they drive mine: licence, endorsements and working time against the rest of their day
     let bus = p.tours[mi].bus_of(c);
     let rest: Vec<super::staff::Block> = Vec::new();
@@ -911,6 +921,7 @@ pub fn texts() -> Vec<&'static str> {
         CANNOT_DRIVE,
         YOU_CANNOT,
         RATHER_NOT,
+        NOT_ROSTER,
         SWAP_ACCEPTED,
         SWAP_TAKEN,
         SWAP_REFUSED,

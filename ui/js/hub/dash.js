@@ -50,11 +50,19 @@ export function duration(secs) {
   return m % 60 ? tr('%{h} h %{m} min', { h, m: m % 60 }) : tr('%{h} h', { h });
 }
 
+/** Seconds from the clock `now` to `t` (both of the day, a later day's above 86 400): a time
+ * just after midnight is the next day's, one up to twelve hours before is past (negative). */
+export function ahead(t, now) {
+  const d = ((((t - now) % 86_400) + 86_400) % 86_400);
+  return d > 43_200 ? d - 86_400 : d;
+}
+
 /** A distance and its unit: [`1.2`, `km`]. */
 function distance(metres) {
   if (imperial()) {
     const mi = metres / 1609.344;
-    return mi < 0.2 ? [fmt(metres * 3.28084 / 10) + '0', 'ft'] : [fmt(mi, mi < 10 ? 1 : 0), 'mi'];
+    // (feet to the ten: the number formatted as a whole, not a zero put after it)
+    return mi < 0.2 ? [fmt(Math.round((metres * 3.28084) / 10) * 10), 'ft'] : [fmt(mi, mi < 10 ? 1 : 0), 'mi'];
   }
   return metres < 1000 ? [fmt(Math.round(metres / 10) * 10), 'm'] : [fmt(metres / 1000, metres < 100_000 ? 1 : 0), 'km'];
 }
@@ -140,7 +148,8 @@ export function IbisPanel({ v, full = false }) {
   const i = v.ibis;
   if (!i || (!i.trip && !i.codes)) return null;
   const c = i.codes;
-  const when = i.for === 'now' ? tr('This trip') : i.for === 'next' ? tr('Next trip, %{time}', { time: hhmm(i.departure) }) : tr('First trip, %{time}', { time: hhmm(i.departure) });
+  // (a free drive's route has no departure: it is the trip there is)
+  const when = i.for === 'now' || i.departure == null ? tr('This trip') : i.for === 'next' ? tr('Next trip, %{time}', { time: hhmm(i.departure) }) : tr('First trip, %{time}', { time: hhmm(i.departure) });
   const chip = i.matches === true ? html`<span class="dash-chip ok"><${Icon} name="check_circle" size=${13} />${tr('IBIS set')}</span>` : i.matches === false ? html`<span class="dash-chip warn"><${Icon} name="warning" size=${13} />${tr('Check the IBIS')}</span>` : null;
   let body;
   if (!c) {
@@ -189,7 +198,7 @@ function DutyCard({ v }) {
     <div class="dash-progress">
       <div class="row"><span>${free ? tr('Driving for') : tr('Time elapsed')}</span><b>${total ? `${duration(elapsed)} / ${duration(total)}` : duration(elapsed)}</b></div>
       ${total && html`<div class="bar" role="progressbar" aria-valuenow=${Math.round(share * 100)} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${share * 100}%`}></i></div>`}
-      ${v.end != null && html`<div class="row faint"><span>${b ? `${b.kind === 'layover' ? tr('Next layover') : tr('Next break')} ${hhmm(b.from)}${v.clock != null ? ` (${b.from > v.clock ? tr('in %{t}', { t: duration(b.from - v.clock) }) : tr('now')})` : ''}` : tr('No break planned')}</span><span>${tr('Ends %{time} at %{place}', { time: hhmm(v.end), place: v.end_place || '' })}</span></div>`}
+      ${v.end != null && html`<div class="row faint"><span>${b ? `${b.kind === 'layover' ? tr('Next layover') : tr('Next break')} ${hhmm(b.from)}${v.clock != null ? ` (${ahead(b.from, v.clock) > 0 ? tr('in %{t}', { t: duration(ahead(b.from, v.clock)) }) : tr('now')})` : ''}` : tr('No break planned')}</span><span>${tr('Ends %{time} at %{place}', { time: hhmm(v.end), place: v.end_place || '' })}</span></div>`}
     </div>
   </${Card}>`;
 }
@@ -214,15 +223,20 @@ function useSize(ref) {
 const drawn = new Map();
 function useRoads(v) {
   const map = v.map?.map || '';
-  const trips = [...new Set((v.plan || []).map((p) => p.name).filter(Boolean))].join('|');
+  // (a free drive along a line has no plan: the route it follows is its trip)
+  const names = (v.plan || []).map((p) => p.name);
+  if (!names.length && v.route?.free_route) names.push(v.route.free_route);
+  const trips = [...new Set(names.filter(Boolean))].join('|');
   const key = `${map}|${v.date || ''}|${trips}`;
   const [roads, setRoads] = useState(() => drawn.get(key)?.done || null);
   useEffect(() => {
     if (!map) return undefined;
     let alive = true;
     if (!drawn.has(key)) {
-      const e = { read: call('hub_route_map', { map, date: v.date || '', trip: trips }).catch(() => null) };
-      e.read.then((r) => (e.done = r));
+      // (`a|b|`: each trip by its name, one trip too - the navigator follows the one under way)
+      const e = { read: call('hub_route_map', { map, date: v.date || '', trip: `${trips}|` }).catch(() => null) };
+      // (one that could not be read is read again the next time it is asked for)
+      e.read.then((r) => (r ? (e.done = r) : drawn.delete(key)));
       drawn.set(key, e);
     }
     drawn.get(key).read.then((r) => alive && r && setRoads(r));
@@ -411,7 +425,15 @@ function SpeedChart({ series }) {
   const ref = useRef(null);
   const [w, h] = useSize(ref);
   const [hover, setHover] = useState(null);
-  const pts = (series || []).filter((p) => p[0] != null);
+  // (a drive over midnight: the clock after it goes on above 24:00, not back to the left edge)
+  let day = 0;
+  const pts = [];
+  for (const p of series || []) {
+    if (p[0] == null) continue;
+    const prev = pts[pts.length - 1];
+    if (prev && p[0] + day < prev[0] - 43_200) day += 86_400;
+    pts.push([p[0] + day, ...p.slice(1)]);
+  }
   if (pts.length < 2 || !w) return html`<div class="dash-chart empty" ref=${ref}><p>${tr('The speed over the drive shows here as you drive.')}</p></div>`;
   const pad = [30, 8, 8, 22];
   const x0 = pts[0][0];
@@ -475,7 +497,7 @@ function DaysChart({ days }) {
         return html`<g onMouseEnter=${() => setHover(i)}>
           <rect x=${pad[0] + i * slot} y=${pad[2]} width=${slot} height=${h - pad[2] - pad[3]} fill="transparent" />
           ${d && html`<path d=${d} fill="var(--hub-accent)" opacity=${hover == null || hover === i ? 1 : 0.55} />`}
-          ${(n <= 7 || i % 5 === n % 5 - 1 || i === n - 1) && html`<text x=${x + bw / 2} y=${h - 6} class="axis" text-anchor="middle">${day(i)}</text>`}
+          ${(n <= 7 || (n - 1 - i) % 5 === 0) && html`<text x=${x + bw / 2} y=${h - 6} class="axis" text-anchor="middle">${day(i)}</text>`}
         </g>`;
       })}
     </svg>
@@ -528,7 +550,9 @@ function StopsCard({ v }) {
   const sub = v.route?.number ? tr('Upcoming stops on route %{route}', { route: v.route.number }) : tr('Upcoming stops');
   let body;
   if (!stops.length) {
-    const why = v.mode === 'free' ? tr('A free drive has no timetable to follow.') : v.status === 'layover' ? tr('The trip is done: the next one starts at %{time}.', { time: hhmm(v.plan?.find((p) => p.departure > (v.clock || 0))?.departure) }) : v.status === 'done' ? tr('Every trip of the duty is driven.') : tr('The stops show here once the duty has started.');
+    // (the next trip: the first of the plan to leave after the clock, midnight between them or not)
+    const nextTrip = v.clock != null ? v.plan?.find((p) => ahead(p.departure, v.clock) > 0) : null;
+    const why = v.mode === 'free' ? tr('A free drive has no timetable to follow.') : v.status === 'layover' ? tr('The trip is done: the next one starts at %{time}.', { time: hhmm(nextTrip?.departure) }) : v.status === 'done' ? tr('Every trip of the duty is driven.') : tr('The stops show here once the duty has started.');
     body = html`<p class="dash-empty">${why}</p>`;
   } else {
     body = html`<ol class="dash-stops">${stops.map((s, i) => {
@@ -563,7 +587,7 @@ export function alertsOf(v) {
     out.push({ id: 'ibis', kind: 'warning', title: v.ibis.for === 'now' ? tr('Set the IBIS for this trip') : tr('Set the IBIS for the next trip'), text: `${keys} (${ic.display})`, at: c });
   }
   const b = v.next_break;
-  if (b && c != null && b.from > c && b.from - c <= 15 * 60) {
+  if (b && c != null && ahead(b.from, c) > 0 && ahead(b.from, c) <= 15 * 60) {
     out.push({ id: 'break', kind: 'info', title: b.kind === 'layover' ? tr('Layover at %{time}', { time: hhmm(b.from) }) : tr('Break at %{time}', { time: hhmm(b.from) }), text: tr('At %{place}, until %{time}.', { place: b.at || '', time: hhmm(b.to) }), at: c });
   }
   for (const a of v.brief || []) out.push({ id: 'brief:' + a.id, kind: a.priority === 'high' ? 'warning' : 'info', title: tr('On time'), text: tr(a.template || '', a.args || {}), at: c });

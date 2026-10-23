@@ -815,3 +815,6 @@ _version: 2
   pl: "Na przystanku"
   ru: "На остановке"
   uk: "На зупинці"
+"Launcher":
+  de: "Launcher"
+  ru: "Лаунчер"

@@ -297,7 +297,10 @@ fn write(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }
-    let part = path.with_extension("cfg.omsihub-part");
+    // (a name of its own per write: two at once never write into one part file)
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let part = path.with_extension(format!("cfg.omsihub-part-{}-{n}", std::process::id()));
     std::fs::write(&part, text)?;
     std::fs::rename(&part, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
@@ -339,9 +342,7 @@ pub fn action_names(omsi2: &Path, omsi_lang: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let Some(dir) = hub_omsi::vfs::find_child(omsi2, "Languages") else { return out };
     let prefix = format!("{}_key_", omsi_lang.to_ascii_lowercase());
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .map(|it| it.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir).map(|it| it.flatten().map(|e| e.path()).collect()).unwrap_or_default();
     files.retain(|p| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".olf")));
     files.sort();
     for f in files {
@@ -464,10 +465,18 @@ mod tests {
         let omsi2 = root.join("OMSI 2");
         std::fs::create_dir_all(omsi2.join("Inputs")).unwrap();
         std::fs::create_dir_all(omsi2.join("Languages")).unwrap();
-        std::fs::write(omsi2.join("Inputs").join("keyboard.cfg"), "[game]\r\n\r\n[entry]\r\nsim_pause\r\n25\r\n0\r\n\r\n[vehicles]\r\n\r\n[entry]\r\nhorn\r\n35\r\n0\r\n\r\n[entry]\r\nHORN\r\n36\r\n0\r\n").unwrap();
+        std::fs::write(
+            omsi2.join("Inputs").join("keyboard.cfg"),
+            "[game]\r\n\r\n[entry]\r\nsim_pause\r\n25\r\n0\r\n\r\n[vehicles]\r\n\r\n[entry]\r\nhorn\r\n35\r\n0\r\n\r\n[entry]\r\nHORN\r\n36\r\n0\r\n",
+        )
+        .unwrap();
         let places = Places::new(&root.join("home"), None, Some(&omsi2));
         assert_eq!(key_actions(&places), vec!["sim_pause".to_string(), "horn".to_string()]);
-        std::fs::write(omsi2.join("Languages").join("DEU_key_veh_gen.olf"), b"DEU\t\r\nKY_horn\tHupe\r\nKY_kw_fernlicht_toggle\tFernlicht an/aus\r\nKY_empty\t\r\nKY_x\t<nicht>\r\nKY_brake\tBremse \xfc\r\n").unwrap();
+        std::fs::write(
+            omsi2.join("Languages").join("DEU_key_veh_gen.olf"),
+            b"DEU\t\r\nKY_horn\tHupe\r\nKY_kw_fernlicht_toggle\tFernlicht an/aus\r\nKY_empty\t\r\nKY_x\t<nicht>\r\nKY_brake\tBremse \xfc\r\n",
+        )
+        .unwrap();
         let n = action_names(&omsi2, "DEU");
         assert_eq!(n.get("horn").map(String::as_str), Some("Hupe"));
         assert_eq!(n.get("kw_fernlicht_toggle").map(String::as_str), Some("Fernlicht an/aus"));

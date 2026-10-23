@@ -131,7 +131,8 @@ function view() {
     running: true, live: true, plugin: true, began: drive.began / 1000, mode, status,
     company: company ? 'Stadtbus Riverside' : '', duty: company ? '23 4 2' : '', driver: 'Driver',
     clock, date: '2025-04-22',
-    route: { trip_name: t?.name ?? '', number: mode === 'free' ? '' : '23', line: '23', tour: '4', from: t?.from ?? '', to: t?.terminus ?? '', trip: t ? k + 1 : null, trips: plan.length, free_route: null },
+    // (a free drive along line 23's way there: the navigator follows its route, `free_route`)
+    route: { trip_name: t?.name ?? '', number: mode === 'free' ? '' : '23', line: '23', tour: '4', from: t?.from ?? '', to: t?.terminus ?? '', trip: t ? k + 1 : null, trips: plan.length, free_route: mode === 'free' ? '23 Riverside-Central' : null },
     vehicle: { number: 'A-284', name: 'Mercedes Citaro (Solo)', file: 'Vehicles/MB_O530/Citaro.bus' },
     start, end, elapsed: start != null ? Math.max(0, clock - start) : null,
     start_place: company ? 'Riverside Depot' : plan[0]?.from ?? '', end_place: company ? 'Riverside Depot' : plan[plan.length - 1]?.terminus ?? '',

@@ -1114,3 +1114,26 @@ _version: 2
   ru: "Начать"
   uk: "Почати"
   pl: "Start"
+
+# --- the units (Settings, General: the live dashboard's speeds and distances) ---------------------
+"Units":
+  de: "Einheiten"
+  fr: "Unités"
+  nl: "Eenheden"
+  pl: "Jednostki"
+  ru: "Единицы"
+  uk: "Одиниці"
+"Metric (km/h, km)":
+  de: "Metrisch (km/h, km)"
+  fr: "Métrique (km/h, km)"
+  nl: "Metrisch (km/h, km)"
+  pl: "Metryczne (km/h, km)"
+  ru: "Метрические (км/ч, км)"
+  uk: "Метричні (км/год, км)"
+"Imperial (mph, miles)":
+  de: "Imperial (mph, Meilen)"
+  fr: "Impérial (mph, miles)"
+  nl: "Imperiaal (mph, mijlen)"
+  pl: "Imperialne (mph, mile)"
+  ru: "Имперские (миль/ч, мили)"
+  uk: "Імперські (миль/год, милі)"

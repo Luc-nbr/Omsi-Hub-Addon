@@ -109,6 +109,7 @@ fn cannot_text(c: &Company, p: &DayPlan, x: &pl::Cannot) -> String {
         N::NotEmployed => tr("Not employed then"),
         N::Ill { until } => trf("Ill until %{date}", &[("date", &day_label(until))]),
         N::Holiday { until } => trf("On holiday until %{date}", &[("date", &day_label(until))]),
+        N::Training { until } => trf("On a course until %{date}", &[("date", &day_label(until))]),
         N::WeekDone { days } => trf("Worked %{n} days this week already", &[("n", &days.to_string())]),
         N::Lacks(l) => lack_text(c, l),
         N::OnDuty { key, from, to } => {
@@ -185,7 +186,7 @@ fn block_of(t: &DayTour, k: usize) -> Block {
 /// The tone of a reason not to take a duty: grey for those who are away, red for the rest.
 fn cannot_tone(x: &pl::Cannot) -> &'static str {
     match x {
-        pl::Cannot::NotEmployed | pl::Cannot::Holiday { .. } | pl::Cannot::NotDriver => "dim",
+        pl::Cannot::NotEmployed | pl::Cannot::Holiday { .. } | pl::Cannot::Training { .. } | pl::Cannot::NotDriver => "dim",
         _ => "err",
     }
 }
@@ -412,6 +413,10 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         }
         Some(Ok(p)) => p,
     };
+    // (what the arrows offer: none of another company day)
+    if let Some(c) = s.company.as_ref() {
+        undo_of_today(r, c);
+    }
     out["undo"] = json!(r.roster_undo.len());
     out["redo"] = json!(r.roster_redo.len());
     out["plan"] = plan_json(&c, &p);
@@ -1084,9 +1089,21 @@ fn given_of(c: &Company) -> Vec<(u32, Vec<co::studio::PieceRef>)> {
     c.planning.agency.iter().flat_map(|b| b.drivers.iter().map(|d| (d.employee.id, d.duties.clone()))).collect()
 }
 
+/// The Roster tab's undo and redo let go once the company's day moved on since they were kept:
+/// what they put back is another day's roster and choices - and that day's date with them, so
+/// that Undo after the day rolled over put yesterday back as today's planning.
+pub(super) fn undo_of_today(r: &mut Rf, c: &Company) {
+    let today = &c.planning.date;
+    if r.roster_undo.iter().chain(r.roster_redo.iter()).any(|k| &k.date != today) {
+        r.roster_undo.clear();
+        r.roster_redo.clear();
+    }
+}
+
 /// Undo the Roster tab's last change (`back`), or redo the last undone.
 fn undo(s: &mut Session, r: &mut Rf, back: bool) -> Value {
     let Some(c) = s.company.as_ref() else { return json!({}) };
+    undo_of_today(r, c);
     let item = if back { r.roster_undo.pop() } else { r.roster_redo.pop() };
     let Some(k) = item else { return json!({}) };
     let now = Kept::of(c, k.label.clone());
@@ -1121,6 +1138,9 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         return Ok(undo(s, r, what == "undo"));
     }
     pin_arrivals(s);
+    if let Some(c) = s.company.as_ref() {
+        undo_of_today(r, c);
+    }
     let before = s.company.as_ref().map(|c| Kept::of(c, String::new()));
     let out = act_on(s, r, args)?;
     if let (Some(mut k), Some(c)) = (before, s.company.as_ref()) {
@@ -1528,5 +1548,20 @@ mod tests {
         let f = pl::Filled { duties: 9, buses: 4, unqualified: 2, busy: 0, no_bus: 0 };
         assert_eq!(open_text(&f), "2 duties still open: nobody is qualified for their bus.");
         assert_eq!(open_text(&pl::Filled::default()), "");
+    }
+
+    #[test]
+    fn the_undo_of_another_company_day_is_let_go() {
+        let (mut c, _) = super::super::tests::line5_company();
+        c.planning.date = "2026-10-19".into();
+        let mut r = Rf::default();
+        r.roster_undo.push(Kept::of(&c, "a change".into()));
+        undo_of_today(&mut r, &c);
+        assert_eq!(r.roster_undo.len(), 1, "the same day keeps its undo");
+        // (the day rolled over: its undo would put yesterday's roster - and date - back)
+        c.planning.date = "2026-10-20".into();
+        r.roster_redo.push(Kept::of(&c, "another".into()));
+        undo_of_today(&mut r, &c);
+        assert!(r.roster_undo.is_empty() && r.roster_redo.is_empty());
     }
 }

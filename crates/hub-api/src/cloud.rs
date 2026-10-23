@@ -578,13 +578,22 @@ impl Engine<'_> {
         let user = self.remote.user()?;
         let s = sync_of(self.data, id);
         if s.linked(&user) {
-            self.sync(id)?;
-            let cloud = self.remote.list()?;
-            return cloud.slot(s.slot).cloned().map(Put::Done).ok_or(Error::Code("no_cloud_save"));
+            // (what the sync decided: a conflict is said, a company the cloud no longer has -
+            // emptied, or another in its slot - is put in as a new one below)
+            match self.sync(id)? {
+                Decision::Conflict(_) => return Err(Error::Code("conflict")),
+                Decision::Gone | Decision::Other(_) => {}
+                _ => {
+                    let cloud = self.remote.list()?;
+                    return cloud.slot(s.slot).cloned().map(Put::Done).ok_or(Error::Code("no_cloud_save"));
+                }
+            }
         }
         let name = self.company_name(id).ok_or(Error::Code("server"))?;
         let (a, sha) = packed(self.data, id).ok_or(Error::Code("server"))?;
         if let Some(n) = replace {
+            // (one too large for the cloud fails before the slot's save is deleted for it)
+            saves::compress(&a)?;
             self.remote.delete(n)?;
             for (other, o) in read_book(self.data).companies {
                 if o.linked(&user) && o.slot == n {
@@ -661,7 +670,10 @@ impl Engine<'_> {
         if let Some((id, _)) = here {
             return match self.check(&id)? {
                 d @ Decision::Conflict(_) => Ok(Err(d)),
-                Decision::Gone | Decision::Other(_) | Decision::Local => self.download(n, profile),
+                // (unlinked by the check: put on this computer as a new one)
+                Decision::Gone | Decision::Other(_) => self.download(n, profile),
+                // (Local: the copy here cannot be read - the cloud's takes its place; asked again
+                // it would find the same company and never end)
                 _ => {
                     self.fetch_into(&user, n, &id, profile)?;
                     Ok(Ok(id))
@@ -792,6 +804,9 @@ fn sync_now(id: &str) {
     let d = data();
     let r = Engine { data: &d, remote: &mut Online }.sync(id);
     note(&r);
+    // (the content is built and sent off the lock: minutes of work the page's commands must not
+    // wait for)
+    drop(_w);
     let gone = trf("%{name} is no longer in the cloud: it stays on this PC as a local save.", &[("name", &name_of(id))]);
     // (the content beside the save, for the website's bus company: `cloud_content`)
     if matches!(r, Ok(Decision::Synced)) {
@@ -1121,11 +1136,15 @@ fn remove(n: u8) -> Value {
     }
 }
 
-/// The account deleted (its cloud saves with it): every company here is local again.
-pub fn forget_account() {
+/// The account `user` deleted (its cloud saves with it): its companies here are local again -
+/// not those in the cloud of another account signed in on this computer before (`None`: all).
+pub fn forget_account(user: Option<&str>) {
     let d = data();
-    for id in read_book(&d).companies.keys() {
-        write_sync(&d, id, None);
+    let _w = work();
+    for (id, s) in read_book(&d).companies {
+        if user.is_none_or(|u| s.user == u) {
+            write_sync(&d, &id, None);
+        }
     }
     let mut st = state();
     st.cloud = None;
@@ -1152,6 +1171,8 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Answer {
         "cs_resolve" if ok_id => resolve(&id, args.get("keep").and_then(Value::as_str).unwrap_or("cloud")),
         "cs_put" if ok_id => put(&id, args.get("replace").and_then(Value::as_u64).map(|n| n.min(255) as u8)),
         "cs_local" if ok_id => {
+            // (after a sync that runs now: it would link the company again as it ends)
+            let _w = work();
             let d = data();
             Engine { data: &d, remote: &mut Online }.unlink(&id);
             json!({ "ok": true, "message": trf("%{name} stays local.", &[("name", &name_of(&id))]) })

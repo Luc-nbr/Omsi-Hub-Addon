@@ -48,10 +48,13 @@ pub fn find_template(root: &Path, file: &str) -> Option<[PathBuf; 2]> {
     let stem = Path::new(file.trim()).file_stem()?.to_string_lossy().to_lowercase();
     let tool = omsi_cfg::resolve_path(root, "SDK/RepaintTool");
     for dir in std::fs::read_dir(&tool).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-        let Some(rpc) = std::fs::read_dir(&dir).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase() == format!("{stem}.rpc"))) else {
+        // (an unreadable folder or file is passed over, not the end of the search)
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Some(rpc) = entries.flatten().map(|e| e.path()).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase() == format!("{stem}.rpc"))) else {
             continue;
         };
-        let text = omsi_cfg::codepage::decode(&std::fs::read(&rpc).ok()?);
+        let Ok(bytes) = std::fs::read(&rpc) else { continue };
+        let text = omsi_cfg::codepage::decode(&bytes);
         let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(5).collect();
         if lines.len() < 5 {
             continue;

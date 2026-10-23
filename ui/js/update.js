@@ -4,7 +4,8 @@
 // and its installation, a failure with Try again; "Updated to Omsi-Hub x" in the top right corner
 // for a few seconds after an update; the Settings page's row with "Check now", what the last look
 // found and the switches. Looking, downloading, installing and starting the new version are the
-// Rust side's: the page asks for the state once a second (`hub_update`).
+// Rust side's: the page asks for the state every few seconds, once a second while something
+// runs (`hub_update`).
 //
 // Where it goes: `useUpdates()` once in the shell, `UpdateDialog` and `UpdatedNotice` once at the
 // shell's root, `UpdateRow` on the Settings page.
@@ -37,13 +38,15 @@ const ask = (what, args = {}) =>
     .catch(() => null);
 
 /** The state asked for while the app is open (not in its selftest): once a second while the
- * dialog is up (a download's bar), else every few seconds. */
+ * dialog is up (a download's bar) or a look runs ("Check now" says what it found at once), else
+ * every few seconds. */
 export function useUpdates() {
   useEffect(() => {
     if (window.__OMSIHUB_SELFTEST__) return;
     let k = 0;
     const next = () => {
-      k = setTimeout(() => ask().then(next), get().hubUpdate?.dialog ? 1000 : 4000);
+      const u = get().hubUpdate;
+      k = setTimeout(() => ask().then(next), u?.dialog || u?.busy ? 1000 : 4000);
     };
     ask().then(next);
     return () => clearTimeout(k);

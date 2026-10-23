@@ -421,7 +421,8 @@ export class Engine {
       const v = this.viewer(m.viewer);
       this.active = v;
       const changed = this.loading.msg?.manifest.pack !== m.manifest.pack;
-      if (changed) this.studio?.stop?.();
+      // (not when the studio was started for this very bus - its lakStart may come first)
+      if (changed && this.studio?.prep?.pack !== m.manifest.pack) this.studio?.stop?.();
       this.loading = { nr: m.load, msg: m, t0: m.t0, marks: {}, lastState: 0 };
       this.mark('message');
       if (changed) this.frameTimes.length = 0;

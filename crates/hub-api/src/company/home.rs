@@ -3,7 +3,7 @@
 //! what matters there now and a badge where something waits; under them the ways to what hides
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
-use super::words::{count_text, eur, filled, grouped, n_of, share_tone, short_date, signed, tr, trf};
+use super::words::{count_text, eur, grouped, n_of, share_tone, short_date, signed, tr, trf};
 use super::{
     agenda, overview, sandbox, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, SANDBOX_TAB, TOGETHER_TAB, WORKSHOP_TAB,
 };
@@ -144,7 +144,8 @@ pub fn view(s: &mut super::Session) -> Value {
     let mut inbox = Tile::new(tab(INBOX_TAB), "Inbox", ICONS[INBOX_TAB]);
     inbox = if marks.unread > 0 { inbox.line(n_of("%{n} unread", marks.unread), "accent2") } else { inbox.line(tr("Nothing unread"), "dim") };
     inbox.big = true;
-    let newest: Vec<Value> = c.inbox.messages.iter().rev().take(8).map(|m| json!([filled(&m.title, &m.args), short_date(&m.date), !m.read])).collect();
+    // (as the inbox writes them: its money, dates and roles - not the raw values)
+    let newest: Vec<Value> = c.inbox.messages.iter().rev().take(8).map(|m| json!([super::inbox::words(&m.title, &m.args), short_date(&m.date), !m.read])).collect();
     inbox.extra = json!({ "kind": "messages", "list": newest, "none": tr("No messages yet") });
     // (Beta 57: what is coming, the Agenda's next entries; a badge for what needs the player
     // this week)

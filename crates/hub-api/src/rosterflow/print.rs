@@ -96,7 +96,8 @@ pub(crate) fn pdf_of(c: &Company, board: &Board, date: &str, bus: bool) -> Vec<u
     let title = tr(if bus { "Bus Graph" } else { "Duty Graph" });
     let info = vec![
         tr("Depot: %{d}").replace("%{d}", c.depot.trim_end_matches(".hof")),
-        tr("Service: %{s}").replace("%{s}", &tr(DAY_NAMES[board.weekday as usize % 7])),
+        // (the date's weekday: the board's is its plan's slot, a date's own plan counted from 7 on)
+        tr("Service: %{s}").replace("%{s}", &tr(DAY_NAMES[co::plan::weekday_of(date) as usize % 7])),
         tr("Date: %{d}").replace("%{d}", date),
     ];
     let printed = format!("{}: {}  ·  {}", tr("Printed"), c.date, c.name);

@@ -158,6 +158,16 @@ export class Link {
   close() {
     this.worker?.terminate();
     this.worker = undefined;
+    // (the page's own engine gives its graphics context back: a browser keeps about 16, and the
+    // oldest - the main view's - went first)
+    if (this.engine) {
+      this.engine.wilful = true;
+      try {
+        this.engine.loseExt?.loseContext();
+      } catch {
+        // (gone already)
+      }
+    }
     this.engine = undefined;
     this.target = { post: () => {} };
     this.viewers.clear();

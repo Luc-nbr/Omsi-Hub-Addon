@@ -22,10 +22,11 @@ pub const DRIVEN: &str = "You drove it already: what was driven stays.";
 pub const IN_GAME: &str = "The game runs this tour now: take it off once it is back in the depot.";
 pub const NO_DRIVER: &str = "Nobody drives it: there is nothing to take off.";
 pub const NO_BUS: &str = "It has no bus: there is nothing to take off.";
+pub const COVER_LATER: &str = "The office covers this duty on its day: what it chooses can be taken off on that day.";
 
 /// Every English text of taking off (for the translations' check).
-pub fn texts() -> [&'static str; 7] {
-    [NOT_FOUND, BEGUN, UNDER_WAY, DRIVEN, IN_GAME, NO_DRIVER, NO_BUS]
+pub fn texts() -> [&'static str; 8] {
+    [NOT_FOUND, BEGUN, UNDER_WAY, DRIVEN, IN_GAME, NO_DRIVER, NO_BUS, COVER_LATER]
 }
 
 /// What taking off did.
@@ -80,6 +81,11 @@ pub fn driver_off(c: &mut Company, p: &DayPlan, ti: usize, k: usize) -> Result<O
         if super::agency::is_booked(id) && piece.is_some_and(|piece| super::agency::release(c, &p.date, &piece)) {
             return Ok(Off::Choice);
         }
+    }
+    // (the dispatcher's choices and the office's cover are the company's day's own: on another
+    // day's plan they took back - or dropped - today's duty of the same tour, and the cover stayed)
+    if !p.today && d.who.is_some() && matches!(d.from_, Source::Dispatcher | Source::Central) {
+        return Err(COVER_LATER);
     }
     match (d.who, d.from_) {
         (Some(_), Source::Dispatcher) => {

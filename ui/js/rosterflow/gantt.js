@@ -1051,6 +1051,13 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       evMove(m);
       return;
     }
+    // (the button let go while what was dragged was being taken up - `pick` asks the core first,
+    // and its answer came after the mouse was up: let go, not a hand following the mouse until
+    // the next click drops it)
+    if (r.dragging && !(e.buttons & 1)) {
+      setRf({ hand: null, zones: null, dragging: false });
+      return;
+    }
     if (r.press && e.buttons & 1) {
       if (Math.hypot(m.x - r.press.x, m.y - r.press.y) > 7) {
         const hand = r.press.hand;
@@ -1323,8 +1330,13 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     e.preventDefault();
     const m = local(e);
     const L = g.layout;
-    if (!L) return;
     const r = S.rf;
+    // (not drawn yet - a frame not come, as in a hidden window: the zoom all the same, about the
+    // day's start; the rest needs where the rows lie)
+    if (!L) {
+      if ((e.ctrlKey || e.metaKey) && e.deltaY) setRf({ zoom: Math.max(1, Math.min(8, r.zoom * (e.deltaY < 0 ? 1.25 : 0.8))) });
+      return;
+    }
     const notch = Math.max(-3, Math.min(3, -e.deltaY / 100)) || (e.deltaY < 0 ? 1 : -1);
     // (Ctrl and the wheel are RosterFlow's own here, never the launcher's size: `zoom.js`;
     // Cmd on a Mac)

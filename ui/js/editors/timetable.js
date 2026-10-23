@@ -38,17 +38,64 @@ async function load(file) {
   redraw();
 }
 
+/** The page's requests that change the lines, one at a time in the order they were made: each
+ * sends the line as it is then, so a change asked for before the last one's answer came would
+ * be made on the line without it (two "+1 min" a minute), a save come before a change. */
+let queue = Promise.resolve();
+function inTurn(fn) {
+  const next = queue.then(fn, fn);
+  queue = next.catch(() => {});
+  return next;
+}
+
+/** A line as it is sent: its tours and trips copied, so that what is typed meanwhile is seen
+ * apart from what was sent. */
+const copyOf = (line) => JSON.parse(JSON.stringify(line));
+
+/** The answer `out` to a request that sent `sent`, with what was typed into the line `now`
+ * meanwhile kept: a trip's departure, trip or profile changed since, in a tour of the same
+ * number with as many trips as were sent (the answer would put back the time it was sent with). */
+function keepTyped(now, sent, out) {
+  now.tours.forEach((t, k) => {
+    const s = sent.tours[k];
+    const o = out.tours?.find((x) => x.number === t.number);
+    if (!s || !o || s.number !== t.number || s.trips.length !== t.trips.length) return;
+    t.trips.forEach((x, j) => {
+      const [a, b] = [s.trips[j], o.trips[j]];
+      if (a && b) for (const f of ['departure', 'trip', 'profile']) if (x[f] !== a[f]) b[f] = x[f];
+    });
+  });
+  return out;
+}
+
+/** The trips of a line as compared: changed since they were sent. */
+const tripsKey = (l) => JSON.stringify(l.tours.map((t) => [t.number, t.trips.map((x) => [x.departure, x.trip, x.profile])]));
+
+/** The departures shown of the tour chosen again from the line (a time being typed that is no
+ * time yet stays as typed). */
+function timesAgain() {
+  const key = `${V.line}|${V.tour}`;
+  const tour = V.data?.lines[V.line]?.tours[V.tour];
+  if (!tour || V.timesFor !== key) return (V.timesFor = null);
+  const was = V.times;
+  V.times = tour.trips.map((t, i) => (was[i] != null && parseTime(was[i]) == null ? was[i] : fmtTime(t.departure)));
+}
+
 /** Save every changed line (`save_all`): how many were saved, and the first error. */
-async function saveAll() {
+const saveAll = () => inTurn(saveAllNow);
+async function saveAllNow() {
   const lines = V.data.lines.filter((l) => V.dirty.has(l.name));
   if (!lines.length) return { saved: 0, error: null };
-  const r = await call('tt_save', { map: V.loaded, lines }).catch((e) => ({ saved: 0, error: e.message, lines: [] }));
+  const sent = lines.map(copyOf);
+  const r = await call('tt_save', { map: V.loaded, lines: sent }).catch((e) => ({ saved: 0, error: e.message, lines: [] }));
+  // (a line changed while it was saved stays to be saved, its changes kept)
+  const changed = new Set(lines.filter((l, k) => tripsKey(l) !== tripsKey(sent[k])).map((l) => l.name));
   for (const x of r.lines || []) {
-    const l = V.data.lines.find((y) => y.name === x.name);
-    if (l) Object.assign(l, x.line);
+    const k = lines.findIndex((y) => y.name === x.name);
+    if (k >= 0) Object.assign(lines[k], keepTyped(lines[k], sent[k], x.line));
   }
-  if (!r.error) V.dirty = new Set();
-  V.timesFor = null;
+  if (!r.error) V.dirty = changed;
+  timesAgain();
   return r;
 }
 
@@ -67,13 +114,26 @@ function tripsOf(line) {
 const tripInfo = (name) => V.data.trips.find((t) => t.name.toLowerCase() === String(name).toLowerCase());
 
 /** A change of the line's tours, made in Rust (`tt_edit`). */
-async function edit(op, more = {}) {
-  const line = V.data.lines[V.line];
+const edit = (op, more = {}) => inTurn(() => editNow(op, more));
+async function editNow(op, more) {
+  // (the line asked about is the one its answer goes to: another may be chosen meanwhile, or
+  // another map read)
+  const data = V.data;
+  const at = V.line;
+  const line = data?.lines[at];
+  if (!line) return null;
+  const tourWas = V.tour;
   try {
-    const r = await call('tt_edit', { line, tour: V.tour, op, ...more });
-    V.data.lines[V.line] = { ...line, ...r.line };
-    V.tour = r.tour;
-    V.timesFor = null;
+    const sent = copyOf(line);
+    const r = await call('tt_edit', { line: sent, tour: V.tour, op, ...more });
+    // (the line where it is now: a line added meanwhile sorts the list anew)
+    const k = data.lines.indexOf(line);
+    if (V.data !== data || k < 0) return null;
+    // (a departure typed while the change was being made stays as typed)
+    data.lines[k] = { ...line, ...keepTyped(line, sent, r.line) };
+    if (V.line === at && k === at) V.tour = r.tour;
+    if (V.line === at && V.tour === tourWas) timesAgain();
+    else V.timesFor = null;
     V.dirty.add(line.name);
     redraw();
     return r;
@@ -91,6 +151,9 @@ function LinesCard({ maps }) {
     if (V.dirty.size) {
       const r = await saveAll();
       status(r.error ? tr('Not saved: %{error}', { error: r.error }) : linesSaved(r.saved), !!r.error);
+      // (not saved: the map stays, its changes with it - another map read would lose them)
+      if (r.error) return redraw();
+      if (r.saved > 0) reloadLines();
     }
     V.map = file;
     load(file);
@@ -116,7 +179,7 @@ function LinesCard({ maps }) {
     V.resetArmed = false;
     try {
       const r = await call('tt_reset', { map: V.loaded });
-      let m = r.done;
+      let m = tr(r.done, r.done_args);
       if (r.own > 0) m += '; ' + tr('your %{n} own line(s) written again', { n: r.own });
       if (r.own_error) m += '; ' + tr('your own lines could not be written again: %{error}', { error: r.own_error });
       status(m);

@@ -266,13 +266,19 @@ mod tests {
     use super::*;
 
     fn duty() -> Duty {
+        // (the tests' own data folder: never the settings of the driver on this computer)
+        crate::online::test_data_dir();
         Duty { map: "maps/Grundorf/global.cfg".into(), bus: "Vehicles/X/a.bus".into(), time: "08:15".into(), line: Some("10".into()), tour: Some("2".into()), autostart: Some(true), ..Duty::default() }
     }
 
     #[test]
     fn a_duty_becomes_official_flags() {
         let s = launch_spec(&duty(), Path::new("C:/OMSI 2"));
-        let a = s.args().unwrap();
+        let mut a = s.args().unwrap();
+        // (a driver another test chose is the game's driver too: not what this one looks at)
+        if let Some(k) = a.iter().position(|x| x == "--driver") {
+            a.drain(k..k + 2);
+        }
         assert_eq!(
             a,
             ["--root", "C:/OMSI 2", "--map", "maps/Grundorf/global.cfg", "--bus", "Vehicles/X/a.bus", "--time", "08:15", "--schedule", "--line", "10", "--tour", "2", "--autostart", "--no-menu"]

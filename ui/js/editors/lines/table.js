@@ -87,10 +87,12 @@ export function TableLayer() {
     </div>
     <div class="le-grid">
       <table>
-        <thead><tr><th class="name">${t.trips.length > 6 ? `${t.trips.length}` : ''}</th>${t.trips.map((x, c) => html`<th><button type="button" class=${sel && sel[0] === x.i ? 'on' : ''} onClick=${() => le('t_select', { i: x.i, s: sel ? sel[1] : 0 })}>${tr('Trip %{n}', { n: c + 1 })}</button></th>`)}<th class="rest"></th></tr></thead>
+        <thead><tr><th class="name">${t.trips.length > 6 ? `${t.trips.length}` : ''}</th>${t.trips.map((x, c) => html`<th key=${x.i}><button type="button" class=${sel && sel[0] === x.i ? 'on' : ''} onClick=${() => le('t_select', { i: x.i, s: sel ? sel[1] : 0 })}>${tr('Trip %{n}', { n: c + 1 })}</button></th>`)}<th class="rest"></th></tr></thead>
         <tbody>${t.stops.map((name, s) => html`<tr class=${s % 2 ? 'odd' : ''}><td class="name">${name}</td>${t.trips.map((x) => {
           const cell = x.times[s];
-          return html`<td>${cell && html`<${Cell} i=${x.i} s=${s} time=${cell[0]} falls=${cell[1]} first=${s === 0} chosen=${!!sel && sel[0] === x.i && sel[1] === s} />`}</td>`;
+          // (keyed by the trip: a time typed that moves the trip among the others moves its cell
+          // with it)
+          return html`<td key=${x.i}>${cell && html`<${Cell} i=${x.i} s=${s} time=${cell[0]} falls=${cell[1]} first=${s === 0} chosen=${!!sel && sel[0] === x.i && sel[1] === s} />`}</td>`;
         })}<td class="rest"></td></tr>`)}</tbody>
       </table>
       ${!t.trips.length && html`<p class="le-empty">${tr(t.empty ? 'The table is empty: fill it from the patterns, or add a trip.' : 'No trip of this direction on these days: add one.')}</p>`}

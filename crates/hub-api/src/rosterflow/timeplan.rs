@@ -1194,9 +1194,9 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "bulk_delete" | "bulk_shift" | "bulk_pattern" | "bulk_revert" => bulk_act(v, &line, &sh, &what, args),
         "revert" => {
             let i = usize_arg(args, "i");
-            if let Some((side, _)) = rows_of_trip(&line, day, i) {
-                let p = line.table.get(i).and_then(|t| side.pattern(t.dir)).unwrap_or(0);
-                let set = tp::run_set(&line, day, side.patterns[p]);
+            // (a trip of a direction the line no longer has is on no side: nothing to revert to)
+            if let Some(dir) = rows_of_trip(&line, day, i).and_then(|(side, _)| line.table.get(i).map(|t| t.dir).filter(|d| side.pattern(*d).is_some())) {
+                let set = tp::run_set(&line, day, dir);
                 v.change(|l| tp::revert(l, i, &set));
             }
             json!({})

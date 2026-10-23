@@ -34,13 +34,16 @@ function Field({ f, running, save }) {
 function NumberField({ f, running, save }) {
   const [v, setV] = useState(null);
   const timer = useRef(0);
+  // (the last move: an earlier save's answer does not put the slider back while it moves on)
+  const seq = useRef(0);
   useEffect(() => () => clearTimeout(timer.current), []);
   const value = v ?? (f.value != null ? Number(f.value) : (f.default ?? f.min));
   const move = (n) => {
     if (running) return;
     setV(n);
+    const me = ++seq.current;
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => save(f.key, String(n)).then(() => setV(null)), 350);
+    timer.current = setTimeout(() => save(f.key, String(n)).then(() => me === seq.current && setV(null)), 350);
   };
   return html`<div class="setting-row full" id=${'oo-' + f.key}>
     <${Slider} label=${f.label} value=${value} min=${f.min} max=${f.max} step=${f.step} format=${(n) => {
