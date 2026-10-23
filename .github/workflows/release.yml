@@ -17,7 +17,9 @@
 # built all the same, and the app offers "Download from GitHub" instead of installing itself.
 #
 # Runs on a pushed tag `v*` (the version in Cargo.toml and app/tauri.conf.json, checked), or by
-# hand (Actions → Release → Run workflow). Run again, it uploads to the same draft.
+# hand (Actions → Release → Run workflow). Run again, it uploads to the same draft. Run by hand with
+# "here" on (the default), the draft is made in this repository instead, with its own token: no
+# OMSI_HUB_RELEASES needed, and only those with access to it can download.
 name: Release
 
 on:
@@ -29,14 +31,19 @@ on:
         description: "A pre-release (for testers; the app offers it to nobody)"
         type: boolean
         default: true
+      here:
+        description: "In this repository (Omsi-Hub-Addon) instead of Luc-nbr/Omsi-Hub-Releases"
+        type: boolean
+        default: true
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# (this repository is only read: the release goes to Omsi-Hub-Releases with OMSI_HUB_RELEASES)
+# (this repository is written to only when the release goes here, "here" on a run by hand;
+# else it goes to Omsi-Hub-Releases with OMSI_HUB_RELEASES)
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -119,8 +126,9 @@ jobs:
           echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
           echo "::notice::Omsi-Hub $app, pre-release: $pre"
 
-      # (the releases' repository can be written to)
+      # (the releases' repository can be written to; here, this repository's own token does)
       - name: Releases repository token
+        if: ${{ !inputs.here }}
         shell: bash
         env:
           TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
@@ -149,15 +157,16 @@ jobs:
       - name: Build and upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.OMSI_HUB_RELEASES }}
+          GITHUB_TOKEN: ${{ inputs.here && secrets.GITHUB_TOKEN || secrets.OMSI_HUB_RELEASES }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
-          owner: Luc-nbr
-          repo: Omsi-Hub-Releases
-          # (the tag is made there, from its own main: this repository's commits are not in it)
-          commitish: main
+          owner: ${{ inputs.here && github.repository_owner || 'Luc-nbr' }}
+          repo: ${{ inputs.here && github.event.repository.name || 'Omsi-Hub-Releases' }}
+          # (the tag is made there from its own main - this repository's commits are not in it; here,
+          # from the commit built)
+          commitish: ${{ inputs.here && github.sha || 'main' }}
           tauriScript: npx --yes @tauri-apps/cli@2
           tagName: v__VERSION__
           releaseName: Omsi-Hub __VERSION__
