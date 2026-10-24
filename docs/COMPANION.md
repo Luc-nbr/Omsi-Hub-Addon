@@ -162,8 +162,17 @@ app shows what it has and hides the rest.
 | `GET /api/route` | the trip's route: `{v, pts: [[x, y], …], stops: [{name, x, y}]}` (`v` = `nav.route_v`) |
 | `GET /api/roads?x=&y=&r=` | the roads within `r` m (≤ 2000) of a point: `{roads: [{w, pts: [[x, y], …]}], water: [], green: []}` |
 | `GET /api/lines` | the map's lines and tours, for `take_duty`: `{lines: [{name, tours: [{number, today}]}]}` |
+| `GET /api/pos?after=<n>` | where the bus is, thirty places a second: `{pos: [{n, t, x, y, heading, speed}, …]}`, those after the `n`-th (without `after`: the latest), at once when there is one, else within 2 s (`pos: []`) |
 
 The app fetches roads in tiles of 1000 m and keeps them; `w` is the road's width in metres.
+
+The bus on the map moves every frame of the screen: the app asks `/api/pos` again as soon as it
+has its answer (at most about twenty times a second, a few places to each) and plays the places
+back a moment behind, drawing the bus between two of them (`t`: the seconds of game they came at;
+`n` counts from 1 again when the game starts again). The places come from the plugin's
+`data/pos.json`, read only while a device asks; they are where the state's `bus` is, thirty
+times a second instead of a few. An add-on without them answers 404, and the app goes by the
+state's `bus` then.
 
 ## The bus's devices, drawn as the game draws them
 

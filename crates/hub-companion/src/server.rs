@@ -13,6 +13,7 @@ use crate::heard::{Heard, Paged};
 use crate::http::{self, Command, Request, Response, Route};
 use crate::nav::{self, Tracker};
 use crate::pairing::{self, Pairing, Refused};
+use crate::pos;
 use crate::queue::Queue;
 use crate::state::{self, Facts, Pause};
 use crate::{Config, Source};
@@ -80,6 +81,9 @@ pub struct Inner {
 pub struct Shared {
     pub inner: Mutex<Inner>,
     pub news: Condvar,
+    /// Where the bus is, thirty times a second, and its own news (`pos`).
+    pub pos: Mutex<pos::Feed>,
+    pub pos_news: Condvar,
     pub source: Arc<dyn Source>,
     pub cfg: Config,
     /// The steady clock's start (the datagrams' and the pairing's seconds).
@@ -109,11 +113,35 @@ impl Shared {
             board: Board::default(),
             stopped: false,
         };
-        Shared { inner: Mutex::new(inner), news: Condvar::new(), source, cfg, start: Instant::now(), finder: Finder::default() }
+        Shared { inner: Mutex::new(inner), news: Condvar::new(), pos: Mutex::default(), pos_news: Condvar::new(), source, cfg, start: Instant::now(), finder: Finder::default() }
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn lock_pos(&self) -> MutexGuard<'_, pos::Feed> {
+        self.pos.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The plugin's place read again while a device follows the bus: kept when it is new, the
+    /// places forgotten when there is none of now. False when no device follows it.
+    pub fn look_pos(&self) -> bool {
+        if !self.lock_pos().followed() {
+            return false;
+        }
+        let place = self.lock().plugin_dir.clone().and_then(|d| pos::read_fresh(&d));
+        let mut f = self.lock_pos();
+        match place {
+            Some(p) => {
+                if f.take(p) {
+                    drop(f);
+                    self.pos_news.notify_all();
+                }
+            }
+            None => f.clear(),
+        }
+        true
     }
 
     /// Seconds of the steady clock.
@@ -360,6 +388,7 @@ impl Drop for Server {
         }
         drop(i);
         self.shared.news.notify_all();
+        self.shared.pos_news.notify_all();
     }
 }
 
@@ -408,6 +437,12 @@ impl Server {
                     Ok((n, from)) if from.ip().is_loopback() => sh.hear(&buf[..n]),
                     _ => {}
                 }
+            }
+        })?;
+        let (st, sh) = (stop.clone(), shared.clone());
+        std::thread::Builder::new().name("companion pos".into()).spawn(move || {
+            while !st.load(Ordering::Relaxed) {
+                std::thread::sleep(if sh.look_pos() { pos::READ_EVERY } else { Duration::from_millis(200) });
             }
         })?;
         let (st, sh) = (stop.clone(), shared.clone());
@@ -522,6 +557,19 @@ pub fn handle(req: &Request, shared: &Arc<Shared>) -> Response {
             let mut v = i.state.clone();
             v["v"] = json!(i.version);
             Response::json(&v)
+        }
+        Route::Pos(after) => {
+            let deadline = Instant::now() + pos::WAIT;
+            let mut f = shared.lock_pos();
+            f.asked = Some(Instant::now());
+            while !f.newer(after) {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                f = shared.pos_news.wait_timeout(f, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            Response::json(&json!({ "pos": f.since(after) }))
         }
         Route::Do => {
             let Some(cmd) = Command::from_json(&req.json()) else { return Response::error(400, "unknown_command") };
@@ -783,6 +831,42 @@ mod tests {
         assert!(v["v"].as_u64().unwrap() > v0);
         assert_eq!(v["game"], true);
         assert!(took < Duration::from_secs(5), "answered at the news, not after the wait: {took:?}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn where_the_bus_is_comes_place_by_place_while_a_device_follows_it() {
+        let (sh, dir) = shared("pos");
+        let key = pair(&sh);
+        sh.refresh(&mut sh.lock());
+        let write =
+            |n: u64| std::fs::write(dir.join("data").join("pos.json"), json!({ "n": n, "t": n as f64 / 30.0, "x": 1000.0 + n as f64, "y": 20.0, "heading": 90.0, "speed": 30.0 }).to_string()).unwrap();
+        write(1);
+        // (nobody follows the bus yet: the file is not read)
+        assert!(!sh.look_pos());
+        let started = Instant::now();
+        assert_eq!(json_of(&handle(&req("GET", "/api/pos", Some(&key), ""), &sh))["pos"], json!([]));
+        assert!(started.elapsed() >= pos::WAIT, "no place yet: after the wait");
+        for n in 1..=3 {
+            write(n);
+            assert!(sh.look_pos());
+        }
+        let r = json_of(&handle(&req("GET", "/api/pos?after=1", Some(&key), ""), &sh));
+        assert_eq!(r["pos"].as_array().unwrap().iter().map(|p| p["n"].as_u64().unwrap()).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(r["pos"][1]["x"], 1003.0);
+        // a request waiting for the next place is answered as it comes
+        let (sh2, key2) = (sh.clone(), key.clone());
+        let waiting = std::thread::spawn(move || {
+            let started = Instant::now();
+            (json_of(&handle(&req("GET", "/api/pos?after=3", Some(&key2), ""), &sh2)), started.elapsed())
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        write(4);
+        sh.look_pos();
+        let (r, took) = waiting.join().unwrap();
+        assert_eq!(r["pos"][0]["n"], 4);
+        assert!(took < pos::WAIT, "answered at the place, not after the wait: {took:?}");
+        assert_eq!(handle(&req("GET", "/api/pos", None, ""), &sh).status, 401);
         let _ = std::fs::remove_dir_all(dir);
     }
 

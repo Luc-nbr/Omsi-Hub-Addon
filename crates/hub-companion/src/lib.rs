@@ -13,7 +13,8 @@
 //!   ([`queue`]) and acks each.
 //! * The server ([`server`], [`http`], [`pairing`]): off by default, on the home network only,
 //!   behind a pairing code; a long-polled state, commands answered when the game has done them,
-//!   the trip's route and the map's roads for the app's map.
+//!   the trip's route and the map's roads for the app's map; where the bus is thirty times a
+//!   second besides ([`pos`], the plugin's `data/pos.json`), for the app's map to follow it.
 //! * The state ([`state`]) adds what only the add-on knows - the duty it assigned, the
 //!   driver's pass, the control room's inbox - and works out the break between trips and the
 //!   next turn ([`nav`]) on the route the add-on reads from the map.
@@ -27,6 +28,7 @@ pub mod heard;
 pub mod http;
 pub mod nav;
 pub mod pairing;
+pub mod pos;
 pub mod queue;
 pub mod server;
 pub mod state;

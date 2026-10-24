@@ -16,7 +16,8 @@ never changes their files.
   its trips, the trip's stops with their delays, the route on the map with the next turn, your
   break between trips and the control room's messages (answered there too); you sign on there,
   sign the duty order or drive without a duty, and work the bus's IBIS and ticket printer as
-  in the cab. Off by default; only paired devices of your network get in (docs/COMPANION.md).
+  in the cab; the bus on its map moves every frame of the screen (the game's place thirty times
+  a second). Off by default; only paired devices of your network get in (docs/COMPANION.md).
 - **The bus's own IBIS and ticket printer on the phone and tablet, 1:1**: Omsi-Hub reads the
   devices of the bus you drive from its own files - the `model.cfg`, the `.o3d` parts, the
   textures, OMSI's fonts - and the app draws their screens as the game draws them: the pages,

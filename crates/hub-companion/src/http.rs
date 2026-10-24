@@ -126,6 +126,9 @@ pub enum Route {
     Do,
     /// `GET /api/route`: the trip's route as a line and its stops.
     Route,
+    /// `GET /api/pos?after=<n>`: where the bus is, the places after the `n`-th (or the latest),
+    /// once there is one (or after a short while without).
+    Pos(Option<u64>),
     /// `GET /api/roads?x=&y=&r=`: the map's roads within `r` metres of a place.
     Roads {
         x: f64,
@@ -151,7 +154,7 @@ pub enum Route {
 impl Route {
     /// Whether the route wants a paired device's key.
     pub fn needs_key(&self) -> bool {
-        matches!(self, Route::State(_) | Route::Do | Route::Route | Route::Roads { .. } | Route::Lines | Route::Device(_) | Route::Texture(_) | Route::Screen(..))
+        matches!(self, Route::State(_) | Route::Pos(_) | Route::Do | Route::Route | Route::Roads { .. } | Route::Lines | Route::Device(_) | Route::Texture(_) | Route::Screen(..))
     }
 }
 
@@ -168,6 +171,7 @@ pub fn route(r: &Request) -> Route {
         "/api/state" => wants(get, Route::State(r.query("after").and_then(|v| v.parse::<u64>().ok()))),
         "/api/do" => wants(post, Route::Do),
         "/api/route" => wants(get, Route::Route),
+        "/api/pos" => wants(get, Route::Pos(r.query("after").and_then(|v| v.parse::<u64>().ok()))),
         "/api/lines" => wants(get, Route::Lines),
         "/api/roads" => {
             let f = |name: &str| r.query(name).and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite());
