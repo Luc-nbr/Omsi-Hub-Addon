@@ -1585,7 +1585,12 @@ pub struct TypedAge {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum TypedAgeSaved {
-    Now { id: String, #[serde(default)] file: String, year: String },
+    Now {
+        id: String,
+        #[serde(default)]
+        file: String,
+        year: String,
+    },
     Before(String, String),
 }
 
