@@ -1938,6 +1938,7 @@ dependencies = [
  "chrono",
  "glam",
  "hashbrown 0.17.1",
+ "hub-companion",
  "hub-core",
  "hub-game",
  "hub-livery",
@@ -1968,6 +1969,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hub-companion"
+version = "0.1.0"
+dependencies = [
+ "hub-devices",
+ "hub-game",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "hub-core"
 version = "0.1.0"
 dependencies = [
@@ -1979,6 +1992,18 @@ dependencies = [
  "omsi-net",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hub-devices"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "image",
+ "omsi-texture",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
 ]
 
 [[package]]
@@ -2041,6 +2066,8 @@ dependencies = [
 name = "hub-plugin-harness"
 version = "0.1.0"
 dependencies = [
+ "hub-companion",
+ "hub-devices",
  "hub-game",
  "mlua",
  "serde_json",

@@ -7,6 +7,7 @@
 //! |---|---|---|
 //! | `hub_` | [`hub`] | the app: boot, texts, first-run setup, migration, drives |
 //! | `hub_update` | [`update`] | the app's own updates (this repository's releases) |
+//! | `hub_companion` | [`companion`] | the phone and tablet companion's server |
 //! | `addon_` | [`addon`] | the plugin in the player's openOMSI, the bridge |
 //! | `addon_controllers` | [`controllers`] | the player's wheel, pedals and button boxes |
 //! | `co_` | [`company`] | the bus company |
@@ -28,6 +29,8 @@ pub mod addon;
 pub mod cloud;
 #[cfg(feature = "native")]
 pub mod cloud_content;
+#[cfg(feature = "native")]
+pub mod companion;
 pub mod company;
 pub mod content;
 pub mod controllers;
@@ -131,6 +134,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
     match cmd {
         #[cfg(feature = "native")]
         c if c.starts_with("hub_update") => update::call(c, args, p),
+        #[cfg(feature = "native")]
+        c if c.starts_with("hub_companion") => companion::call(c, args, p),
         #[cfg(feature = "native")]
         c if c.starts_with("hub_lan") => lan::call(c, args).unwrap_or_else(|| Err(format!("unknown command: {cmd}"))),
         #[cfg(feature = "native")]

@@ -16,7 +16,13 @@
 //! * `omsi.position()` is [`GameState::position`], `omsi.traffic.list()`,
 //!   `omsi.timetable.buses()` and `omsi.others()` are [`GameState::traffic`],
 //!   [`GameState::timetable_buses`] and [`GameState::others`] as JSON; `omsi.map.tile_at`
-//!   puts the map's coordinates on tiles of [`GameState::tile`] metres from the origin.
+//!   puts the map's coordinates on tiles of [`GameState::tile`] metres from the origin;
+//! * the bus's triggers, script variables and strings, tickets and sales are
+//!   [`GameState::triggers`], [`GameState::vars`], [`GameState::strs`], [`GameState::tickets`]
+//!   and [`GameState::sales`]; `omsi.trigger`, `omsi.bus.action` and `omsi.bus.set_line` are
+//!   kept in [`GameState::pressed`], [`GameState::bus_actions`] and [`GameState::lines_typed`],
+//!   `omsi.press` and `omsi.release` in [`GameState::held`]; `omsi.bus.get_vars` and
+//!   `omsi.bus.get_strings` give only the names the bus has, as the API does.
 //!
 //! A test can take functions away before the plugin runs ([`Harness::load_with`]), as an older
 //! openOMSI would not have them.
@@ -108,6 +114,25 @@ pub struct GameState {
     pub timetable_buses: Vec<Value>,
     pub others: Vec<Value>,
     pub tile: f64,
+    /// The bus's script triggers (`omsi.bus.triggers`) and the ones fired (`omsi.trigger`),
+    /// its key actions done (`omsi.bus.action`) and the lines typed (`omsi.bus.set_line`).
+    pub triggers: Vec<String>,
+    pub pressed: Vec<String>,
+    /// The keys held down (`omsi.press`: true) and let go (`omsi.release`: false), in order.
+    pub held: Vec<(String, bool)>,
+    pub bus_actions: Vec<String>,
+    pub lines_typed: Vec<String>,
+    /// Its script variables and strings (`omsi.bus.get_vars`, `omsi.vars`, `omsi.str`).
+    pub vars: BTreeMap<String, f64>,
+    pub strs: BTreeMap<String, String>,
+    /// The map's tickets (name, price), the one asked for at the desk, the sales so far.
+    pub tickets: Vec<(String, f64)>,
+    pub ticket_request: Option<(String, f64)>,
+    pub sales: (i64, f64),
+    /// The map's lines as `omsi.timetable.lines` gives them, and the name of every lane
+    /// (`omsi.map.lane`).
+    pub lines: Value,
+    pub lane: String,
 }
 
 impl Default for GameState {
@@ -142,6 +167,18 @@ impl Default for GameState {
             timetable_buses: Vec::new(),
             others: Vec::new(),
             tile: 300.0,
+            triggers: Vec::new(),
+            pressed: Vec::new(),
+            held: Vec::new(),
+            bus_actions: Vec::new(),
+            lines_typed: Vec::new(),
+            vars: BTreeMap::new(),
+            strs: BTreeMap::new(),
+            tickets: Vec::new(),
+            ticket_request: None,
+            sales: (0, 0.0),
+            lines: json!([]),
+            lane: String::new(),
         }
     }
 }
@@ -195,6 +232,22 @@ pub const FUNCTIONS: &[&str] = &[
     "others",
     "traffic.list",
     "timetable.buses",
+    "timetable.lines",
+    "trigger",
+    "press",
+    "release",
+    "vars",
+    "str",
+    "vehicle",
+    "bus.triggers",
+    "bus.tickets",
+    "bus.ticket_request",
+    "bus.sales",
+    "bus.get_vars",
+    "bus.get_strings",
+    "bus.action",
+    "bus.set_line",
+    "map.lane",
 ];
 
 /// The handlers and timers, in Lua (the harness's own).
@@ -207,17 +260,27 @@ end
 function omsi.every(seconds, fn)
   table.insert(timers, { every = seconds, left = seconds, fn = fn })
 end
+function omsi.after(seconds, fn)
+  table.insert(timers, { left = seconds, fn = fn })
+end
 function omsi._fire(event, ...)
   for _, fn in ipairs(handlers[event] or {}) do fn(...) end
 end
 function omsi._tick(dt)
+  local due = {}
   for _, t in ipairs(timers) do
     t.left = t.left - dt
     if t.left <= 1e-9 then
-      t.left = t.left + t.every
-      t.fn()
+      t.left = t.left + (t.every or 0)
+      due[#due + 1] = t
     end
   end
+  local keep = {}
+  for _, t in ipairs(timers) do
+    if t.every then keep[#keep + 1] = t end
+  end
+  timers = keep
+  for _, t in ipairs(due) do t.fn() end
 end
 "#;
 
@@ -360,8 +423,28 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     omsi.set("traffic", traffic)?;
     let timetable = lua.create_table()?;
     f!(timetable, "buses", |l, s, _a: ()| to_lua(l, &Value::from(s.borrow().timetable_buses.clone())));
+    f!(timetable, "lines", |l, s, _a: ()| to_lua(l, &s.borrow().lines.clone()));
     omsi.set("timetable", timetable)?;
     f!(omsi, "speed", |_l, s, _a: ()| Ok(s.borrow().speed));
+    f!(omsi, "vehicle", |_l, s, _a: ()| Ok(s.borrow().vehicle.clone()));
+    f!(omsi, "trigger", |_l, s, name: String| {
+        s.borrow_mut().pressed.push(name);
+        Ok(())
+    });
+    f!(omsi, "press", |_l, s, name: String| {
+        s.borrow_mut().held.push((name, true));
+        Ok(())
+    });
+    f!(omsi, "release", |_l, s, name: String| {
+        s.borrow_mut().held.push((name, false));
+        Ok(())
+    });
+    f!(omsi, "vars", |l, s, kind: Option<String>| {
+        let g = s.borrow();
+        let names: Vec<String> = if kind.as_deref() == Some("str") { g.strs.keys().cloned().collect() } else { g.vars.keys().cloned().collect() };
+        to_lua(l, &json!(names))
+    });
+    f!(omsi, "str", |_l, s, name: String| Ok(s.borrow().strs.get(&name).cloned()));
     f!(omsi, "send", |_l, s, a: (i64, String)| {
         s.borrow_mut().sent.push(a);
         Ok(true)
@@ -497,6 +580,38 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
     let bus = lua.create_table()?;
     f!(bus, "file", |_l, s, _a: ()| Ok(s.borrow().bus_file.clone()));
     f!(bus, "passengers", |_l, s, _a: ()| Ok(s.borrow().passengers));
+    // (in lower case, as openOMSI 0.3.37 lists them; its trigger functions know no case)
+    f!(bus, "triggers", |l, s, _a: ()| to_lua(l, &json!(s.borrow().triggers.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>())));
+    f!(bus, "tickets", |l, s, _a: ()| {
+        let list: Vec<Value> = s.borrow().tickets.iter().map(|(n, p)| json!({ "name": n, "price": p, "day_ticket": false })).collect();
+        to_lua(l, &Value::Array(list))
+    });
+    f!(bus, "ticket_request", |l, s, _a: ()| match &s.borrow().ticket_request {
+        Some((n, p)) => (n.clone(), *p).into_lua_multi(l),
+        None => Ok(mlua::MultiValue::new()),
+    });
+    f!(bus, "sales", |_l, s, _a: ()| Ok(s.borrow().sales));
+    f!(bus, "get_vars", |l, s, names: Option<Vec<String>>| {
+        // (as Lua numbers: a NaN stays one, as the game gives it)
+        let out = l.create_table()?;
+        for (k, v) in s.borrow().vars.iter().filter(|(k, _)| names.as_ref().is_none_or(|n| n.contains(k))) {
+            out.set(k.as_str(), *v)?;
+        }
+        Ok(out)
+    });
+    f!(bus, "get_strings", |l, s, names: Option<Vec<String>>| {
+        let g = s.borrow();
+        let out: serde_json::Map<String, Value> = g.strs.iter().filter(|(k, _)| names.as_ref().is_none_or(|n| n.contains(k))).map(|(k, v)| (k.clone(), json!(v))).collect();
+        to_lua(l, &Value::Object(out))
+    });
+    f!(bus, "action", |_l, s, a: (String, Option<bool>)| {
+        s.borrow_mut().bus_actions.push(a.0);
+        Ok(true)
+    });
+    f!(bus, "set_line", |_l, s, line: String| {
+        s.borrow_mut().lines_typed.push(line);
+        Ok(true)
+    });
     f!(bus, "set_display_font", |_l, s, font: String| {
         s.borrow_mut().fonts.push(font);
         Ok(1)
@@ -533,6 +648,7 @@ fn api(lua: &Lua, state: &Rc<RefCell<GameState>>, plugin_dir: &Path) -> mlua::Re
 
     let map = lua.create_table()?;
     f!(map, "info", |l, s, _a: ()| to_lua(l, &json!({ "path": s.borrow().map })));
+    f!(map, "lane", |l, s, _a: (f64, f64)| to_lua(l, &json!({ "index": 1, "distance": 0.5, "name": s.borrow().lane })));
     f!(map, "tile_at", |_l, s, a: (f64, f64)| {
         let t = s.borrow().tile;
         let (tx, ty) = ((a.0 / t).floor(), (a.1 / t).floor());

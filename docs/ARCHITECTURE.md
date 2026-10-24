@@ -25,12 +25,18 @@ crates/
   hub-game      the player's openOMSI: found, checked, started; the plugin installed; the bridge
   hub-locales   the texts (ported as they were)
   hub-online    the account, friends, leaderboard, cloud saves (ported as they were)
+  hub-companion the phone and tablet companion's server (docs/COMPANION.md)
+  hub-devices   a bus's devices (IBIS, ticket printer, any screen with keys or touch fields) read
+                from its model.cfg, .o3d parts, textures and OMSI's fonts: the forms the app draws
+                (a port of Luc's career add-on, github.com/Luc-nbr/Omsi-career-addon)
 plugin/         the Lua plugin that runs inside openOMSI; harness/ tests it on mlua
 fixtures/       fake openOMSI and OMSI 2 folders for the setup's tests
 ```
 
 Dependencies go one way: `app → hub-api → hub-core → hub-omsi`, and `hub-api → hub-game,
-hub-locales, hub-online`. `hub-omsi` and `hub-game` depend on nothing of ours.
+hub-locales, hub-online, hub-companion`; `hub-companion → hub-game, hub-devices`. `hub-omsi`,
+`hub-game` and `hub-devices` depend on nothing of ours (`hub-devices` decodes textures with
+openOMSI's `omsi-texture`).
 
 ## The contracts
 
@@ -168,6 +174,7 @@ installed here):
 |---|---|---|
 | `hub_` | `hub`, `drive`, `live`, `content` | Boot, texts, first-run setup, migration, drives and their live dashboard; the drive's steps (`content`: maps, buses, lines, shifts, weather, depots, bus options, fonts, the route map's roads) |
 | `addon_` | `addon` | The plugin: state, folder, version, enable/remove, texts, assignment, reports booked, the bridge looked at |
+| `hub_companion_` | `companion` | The phone and tablet companion: on/off, the pairing code and QR code, the paired devices; started with the app when on |
 | `co_` | `company` | Ported (`co_more_*` too); the fleet map's and the duty map's roads from `hub_omsi::roads`; bus photos: kept by `co_photo_save`, taken by the page from the 3D model (`ui/js/hub/photos.js`) |
 | `rf_` | `rosterflow` | Ported |
 | `tg_` | `together` | Later (needs a relay) |
@@ -189,6 +196,37 @@ installed here):
 - `process::{start, Game, ask_version, ensure_executable}`.
 - `find::{omsi2_candidates, openomsi_candidates, steam_roots, steam_libraries, xdg_user_dir}`.
 - `gamesettings::{FIELDS, GROUPS, path, value, checked, with, set}`: openOMSI's own `~/.openomsi/settings.cfg`, the keys its user guide names (`addon_game_settings`, `addon_game_setting`).
+
+**`hub-companion`** (the phone and tablet companion, docs/COMPANION.md):
+
+- `Companion::start(Config, Arc<dyn Source>)`, `status()`, `forget(id)`, `new_code()`; dropping it
+  stops it. `Source` is what the add-on knows: the plugin's folder, the last assignment, and the
+  map's routes and roads (hub-api's `companion`, on `content::mapview::{route_line, roads_near,
+  world_of}`).
+- `http` (requests, routes, the commands a device may send), `pairing` (six-digit codes, device
+  keys kept as SHA-256 in `companion-devices.json`), `heard` (the plugin's datagrams, paged lists
+  put together), `queue` (`data/companion.json`), `state` (the state a device sees, the break
+  between trips), `nav` (the next turn on the trip's route), `devices` (the bus's devices for
+  `state.devices`, their forms and pictures by id, the stands from the plugin's `scr`, the forms
+  kept in `companion-forms/` of the data folder), `server` (the threads). `Source::bus_model`
+  gives the `model.cfg` of the bus the plugin names and the game folder it is read in.
+
+**`hub-devices`** (a bus's devices as the game draws them; a port of the device pipeline of Luc's
+career add-on for OMSI 2, `github.com/Luc-nbr/Omsi-career-addon`, rule by rule, in English):
+
+- `cfg` (`schermcfg.ts`: `model.cfg` read as Omsi.exe reads it - whole-line headings, the mesh
+  index of existing `.o3d`s only, `[useTextTexture]`'s index, the `[newanim]` chains, the
+  materials), `o3d` (`o3d.ts`, encrypted files included), `text` (Windows-1252, UTF-16, CR/LF);
+- `modules` (`busmodule.ts`: the devices grouped from their parts' names, the keys' labels and
+  roles) and `layout` (`busvorm.ts`/`busscherm.ts`: the keys in the rows they have on the device);
+- `form` (`schermvorm.ts`: `needed_numbers`, then `build` - the anim chains with the scripts'
+  start values (`scripts`), the anchors' vote on the background, the flat piece, (s, t) on its
+  plane, triangles facing the driver, layers, text fields, touch fields, the keys off the screen
+  within `OFF_THE_SCREEN_MM`, depth order, the id from the content);
+- `textures` (`schermtextuur.ts`/`textuur.ts`: names that cannot leave the folder, OMSI's search
+  order, ids of 20 hex characters, the material's alpha rules, PNG), `ctc` (`kleurstelling.ts`:
+  repaints), `fonts` (`oft.ts`: `.oft` and the raw bitmaps), `protocol` (the form and the stand
+  as the app reads them), `testbus` (a synthetic bus for the tests and the fake game).
 
 ## The data folder
 

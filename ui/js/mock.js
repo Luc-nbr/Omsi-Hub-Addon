@@ -148,6 +148,21 @@ const gameSettings = () => ({
   })),
 });
 
+// the phone and tablet companion (`hub_companion_*`)
+let companionOn = false;
+let companionCode = '482913';
+let companionDevices = [{ id: 'a1', name: "Luc's iPhone", since: Math.floor(Date.now() / 1000) - 86400 * 3, seen: Math.floor(Date.now() / 1000) - 20, connected: true }];
+const companionQr = () => {
+  const n = 29;
+  let bits = '';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) bits += (x * 7 + y * 13 + ((x * y) % 5)) % 3 === 0 || ((x < 7 || x > n - 8) && y < 7) || (x < 7 && y > n - 8) ? '1' : '0';
+  return { size: n, bits };
+};
+const companionState = () =>
+  companionOn
+    ? { on: true, wanted: true, host: '192.168.1.20', port: 47811, address: 'http://192.168.1.20:47811', code: companionCode, pair_url: `omsihub://pair?host=192.168.1.20&port=47811&code=${companionCode}&name=Omsi-Hub`, name: 'Omsi-Hub', devices: companionDevices, game: false, qr: companionQr() }
+    : { on: false, wanted: false, port: 47811, error: '' };
+
 const answers = {
   hub_version: () => ({ app: '0.1.0', min_openomsi: '0.2.22', plugin: '1.8.0', bridge: 1 }),
   hub_boot: () => ({ version: answers.hub_version(), data_dir: '(mock)', settings, setup_needed: !settings.setup_done, languages: ['en', 'nl', 'de', 'fr', 'pl'], intro: params.get('intro') || '', page: params.get('page') || '' }),
@@ -300,6 +315,11 @@ const answers = {
   hub_lan_servers: () => [{ name: 'openOMSI | Official Server', address: 'openomsi' }],
   hub_lan_servers_save: () => true,
   hub_lan_tunnel: () => null,
+  // (the phone and tablet companion: `hub/companion.js`; a QR code of plain stripes stands in)
+  hub_companion_state: () => companionState(),
+  hub_companion_set: ({ on }) => ((companionOn = !!on), companionState()),
+  hub_companion_code: () => ((companionCode = String(100000 + Math.floor(Math.random() * 900000))), companionState()),
+  hub_companion_forget: ({ id }) => ((companionDevices = companionDevices.filter((d) => d.id !== id)), companionState()),
   hub_lan_hosted: () => [],
   hub_profiles: () => ({ names: DRIVERS.slice(), current: DRIVERS[0] || '' }),
   hub_profile: ({ name }) => driverRecord(name),

@@ -1,5 +1,6 @@
 // The Settings page's tabs and rows (`pages/settings.js` draws them): the look - light or dark,
-// the accent, the launcher's size, the animations, the company's layout - and the language;
+// the accent, the launcher's size, the animations, the company's layout -, the language and the
+// phone and tablet companion (`companion.js`);
 // openOMSI and OMSI 2 (the folders, the version, the plugin: `addon.js`); openOMSI's own settings
 // (`gamesettings.js`, its `settings.cfg`); the game controllers - the wheel, the pedals, the
 // button boxes (`controllers.js`, `Inputs/gamectrler.cfg`); the updates; and the
@@ -18,6 +19,7 @@ import { showPrivacy } from '../privacy.js';
 import { AddonPanel } from './addon.js';
 import { GameSettingsPanel } from './gamesettings.js';
 import { ControllersPanel } from './controllers.js';
+import { CompanionPanel } from './companion.js';
 
 const pct = (v) => `${Math.round(v * 100)} %`;
 
@@ -51,6 +53,11 @@ export const SETTINGS_TABS = [
       {
         title: 'Language',
         rows: [{ type: 'language', key: 'language', label: 'Language' }],
+      },
+      // (the Omsi-Hub Companion app on a phone or tablet: `companion.js`)
+      {
+        title: 'Phone & tablet',
+        rows: [{ type: 'custom', id: 'hub-companion', view: () => html`<${CompanionPanel} />` }],
       },
     ],
   },

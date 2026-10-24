@@ -17,9 +17,11 @@
 --   data/traffic.json     plugin -> Omsi-Hub: the game's traffic, for the fleet map (traffic.lua)
 --   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
 --   data/pos.json         plugin -> Omsi-Hub: where the bus is, thirty times a second (dash.lua)
+--   data/companion.json   Omsi-Hub -> plugin: the phone's commands (companion.lua, which sends
+--                         the game to Omsi-Hub's companion server by UDP)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.12.0"
+local VERSION = "1.13.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -395,6 +397,29 @@ messages.setup(tr, { send = send_out, issued = issued, assignment = assignment, 
   trip_ended(run, { trip = d.trip, how = how, delay = delay() })
 end })
 
+-- the phone and tablet companion (companion.lua): what the phone shows, what it may do
+local companion = require("companion")
+-- (the duty order signed: further down, with the panel's clicks)
+local accepted
+companion.setup({
+  signon = signon, messages = messages, issued = issued,
+  accept = function()
+    if not (assignment and signon.stage == "order") then return false end
+    signon.click("accept", accepted)
+    ibis_rule()
+    panel()
+    return true
+  end,
+  drive_free = function()
+    state.started = true
+    signon.skip()
+    if duty_now() and has["duty.finish"] then omsi.duty.finish() end
+    ibis_rule()
+    panel()
+  end,
+  changed = function() panel() end,
+})
+
 omsi.on("duty", function(line, tour)
   -- (a short-turn takes the same duty again at its next trip: no new duty)
   if messages.turned(line, tour) then return panel() end
@@ -435,7 +460,10 @@ omsi.on("stop_arrive", function(_, _, number, d)
     panel()
   end
 end)
-omsi.on("stop_depart", function(_, _, number, d) trip.depart(number, d) end)
+omsi.on("stop_depart", function(_, _, number, d)
+  trip.depart(number, d)
+  companion.stop_depart(number, d)
+end)
 omsi.on("jolt", function() trip.jolt() end)
 omsi.on("crash", function() trip.crash() end)
 omsi.on("passenger_board", function(count) trip.boarded(count) end)
@@ -496,6 +524,7 @@ local function free_drive()
 end
 
 omsi.on("vehicle", function(name)
+  companion.vehicle()
   if name then display_font() end
   if name then free_drive() end
   -- (the notices once the player is in the bus and sees them)
@@ -509,6 +538,19 @@ omsi.on("vehicle", function(name)
   panel()
 end)
 
+-- signed on and the duty accepted (in the panel, or on the phone): taken now where it was to
+-- start by itself
+accepted = function()
+  if assignment.auto_start and not state.started then
+    state.started = true
+    start_duty()
+  end
+  -- (the duty's codes go to the IBIS as the order is accepted; the bus's notes are shown)
+  strip.signed_on()
+  ibis_rule()
+  if has["duty.type_ibis"] and assignment.ibis ~= false then omsi.duty.type_ibis() end
+end
+
 omsi.on("ui_click", function(p, element)
   if layout.click(p, element) then return end
   if card.click(p, element) then return end
@@ -517,17 +559,7 @@ omsi.on("ui_click", function(p, element)
   if p == PANEL and element == "signoff" and signon.signed() then strip.sign_off() end
   if ontime.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
-  -- (signed on and the duty accepted: taken now where it was to start by itself)
-  if p == PANEL and signon.click(element, function()
-    if assignment.auto_start and not state.started then
-      state.started = true
-      start_duty()
-    end
-    -- (the duty's codes go to the IBIS as the order is accepted; the bus's notes are shown)
-    strip.signed_on()
-    ibis_rule()
-    if has["duty.type_ibis"] and assignment.ibis ~= false then omsi.duty.type_ibis() end
-  end) then
+  if p == PANEL and signon.click(element, accepted) then
     ibis_rule()
     panel()
   end
@@ -610,6 +642,8 @@ local traffic = require("traffic")
 traffic.setup(has)
 omsi.every(1, function() traffic.tick(1, now(), clock()) end)
 omsi.every(5, live_notices)
+omsi.every(0.25, function() companion.tick(0.25) end)
+omsi.every(0.1, companion.screen)
 omsi.every(2, messages.read)
 omsi.every(5, messages.status)
 

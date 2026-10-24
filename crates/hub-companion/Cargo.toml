@@ -1,0 +1,15 @@
+[package]
+name = "hub-companion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Omsi-Hub's phone and tablet companion: the server on the home network the Companion app pairs with, what the plugin tells it of the game, the state the app is shown and the commands it sends back into the game"
+
+[dependencies]
+hub-game.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ring.workspace = true
+hub-devices.workspace = true

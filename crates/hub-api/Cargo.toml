@@ -40,6 +40,8 @@ log.workspace = true
 # (Play together: the company server's key and the addresses friends join by, `together`)
 omsi-net = { workspace = true, optional = true }
 hub-livery = { workspace = true, optional = true }
+# (the phone and tablet companion's server, `companion`)
+hub-companion = { workspace = true, optional = true }
 glam.workspace = true
 sha2.workspace = true
 
@@ -56,7 +58,7 @@ doc = false
 # (the desktop app: the game, openOMSI's readers, the network, the files; without it, the bus company's
 # and RosterFlow's commands over a company handed in, as the website runs them in the browser)
 default = ["native"]
-native = ["hub-core/native", "dep:hub-online", "dep:ureq", "dep:omsi-cfg", "dep:omsi-model", "dep:omsi-o3d", "dep:omsi-sim", "dep:omsi-texture", "dep:omsi-vehicle", "dep:omsi-geometry", "dep:omsi-map", "dep:omsi-scenery", "dep:omsi-timetable", "dep:omsi-world", "dep:omsi-content", "dep:rayon", "dep:omsi-net", "dep:hub-livery"]
+native = ["hub-core/native", "dep:hub-online", "dep:ureq", "dep:omsi-cfg", "dep:omsi-model", "dep:omsi-o3d", "dep:omsi-sim", "dep:omsi-texture", "dep:omsi-vehicle", "dep:omsi-geometry", "dep:omsi-map", "dep:omsi-scenery", "dep:omsi-timetable", "dep:omsi-world", "dep:omsi-content", "dep:rayon", "dep:omsi-net", "dep:hub-livery", "dep:hub-companion"]
 
 [dev-dependencies]
 # (the livery studio's tests: a picture written and brought in)

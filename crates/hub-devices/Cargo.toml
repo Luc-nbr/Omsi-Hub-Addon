@@ -1,0 +1,16 @@
+[package]
+name = "hub-devices"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The devices of a bus (its IBIS, its ticket printer or ALMEX, any screen with keys or touch fields) read from its model.cfg, .o3d parts, textures and OMSI's fonts, and their screens laid flat for the phone and tablet companion to draw as the game draws them"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+encoding_rs.workspace = true
+image.workspace = true
+# (textures as the game decodes them: DDS, TGA, BMP, JPEG and PNG, sniffed by their bytes)
+omsi-texture.workspace = true
