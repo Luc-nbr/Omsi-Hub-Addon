@@ -4,10 +4,12 @@
 //!
 //! * The drive is kept as it began ([`began`], from `drive::start`): the duty, the plugin's
 //!   assignment (a company's sheet: signing on and off, the breaks), where the plugin lies.
-//! * The plugin writes `data/dash.json` every two seconds ([`bridge::Dash`], `lua/dash.lua`):
+//! * The plugin writes `data/dash.json` every second ([`bridge::Dash`], `lua/dash.lua`):
 //!   the bus, the duty under way and its trip's stations, what the drive came to so far. The
 //!   bridge's loop takes a sample of it each time it looks ([`sample`]): the speed, the delay and
-//!   the passengers over the drive, the way the bus went, where it stood at its stops.
+//!   the passengers over the drive, the way the bus went, where it stood at its stops. Where the
+//!   bus is comes thirty times a second besides (`data/pos.json`, [`pos`]: `hub_live_pos`), for
+//!   the navigator to follow it smoothly.
 //! * The duty's plan (its trips in order with their times, the lengths between their stops) is
 //!   read from the map's timetable of the day once, on a thread of its own as the drive begins.
 //! * The week's and month's figures come from the driver's trip records (`trips/<driver>.jsonl`).
@@ -30,6 +32,9 @@ use std::sync::{Arc, Mutex};
 
 /// What the plugin wrote longer ago than this (s) is of a game not driven now.
 const FRESH: f64 = 30.0;
+/// Where the bus is, written longer ago than this (s), is not where it is now (a game in its
+/// menu: the navigator goes by the dashboard's place then).
+const POS_FRESH: f64 = 3.0;
 /// The samples and the way kept for a drive: when there are more, every other one goes.
 const SAMPLES: usize = 1800;
 const TRAIL: usize = 2400;
@@ -169,6 +174,18 @@ fn fresh_dash(dir: &Path, began: f64) -> Option<Dash> {
         return None;
     }
     bridge::read_dash(dir)
+}
+
+/// `hub_live_pos`: where the bus is now (`data/pos.json`, [`bridge::DashPos`]), null when the
+/// plugin wrote none for this drive in the last few seconds.
+pub fn pos() -> Value {
+    let Some((dir, began)) = drive().as_ref().and_then(|d| d.plugin_dir.clone().map(|p| (p, d.began))) else { return Value::Null };
+    let path = dir.join(bridge::DATA_DIR).join(bridge::POS_FILE);
+    let written = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()).and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64());
+    match written {
+        Some(w) if now() - w <= POS_FRESH && w + 2.0 >= began => bridge::read_pos(&dir).map_or(Value::Null, |p| to_value(&p)),
+        _ => Value::Null,
+    }
 }
 
 /// Every other one of `v`, when it holds more than `most`.

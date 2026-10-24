@@ -59,7 +59,7 @@ async function mockBackend() {
  * own on the page: Google's sign-in in the browser (up to five minutes), the livery studio's
  * saving with its own bar. */
 const QUIET = new Set([
-  'hub_update', 'hub_live', 'hub_game_state', 'hub_lan_hosted', 'co_tick', 'rf_here', 'cs_state',
+  'hub_update', 'hub_live', 'hub_live_pos', 'hub_game_state', 'hub_lan_hosted', 'co_tick', 'rf_here', 'cs_state',
   'ol_state', 'ol_presence', 'ol_seen', 'ol_oauth_wait',
   'tg_status', 'tg_view', 'tg_host_view', 'tg_host_badge',
   'lak_progress',

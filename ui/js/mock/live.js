@@ -79,8 +79,8 @@ function ibisCodes(k) {
   };
 }
 
-/** The drive `seconds` after it began, as hub-api's `live::view` gives it. */
-function view() {
+/** Where the bus of the drive is now: the trip, how far along it, how fast, where on the map. */
+function motion() {
   const mode = drive.mode;
   const secs = (Date.now() - drive.began) / 1000;
   // (the game's clock runs ten times as fast in the mock, so that something happens)
@@ -98,6 +98,12 @@ function view() {
   const back = k % 2 === 1;
   const pos = at(back ? TRIP_M - along : along);
   const heading = headingAt(back ? TRIP_M - along : along, back);
+  return { mode, secs, clock, plan, k, t, stops, delay, along, next, atStop, speed, back, pos, heading };
+}
+
+/** The drive `seconds` after it began, as hub-api's `live::view` gives it. */
+function view() {
+  const { mode, secs, clock, plan, k, t, stops, delay, along, next, atStop, speed, back, pos, heading } = motion();
   drive.trail.push(pos);
   if (drive.trail.length > 600) drive.trail.shift();
   if (t && next >= 0) drive.last = next;
@@ -186,6 +192,13 @@ export function startMockDrive(mode, emit) {
 
 export const liveAnswers = (emit) => ({
   hub_live: () => (drive ? view() : { running: false }),
+  // (where the bus is, as the plugin's `pos.json` has it: asked thirty times a second)
+  hub_live_pos: () => {
+    if (!drive) return null;
+    const m = motion();
+    drive.n = (drive.n || 0) + 1;
+    return { n: drive.n, t: m.secs, x: m.pos[0], y: m.pos[1], heading: m.heading, speed: m.speed };
+  },
   hub_game_state: () => (drive ? { running: true, pid: 4242 } : { running: false }),
   hub_game_stop: () => {
     if (drive) {

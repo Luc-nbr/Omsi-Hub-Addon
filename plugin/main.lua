@@ -16,9 +16,10 @@
 --   data/live.json        plugin -> Omsi-Hub: where the bus is (ontime.lua)
 --   data/traffic.json     plugin -> Omsi-Hub: the game's traffic, for the fleet map (traffic.lua)
 --   data/dash.json        plugin -> Omsi-Hub: the live dashboard of every drive (dash.lua)
+--   data/pos.json         plugin -> Omsi-Hub: where the bus is, thirty times a second (dash.lua)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.10.0"
+local VERSION = "1.12.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -455,6 +456,7 @@ omsi.on("frame", function(dt)
   strip.frame(dt)
   follow_trip(dt)
   card.frame(dt, standing())
+  dash.frame(dt)
 end)
 
 local function watch_trips()

@@ -284,6 +284,9 @@ fn every_drive_writes_the_live_dashboard() {
     assert_eq!(d.clock, Some(28_800.0));
     assert!(d.duty.is_none() && d.stops.is_empty(), "{d:?}");
     assert!(d.drive.seconds >= 2.0 && d.drive.metres > 0.0, "{:?}", d.drive);
+    // (where the bus is, alone, for the navigator: every frame here, a frame being a second)
+    let p = bridge::read_pos(&dir).expect("data/pos.json");
+    assert_eq!((p.n, p.t, p.x, p.y, p.heading, p.speed), (3, 3.0, 1200.0, -340.0, Some(0.0), 37.5));
 
     // a company's duty: the duty, its trip and its stops
     let dir = installed("dash-duty");

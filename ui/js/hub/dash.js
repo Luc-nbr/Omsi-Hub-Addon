@@ -111,7 +111,7 @@ export function dashShown(s) {
 }
 
 export function showDash(on = true) {
-  set({ liveDash: { ...(S.liveDash || {}), hidden: !on } });
+  set({ liveDash: { ...(S.liveDash || {}), hidden: !on, from: null } });
 }
 
 // --- the cards -------------------------------------------------------------------------------
@@ -620,7 +620,7 @@ function ActionsCard({ onMap, onTimetable, onMessages }) {
       ${act('navigation', tr('Open navigator'), onMap, true)}
       ${act('departure_board', tr('View timetable'), onTimetable)}
       ${act('forum', tr('Messages'), onMessages)}
-      ${act('settings', tr('Settings'), () => set({ page: 'settings', liveDash: { ...(S.liveDash || {}), hidden: true } }))}
+      ${act('settings', tr('Settings'), () => set({ page: 'settings', liveDash: { ...(S.liveDash || {}), hidden: true, from: 'settings' } }))}
     </div>
   </${Card}>`;
 }

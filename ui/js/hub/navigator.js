@@ -6,11 +6,14 @@
 // the route, when the bus gets there, how late it runs.
 //
 // The roads and the trip's route come from `hub_route_map` (the duty's trips each by its name:
-// `content::mapview::trips_page`), the bus from `hub_live` every second; between two answers
-// the bus glides from where it was to where it is. The roads are drawn once for a zoom
+// `content::mapview::trips_page`), the bus from `hub_live_pos` thirty times a second (the
+// plugin's `pos.json`; `hub_live`'s place every second where there is none). Every frame of the
+// screen the bus goes on at the pace of its last two places, and what that was off from the next
+// place is taken up over a moment, so it neither lags nor jumps (Luc, 2026-10-24). The roads are drawn once for a zoom
 // (`roadlayer.js`) and that picture turned under the bus.
 
 import { html, useEffect, useLayoutEffect, useRef, useState } from '../../vendor/preact-htm.js';
+import { call } from '../api.js';
 import { Icon, tr } from './bits.js';
 import { roadLayer, SETTLE } from './roadlayer.js';
 import { SYMBOLS } from '../symbols.js';
@@ -144,6 +147,12 @@ export function turnIcon(t) {
 // --- the navigator ---------------------------------------------------------------------------
 
 const KEPT_NORTH = 'omsihub.nav.north';
+/** How often where the bus is is asked while the window has the focus (ms; a second else). */
+const POS_EVERY = 33;
+/** How long an error of the drawn bus takes to fall to a third (s). */
+const CATCH = 0.1;
+/** A bus turns no faster than this (degrees a second): a heading that seems to is a jolt. */
+const TURN_RATE = 90;
 
 function keptNorth() {
   try {
@@ -151,6 +160,31 @@ function keptNorth() {
   } catch {
     return false;
   }
+}
+
+/** Where the bus is now (`hub_live_pos`: `{ n, t, x, y, heading, speed }`), asked thirty times a
+ * second; null while the plugin says none (one of before it did, the game in its menu). */
+function useBusPos() {
+  const [p, setP] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    let timer = 0;
+    let last = null;
+    const tick = async () => {
+      const q = await call('hub_live_pos').catch(() => null);
+      if (!alive) return;
+      const ok = q && Number.isFinite(q.x) && Number.isFinite(q.y) ? q : null;
+      // (the same place again changes nothing)
+      if ((ok?.n ?? null) !== last) ((last = ok?.n ?? null), setP(ok));
+      timer = setTimeout(tick, document.hasFocus() ? POS_EVERY : 1000);
+    };
+    tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+  return p;
 }
 
 /** The size an element is drawn at (CSS px). */
@@ -196,11 +230,14 @@ export function Navigator({ v, g, words, big = false, onOverview }) {
   const [north, setNorth] = useState(keptNorth);
   const [zoom, setZoom] = useState(1);
   const st = useRef(null);
-  if (!st.current) st.current = { layer: roadLayer(), shown: null, from: null, to: null, t0: 0, s: null, mpp: null, raf: 0, zoomedAt: 0 };
+  if (!st.current) st.current = { layer: roadLayer(), shown: null, to: null, err: null, s: null, mpp: null, raf: 0, last: 0, zoomedAt: 0 };
   const m = v.map || {};
   const o = g?.origin || [0, 0];
   const rel = (p) => p && [p[0] - o[0], p[1] - o[1]];
-  const bus = rel(m.bus);
+  // (the plugin's place thirty times a second; the dashboard's of every second where there is none)
+  const live = useBusPos();
+  const src = live ? { n: live.n, t: live.t, h: live.heading, speed: live.speed } : { n: null, t: null, h: m.heading, speed: v.speed };
+  const bus = rel(live ? [live.x, live.y] : m.bus);
   const name = v.route?.trip_name || '';
   const way = wayOf(g, name) || (v.mode === 'free' ? wayOf(g, v.route?.free_route) : null);
   const trail = (m.trail || []).map(rel);
@@ -220,19 +257,32 @@ export function Navigator({ v, g, words, big = false, onOverview }) {
   // (a turn past the next stop is said once the bus has left it)
   const turnShown = turn && (toNext == null || turn.at <= toNext + 30 || v.status !== 'at_stop') ? turn : null;
 
-  // a new answer: the bus glides from where it is drawn to where it is now
+  // a new place: the bus goes on from it at the pace of the last two, and where it is drawn off
+  // from it is taken up over a moment
   useEffect(() => {
     const k = st.current;
     if (!bus) return;
-    const heading = m.heading ?? (onRoute ? way.hs[Math.min(way.hs.length - 1, Math.floor(on.s / STEP))] : 0) ?? 0;
-    const to = { x: bus[0], y: bus[1], h: heading, speed: v.speed || 0 };
+    const now = performance.now();
+    const heading = src.h ?? (onRoute ? way.hs[Math.min(way.hs.length - 1, Math.floor(on.s / STEP))] : null) ?? k.to?.h ?? 0;
+    // (the game's seconds between two places where the plugin says them, else the page's)
+    const t = src.t ?? now / 1000;
+    const to = { x: bus[0], y: bus[1], h: heading, speed: src.speed || 0, t, at: now, vx: 0, vy: 0, vh: 0, coast: 0.5 };
+    const p = k.to;
     const jump = !k.shown || Math.hypot(k.shown.x - to.x, k.shown.y - to.y) > 250 || document.querySelector('.dash.still');
-    k.from = jump ? to : { ...k.shown };
+    const dt = p ? t - p.t : 0;
+    if (p && !jump && dt > 0 && dt < 3) {
+      // (two places as good as at once: the pace stays the one before)
+      if (dt < 0.02) Object.assign(to, { vx: p.vx, vy: p.vy, vh: p.vh });
+      else Object.assign(to, { vx: (to.x - p.x) / dt, vy: (to.y - p.y) / dt, vh: Math.max(-TURN_RATE, Math.min(TURN_RATE, wrap(to.h - p.h) / dt)) });
+      // (on at that pace a little longer than the places come, no further)
+      to.coast = Math.max(0.25, Math.min(1.5, (1.5 * (now - p.at)) / 1000));
+    }
+    k.err = jump ? { x: 0, y: 0, h: 0 } : { x: k.shown.x - to.x, y: k.shown.y - to.y, h: wrap(k.shown.h - to.h) };
+    if (jump) k.shown = { x: to.x, y: to.y, h: to.h };
     k.to = to;
-    k.t0 = performance.now();
     if (onRoute) k.s = on.s;
     k.wake?.();
-  }, [m.bus?.[0], m.bus?.[1], m.heading, g]);
+  }, [src.n, bus?.[0], bus?.[1], src.h, g]);
 
   // the drawing, a frame at a time while something moves
   useEffect(() => {
@@ -240,26 +290,38 @@ export function Navigator({ v, g, words, big = false, onOverview }) {
     const c = canvas.current;
     if (!c || !w || !h) return undefined;
     let alive = true;
+    // (the look's colours once a drawing, not every frame)
+    const pal = colours(c);
     const frame = () => {
       k.raf = 0;
       if (!alive || !k.to) return;
       const now = performance.now();
-      const t = Math.min(1, (now - k.t0) / 1000);
-      const f = k.from;
-      const pos = { x: f.x + (k.to.x - f.x) * t, y: f.y + (k.to.y - f.y) * t, h: f.h + wrap(k.to.h - f.h) * t };
+      const dt = Math.min(0.1, Math.max(0, (now - (k.last || now)) / 1000));
+      k.last = now;
+      const T = k.to;
+      const ahead = Math.min(T.coast, (now - T.at) / 1000);
+      const e = k.err;
+      const fade = Math.exp(-dt / CATCH);
+      e.x *= fade;
+      e.y *= fade;
+      e.h *= fade;
+      const pos = { x: T.x + T.vx * ahead + e.x, y: T.y + T.vy * ahead + e.y, h: T.h + T.vh * ahead + e.h };
       k.shown = pos;
       // the zoom: further out the faster the bus goes, in steps (the roads drawn again at each)
       const vis = Math.max(220, Math.min(720, 220 + (k.to.speed || 0) * 7)) / zoom;
       const want = 2 ** (Math.round(Math.log2(vis / h) * 4) / 4);
       if (k.mpp == null) k.mpp = want;
-      let moving = t < 1;
+      let moving = (ahead < T.coast && (Math.hypot(T.vx, T.vy) > 0.05 || Math.abs(T.vh) > 0.5)) || Math.hypot(e.x, e.y) > 0.01 || Math.abs(e.h) > 0.05;
       if (Math.abs(k.mpp - want) / want > 0.002) {
         k.mpp += (want - k.mpp) * 0.12;
         k.zoomedAt = now;
         moving = true;
       } else k.mpp = want;
-      draw(c, pos, k.mpp, now);
-      if (moving || now - k.zoomedAt < SETTLE + 40) k.raf = requestAnimationFrame(frame);
+      draw(c, pal, pos, k.mpp, now);
+      // (every frame of the screen while the window has the focus, at rest too; in the
+      // background only while something moves)
+      if (moving || document.hasFocus() || now - k.zoomedAt < SETTLE + 40) k.raf = requestAnimationFrame(frame);
+      else k.last = 0;
     };
     k.wake = () => {
       if (!k.raf && alive) k.raf = requestAnimationFrame(frame);
@@ -277,10 +339,9 @@ export function Navigator({ v, g, words, big = false, onOverview }) {
 
   /** One frame: the roads turned under the bus, the route (driven and ahead), the stops ahead,
    * the bus. */
-  function draw(c, pos, mpp, now) {
+  function draw(c, pal, pos, mpp, now) {
     const dpr = Math.min(window.devicePixelRatio || 1, big ? 1.5 : 2);
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) Object.assign(c, { width: Math.round(w * dpr), height: Math.round(h * dpr) });
-    const pal = colours(c);
     const ctx = c.getContext('2d');
     const cam = north ? 0 : pos.h;
     const rad = (cam * Math.PI) / 180;

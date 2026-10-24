@@ -192,12 +192,18 @@ export function HubShell({ pages, Toasts }) {
 }
 
 /** A page in the wide sheet under the bar: our head says what it is and for what, the way back
- * in its corner. */
+ * in its corner - to the live dashboard when the page was opened from it and the drive still
+ * runs (its quick actions: `dash.js`), else to the drive's steps. */
 function PageSheet({ id, label, Page }) {
   const [icon, title, sub] = ABOUT[id] || ['info', label, ''];
+  const back = () => {
+    const toDash = S.liveDash?.from === id && S.game?.running;
+    go('drive');
+    if (S.liveDash?.from) set({ liveDash: { ...S.liveDash, from: null, ...(toDash ? { hidden: false } : {}) } });
+  };
   return html`<section class="hub-sheet page" key=${id}>
     <${Head} icon=${icon} title=${title} sub=${tr(sub)}
-      tools=${html`<button type="button" class="hub-btn hub-page-back" onClick=${() => go('drive')}><${Icon} name="chevron_left" size=${18} />${tr('Back')}</button>`} />
+      tools=${html`<button type="button" class="hub-btn hub-page-back" onClick=${back}><${Icon} name="chevron_left" size=${18} />${tr('Back')}</button>`} />
     <div class="page hub-page-body"><${Page} /></div>
   </section>`;
 }

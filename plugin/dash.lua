@@ -4,8 +4,10 @@
 -- how late it runs, the passengers on board, and what the drive came to so far (the distance,
 -- the stops served on time, the passengers who got on).
 --
--- Nothing is drawn in the game: one file for Omsi-Hub, written every few seconds where the game
--- has `files.write` (`data/dash.json`, hub-game's `bridge::Dash`; hub-api's `live.rs` reads it).
+-- Nothing is drawn in the game: one file for Omsi-Hub, written every second where the game has
+-- `files.write` (`data/dash.json`, hub-game's `bridge::Dash`; hub-api's `live.rs` reads it); and
+-- where the bus is alone, thirty times a second (`data/pos.json`, `bridge::DashPos`), for the
+-- navigator to follow the bus smoothly (Luc, 2026-10-24).
 
 local json = require("hubjson")
 local career = require("career")
@@ -13,10 +15,14 @@ local career = require("career")
 local M = {}
 
 M.FILE = "dash.json"
-local EVERY = 2
+M.POS_FILE = "pos.json"
+local EVERY = 1
+local POS_EVERY = 1 / 30
 
 local trip, assignment, has = nil, nil, {}
 local wait = 0
+-- (the place's count and the seconds of game the frames came to: how far apart two places are)
+local pos_wait, pos_n, pos_t = 0, 0, 0
 
 local function fn(t, name)
   return type(t) == "table" and type(t[name]) == "function"
@@ -129,6 +135,21 @@ function M.tick(dt)
   -- the rest of main.lua's second, the company's messages, goes on)
   local ok, view = pcall(M.view)
   if ok then omsi.files.write(M.FILE, json.encode(view)) end
+end
+
+-- every frame, with the player in a bus: where the bus is, thirty times a second
+function M.frame(dt)
+  pos_t = pos_t + (dt or 0)
+  if not has["files.write"] or not fn(omsi, "position") then return end
+  pos_wait = pos_wait - (dt or 0)
+  if pos_wait > 0 then return end
+  -- (the time over carried on: thirty a second also where the frames do not fall on it)
+  pos_wait = math.max(pos_wait + POS_EVERY, 0)
+  local ok, x, y, _, heading = pcall(omsi.position)
+  if not ok or not num(x) or not num(y) then return end
+  pos_n = pos_n + 1
+  local speed = num(omsi.speed and omsi.speed()) or 0
+  omsi.files.write(M.POS_FILE, json.encode({ n = pos_n, t = pos_t, x = num(x), y = num(y), heading = num(heading), speed = speed }))
 end
 
 return M
