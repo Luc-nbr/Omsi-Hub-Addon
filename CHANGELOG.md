@@ -62,6 +62,9 @@ never changes their files.
   cleaners in the wash lanes, drivers on their way to their buses -, each role a cartoon figure
   of its own (the driver, the mechanic, the cleaner, the service employee, the inspector, the
   researcher) that walks and, where it works, stands at ease.
+- **The depot as a dashboard**: beside 3D and 2D, the depot at a glance - tonight's buses on the
+  yard, in the workshop and in the street, the staff, the upkeep, and each area with how full it
+  is, what has been added and what is being built.
 - **A profile photo**, the same in the app and on the website: upload it in the account panel or
   on your service record (a click on the picture), or on omsihub.com; your friends, the
   leaderboard and the website show it.
