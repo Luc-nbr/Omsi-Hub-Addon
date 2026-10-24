@@ -1932,7 +1932,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hub-api"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1970,7 +1970,7 @@ dependencies = [
 
 [[package]]
 name = "hub-companion"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hub-devices",
  "hub-game",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "hub-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "hub-devices"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "encoding_rs",
  "image",
@@ -2008,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "hub-game"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hub-omsi",
  "serde",
@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "hub-livery"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ab_glyph",
  "glam",
@@ -2038,11 +2038,11 @@ dependencies = [
 
 [[package]]
 name = "hub-locales"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "hub-omsi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "encoding_rs",
@@ -2051,7 +2051,7 @@ dependencies = [
 
 [[package]]
 name = "hub-online"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "keyring",
  "ring",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "hub-plugin-harness"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hub-companion",
  "hub-devices",
@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "hub-web"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hub-api",
  "ruzstd",
@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "omsi-hub"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hub-api",
  "hub-core",

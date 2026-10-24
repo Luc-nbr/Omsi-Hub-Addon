@@ -2,7 +2,7 @@
 
 Each version of the Omsi-Hub add-on, newest first. The release on GitHub links here.
 
-## 0.1.0 (pre-release, for testing)
+## 1.0.0
 
 The first Omsi-Hub that is an add-on: its own app beside the openOMSI you have installed, instead
 of a game of its own. It needs **openOMSI 0.2.22 or newer** and an original **OMSI 2**, and it
